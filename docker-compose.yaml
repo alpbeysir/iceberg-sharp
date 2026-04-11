@@ -1,0 +1,52 @@
+services:
+  # Iceberg REST Catalog
+  iceberg-rest:
+    image: apache/iceberg-rest-fixture
+    hostname: iceberg-rest
+    networks:
+      iceberg_net:
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8181/v1/config"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    environment:
+      AWS_REGION: us-east-1
+      CATALOG_WAREHOUSE: s3://warehouse/
+      CATALOG_IO__IMPL: org.apache.iceberg.aws.s3.S3FileIO
+      CATALOG_S3_ENDPOINT: http://seaweedfs:8333
+      CATALOG_S3_ACCESS__KEY__ID: admin
+      CATALOG_S3_SECRET__ACCESS__KEY: key
+      include-credentials: true
+    ports:
+      - "8181:8181"
+
+  seaweedfs:
+    image: chrislusf/seaweedfs
+    hostname: seaweedfs
+    environment:
+      AWS_ACCESS_KEY_ID: admin
+      AWS_SECRET_ACCESS_KEY: key
+    networks:
+      iceberg_net:
+        aliases:
+          - warehouse.seaweedfs
+    command: server -s3
+    ports:
+      - 9333:9333
+      - 8333:8333
+      - 9340:9340
+      - 8888:8888
+      - 23636:23646
+    deploy:
+      resources:
+        limits:
+          cpus: '4'
+          memory: 8000M
+        reservations:
+          cpus: '0.0001'
+          memory: 20M
+
+
+networks:
+  iceberg_net:

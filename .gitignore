@@ -1,0 +1,10 @@
+bin/
+obj/
+/packages/
+riderModule.iml
+/_ReSharper.Caches/
+/.vs
+*.user
+/Iceberg.Net.Benchmarks/BenchmarkDotNet.Artifacts
+/nuget
+Playground/Properties/launchSettings.json
