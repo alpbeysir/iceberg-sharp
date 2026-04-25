@@ -1,7 +1,9 @@
-﻿using System.Linq.Expressions;
+﻿using System.Diagnostics;
+using System.Linq.Expressions;
 using Apache.Arrow;
 using Apache.Arrow.Serialization;
 using FastExpressionCompiler;
+using Iceberg.Net.Misc;
 using Iceberg.Net.Query.Arrow;
 using Iceberg.Net.Query.Expressions;
 using Iceberg.Net.Schemas;
@@ -28,29 +30,57 @@ public class BufferExpressions
 {
     public static void Main()
     {
+        var method = typeof(BufferExpressions).GetMethod(nameof(Execute))!;
         LambdaExpression test = (int a, int b) => a + b;
-        //Do(test);
+        //Do(test);   
 
-        var batch = RecordBatchBuilder.FromObjects([new MyStruct { A = 99 }, new MyStruct { A = 100 }]);
+        var list = Enumerable.Range(0, 1000000).Select(_ => CreateRandom()).ToList();
 
-        LambdaExpression test2 = (MyStruct str) => new { b = str.B, a = str.A + str.A, Z = str.N.C };
-        Do(test2, batch);
+        LambdaExpression test2 = (MyStruct str) => new { b = str.B, a = str.A + str.B, Z = str.N.C };
+        method.MakeGenericMethod(typeof(MyStruct), test2.ReturnType).Invoke(null, [test2, list]);
 
         LambdaExpression test3 = (MyStruct str) =>
             str.A > 5 && str.B < 3 && str.N.C > 12 && str.L.Any(n => n == 7);
-        // Do(test3, batch);
+        // Do(test3, batch);x
     }
 
-    private static void Do(LambdaExpression expr, RecordBatch batch)
+    private static MyStruct CreateRandom()
+    {
+        return new MyStruct
+        {
+            A = Random.Shared.Next() % 1000,
+            B = Random.Shared.NextDouble() % 1000,
+            L = Enumerable.Range(0, Random.Shared.Next() % 10).Select(_ => Random.Shared.Next() % 1000).ToList(),
+            N = new Nested { C = Random.Shared.Next() }
+        };
+    }
+
+    public static void Execute<T, T2>(LambdaExpression expr, List<T> input)
     {
         BufferTransformVisitor visitor = new();
         var result = visitor.Visit(expr);
         Console.WriteLine(ToCSharpPrinter.ToCSharpString(result));
-        var func = (Func<ExecutionContext, StructArray, StructArray>)((LambdaExpression)result).Compile();
+        var arrowRunner = (Func<ExecutionContext, StructArray, StructArray>)((LambdaExpression)result).Compile();
 
         var ctx = new ExecutionContext();
-        var arr = func(ctx, batch.AsStructArray());
-        typeof(BufferExpressions).GetMethod(nameof(Show))!.MakeGenericMethod(expr.ReturnType).Invoke(null, [arr]);
+        var inputBatch = ArrowFfiBridge.BuildRecordBatch(input).AsStructArray();
+        StructArray outputBatch;
+        using (new MeasureTime("arrow"))
+        {
+            outputBatch = arrowRunner(ctx, inputBatch);
+        }
+
+        var schema = ArrowSchema.FromSchema(CSharpSchema.ToIcebergSchema(typeof(T2), -1, _ => -1));
+        var arrowResult = ArrowReader.ReadRecordBatch<T2>(outputBatch.AsRecordBatch(schema));
+
+        var linqRunner = (Func<T, T2>)expr.Compile();
+        List<T2> linqResult;
+        using (new MeasureTime("linq"))
+        {
+            linqResult = input.Select(linqRunner).ToList();
+        }
+
+        Console.WriteLine(arrowResult.SequenceEqual(linqResult));
     }
 
     public static void Show<T>(StructArray arr)

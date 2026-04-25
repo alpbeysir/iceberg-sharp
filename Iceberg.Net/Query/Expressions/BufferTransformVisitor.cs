@@ -96,24 +96,103 @@ public static class ArrowExtensions
 
 public static class ArrowCompute
 {
-    private static PrimitiveArray<T> FromZipVectorizable<T>(ZipVectorizable<T, T> zip, int length)
+    private static IArrowType GetArrowType<T>()
+    {
+        if (typeof(T) == typeof(int)) return new Int32Type();
+        if (typeof(T) == typeof(long)) return new Int64Type();
+        if (typeof(T) == typeof(double)) return new DoubleType();
+        if (typeof(T) == typeof(float)) return new FloatType();
+        if (typeof(T) == typeof(bool)) return new BooleanType();
+
+        throw new NotSupportedException($"The type {typeof(T).FullName} is not supported.");
+    }
+
+    private static PrimitiveArray<T> FromBuffer<T>(ArrowBuffer buffer, int length)
         where T : struct, INumber<T>
     {
-        var builder = new ArrowBuffer.Builder<T>(length);
-        zip.CopyTo(builder.Span);
         var result = (PrimitiveArray<T>)ArrowArrayFactory.BuildArray(
-            new ArrayData(new Int32Type(), length, 0, 0, [ArrowBuffer.Empty, builder.Build()], []));
+            new ArrayData(GetArrowType<T>(), length, 0, 0, [ArrowBuffer.Empty, buffer], []));
         return result;
     }
 
-    public static PrimitiveArray<T> Add<T>(ExecutionContext ctx, ReadOnlySpan<T> l, ReadOnlySpan<T> r)
+    // TODO this will not handle nulls properly
+    // TODO allocate and return span to allow efficient chaining
+    public static PrimitiveArray<T> Zip<T>(
+        ExecutionContext ctx,
+        ReadOnlySpan<T> l,
+        ReadOnlySpan<T> r,
+        ExpressionType expressionType)
         where T : struct, INumber<T>
     {
+        // TODO precompute these switches
+        Func<Vector<T>, Vector<T>, Vector<T>> vectorSelector = expressionType switch
+        {
+            ExpressionType.Add => Vector.Add,
+            ExpressionType.Subtract => Vector.Subtract,
+            ExpressionType.Multiply => Vector.Multiply,
+            ExpressionType.Divide => Vector.Divide,
+            _ => throw new ArgumentOutOfRangeException(nameof(expressionType), expressionType, null)
+        };
+        Func<T, T, T> selector = expressionType switch
+        {
+            ExpressionType.Add => (n1, n2) => n1 + n2,
+            ExpressionType.Subtract => (n1, n2) => n1 - n2,
+            ExpressionType.Multiply => (n1, n2) => n1 * n2,
+            ExpressionType.Divide => (n1, n2) => n1 / n2,
+            _ => throw new ArgumentOutOfRangeException(nameof(expressionType), expressionType, null)
+        };
         var zip = l.AsVectorizable().Zip(
             r,
-            Vector.Add,
-            (number, equatable) => number + equatable);
-        return FromZipVectorizable(zip, l.Length);
+            vectorSelector,
+            selector);
+        var builder = new ArrowBuffer.Builder<T>(l.Length);
+        builder.Resize(l.Length);
+        zip.CopyTo(builder.Span);
+        return FromBuffer<T>(builder.Build(), l.Length);
+    }
+
+    // public static PrimitiveArray<TResult> Select<T, TResult>(
+    //     ExecutionContext ctx,
+    //     ReadOnlySpan<T> span,
+    //     ExpressionType expressionType)
+    //     where T : struct, INumber<T>
+    //     where TResult : struct, INumber<TResult>
+    // {
+    //     // TODO precompute these switches
+    //     Func<Vector<T>, Vector<TResult>> vectorSelector = expressionType switch
+    //     {
+    //         ExpressionType.Convert => VectorCastHelper<T, TResult>,
+    //         _ => throw new ArgumentOutOfRangeException(nameof(expressionType), expressionType, null)
+    //     };
+    //     Func<T, TResult> selector = expressionType switch
+    //     {
+    //         ExpressionType.Convert => Unsafe.BitCast<T, TResult>,
+    //         _ => throw new ArgumentOutOfRangeException(nameof(expressionType), expressionType, null)
+    //     };
+    //     var select = span.AsVectorizable().Select(
+    //         vectorSelector,
+    //         selector);
+    //     var builder = new ArrowBuffer.Builder<TResult>(span.Length);
+    //     builder.Resize(span.Length);
+    //     select.CopyTo(builder.Span);
+    //     return FromBuffer<TResult>(builder.Build(), span.Length);
+    // }
+
+    public static PrimitiveArray<TResult> Convert<T, TResult>(
+        ExecutionContext ctx,
+        ReadOnlySpan<T> span)
+        where T : struct, INumber<T>
+        where TResult : struct, INumber<TResult>
+    {
+        var builder = new ArrowBuffer.Builder<TResult>(span.Length);
+        builder.Resize(span.Length);
+        var resultSpan = builder.Span;
+        for (var i = 0; i < resultSpan.Length; i++)
+        {
+            resultSpan[i] = TResult.CreateChecked(span[i]);
+        }
+
+        return FromBuffer<TResult>(builder.Build(), span.Length);
     }
 }
 
@@ -132,13 +211,12 @@ public class BufferTransformVisitor : ExpressionVisitorNarrow<Expression, Lambda
         LambdaExpression conversion,
         Expression right)
     {
-        var implMethod = node.NodeType switch
-        {
-            ExpressionType.Add => typeof(ArrowCompute).GetMethod(nameof(ArrowCompute.Add))
-                .MakeGenericMethod(left.Type.GetGenericArguments()[0])!,
-            _ => throw new ArgumentOutOfRangeException()
-        };
-        return Expression.Call(null, implMethod, [_ctxParam, left.Property("Values"), right.Property("Values")]);
+        var zipMethod = typeof(ArrowCompute).GetMethod(nameof(ArrowCompute.Zip))
+            .MakeGenericMethod(node.Type);
+        return Expression.Call(
+            null,
+            zipMethod,
+            [_ctxParam, left.Property("Values"), right.Property("Values"), node.NodeType.Quoted]);
     }
 
     protected override Expression MakeConditional(
@@ -267,6 +345,16 @@ public class BufferTransformVisitor : ExpressionVisitorNarrow<Expression, Lambda
 
     protected override Expression MakeUnary(UnaryExpression node, Expression operand)
     {
+        if (node.NodeType == ExpressionType.Convert)
+        {
+            var convertMethod = typeof(ArrowCompute).GetMethod(nameof(ArrowCompute.Convert))
+                .MakeGenericMethod(node.Operand.Type, node.Type);
+            return Expression.Call(
+                null,
+                convertMethod,
+                [_ctxParam, operand.Property("Values")]);
+        }
+
         return node;
     }
 
