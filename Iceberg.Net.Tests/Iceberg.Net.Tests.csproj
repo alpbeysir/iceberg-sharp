@@ -8,27 +8,32 @@
     </PropertyGroup>
 
     <ItemGroup>
-        <PackageReference Include="AutoFixture.Xunit3" Version="4.19.0"/>
-        <PackageReference Include="AwesomeAssertions" Version="9.4.0"/>
-        <PackageReference Include="coverlet.collector" Version="6.0.4"/>
-        <PackageReference Include="DuckDB.NET.Data.Full" Version="1.4.4"/>
-        <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.14.1"/>
-        <PackageReference Include="Testcontainers" Version="4.10.0"/>
-        <PackageReference Include="Testcontainers.XunitV3" Version="4.10.0"/>
-        <PackageReference Include="xunit.v3" Version="3.2.2"/>
-        <PackageReference Include="xunit.runner.visualstudio" Version="3.1.4"/>
-        <PackageReference Include="xunit.v3.core" Version="3.2.2"/>
+        <PackageReference Include="AutoFixture.Xunit3" Version="4.19.0" />
+        <PackageReference Include="AwesomeAssertions" Version="9.4.0" />
+        <PackageReference Include="coverlet.collector" Version="10.0.0">
+          <PrivateAssets>all</PrivateAssets>
+          <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+        </PackageReference>
+        <PackageReference Include="DuckDB.NET.Data.Full" Version="1.5.2" />
+        <PackageReference Include="Microsoft.NET.Test.Sdk" Version="18.4.0" />
+        <PackageReference Include="Testcontainers" Version="4.11.0" />
+        <PackageReference Include="Testcontainers.XunitV3" Version="4.11.0" />
+        <PackageReference Include="xunit.v3" Version="3.2.2" />
+        <PackageReference Include="xunit.runner.visualstudio" Version="3.1.5">
+          <PrivateAssets>all</PrivateAssets>
+          <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+        </PackageReference>
+        <PackageReference Include="xunit.v3.core" Version="3.2.2" />
     </ItemGroup>
 
     <ItemGroup>
-        <Using Include="Xunit"/>
+        <Using Include="Xunit" />
     </ItemGroup>
 
     <ItemGroup>
-        <ProjectReference Include="..\Iceberg.Net.DuckUtils\Iceberg.Net.DuckUtils.csproj"/>
-        <ProjectReference Include="..\Iceberg.Net\Iceberg.Net.csproj"/>
-        <ProjectReference Include="..\Apache.Arrow.Serialization.Generator\Apache.Arrow.Serialization.Generator.csproj"
-                          OutputItemType="Analyzer"/>
+        <ProjectReference Include="..\Iceberg.Net.DuckUtils\Iceberg.Net.DuckUtils.csproj" />
+        <ProjectReference Include="..\Iceberg.Net\Iceberg.Net.csproj" />
+        <ProjectReference Include="..\Apache.Arrow.Serialization.Generator\Apache.Arrow.Serialization.Generator.csproj" OutputItemType="Analyzer" />
     </ItemGroup>
 
 </Project>

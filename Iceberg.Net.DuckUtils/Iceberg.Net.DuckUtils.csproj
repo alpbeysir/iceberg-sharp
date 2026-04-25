@@ -7,11 +7,11 @@
     </PropertyGroup>
 
     <ItemGroup>
-        <ProjectReference Include="..\Iceberg.Net\Iceberg.Net.csproj"/>
+        <ProjectReference Include="..\Iceberg.Net\Iceberg.Net.csproj" />
     </ItemGroup>
 
     <ItemGroup>
-        <PackageReference Include="DuckDB.NET.Data.Full" Version="1.4.4"/>
+        <PackageReference Include="DuckDB.NET.Data.Full" Version="1.5.2" />
     </ItemGroup>
 
 </Project>
