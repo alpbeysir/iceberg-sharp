@@ -1,5 +1,4 @@
-﻿using System.Diagnostics;
-using System.Linq.Expressions;
+﻿using System.Linq.Expressions;
 using Apache.Arrow;
 using Apache.Arrow.Serialization;
 using FastExpressionCompiler;
@@ -7,6 +6,7 @@ using Iceberg.Net.Misc;
 using Iceberg.Net.Query.Arrow;
 using Iceberg.Net.Query.Expressions;
 using Iceberg.Net.Schemas;
+using Varena;
 using ExecutionContext = Iceberg.Net.Query.Expressions.ExecutionContext;
 
 namespace Playground;
@@ -34,14 +34,14 @@ public class BufferExpressions
         LambdaExpression test = (int a, int b) => a + b;
         //Do(test);   
 
-        var list = Enumerable.Range(0, 1000000).Select(_ => CreateRandom()).ToList();
+        var list = Enumerable.Range(0, 26921).Select(_ => CreateRandom()).ToList();
 
         LambdaExpression test2 = (MyStruct str) => new { b = str.B, a = str.A + str.B, Z = str.N.C };
-        method.MakeGenericMethod(typeof(MyStruct), test2.ReturnType).Invoke(null, [test2, list]);
+        //method.MakeGenericMethod(typeof(MyStruct), test2.ReturnType).Invoke(null, [test2, list]);
 
         LambdaExpression test3 = (MyStruct str) =>
-            str.A > 5 && str.B < 3 && str.N.C > 12 && str.L.Any(n => n == 7);
-        // Do(test3, batch);x
+            new { Res = str.A > 300 && str.B < 500.0 && str.N.C > 12 };
+        method.MakeGenericMethod(typeof(MyStruct), test3.ReturnType).Invoke(null, [test3, list]);
     }
 
     private static MyStruct CreateRandom()
@@ -49,9 +49,9 @@ public class BufferExpressions
         return new MyStruct
         {
             A = Random.Shared.Next() % 1000,
-            B = Random.Shared.NextDouble() % 1000,
+            B = Random.Shared.NextDouble() * 1000,
             L = Enumerable.Range(0, Random.Shared.Next() % 10).Select(_ => Random.Shared.Next() % 1000).ToList(),
-            N = new Nested { C = Random.Shared.Next() }
+            N = new Nested { C = Random.Shared.Next() % 10000 }
         };
     }
 
@@ -62,7 +62,9 @@ public class BufferExpressions
         Console.WriteLine(ToCSharpPrinter.ToCSharpString(result));
         var arrowRunner = (Func<ExecutionContext, StructArray, StructArray>)((LambdaExpression)result).Compile();
 
-        var ctx = new ExecutionContext();
+        var manager = new VirtualArenaManager();
+        var ctx = new ExecutionContext { Arena = manager.CreateBuffer("default", 100000000), Manager = manager };
+
         var inputBatch = ArrowFfiBridge.BuildRecordBatch(input).AsStructArray();
         StructArray outputBatch;
         using (new MeasureTime("arrow"))
