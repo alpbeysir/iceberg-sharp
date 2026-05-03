@@ -1,7 +1,5 @@
 ﻿using System.Linq.CompilerServices;
 using System.Linq.Expressions;
-using System.Threading.Channels;
-using Apache.Arrow.Serialization;
 using Iceberg.Net.Query.Execution;
 
 namespace Iceberg.Net.Query.Expressions;
@@ -87,29 +85,6 @@ internal class QueryStepVisitor : CustomExpressionVisitor<IQueryStep?>
         throw new NotImplementedException();
     }
 
-    private static Channel<ColumnBufferSet> TryConvertToBuffers<T>(IEnumerable<T> source)
-    {
-        var channel = Channel.CreateBounded<ColumnBufferSet>(128);
-        if (source is IcebergQueryable<T> icebergQueryable)
-        {
-            // TODO directly execute and return buffers
-        }
-        else
-        {
-            Task.Run(async () =>
-            {
-                foreach (var chunk in source.Chunk(16384))
-                {
-                    var batch = RecordBatchBuilder.FromObjects(chunk);
-                    // TODO
-                    // await channel.Writer.WriteAsync(new ColumnBufferSet(batch));
-                }
-            });
-        }
-
-        return channel;
-    }
-
     // private IQueryStep ConstructStep()
     // {
     //     var currentMethodName = _linqMethods.Peek().Name;
@@ -125,7 +100,7 @@ internal class QueryStepVisitor : CustomExpressionVisitor<IQueryStep?>
     //     };
     //     return step;
     // }
-
+    //
     // protected override Expression VisitLambda<T>(Expression<T> node)
     // {
     //     if (_nestedLambda == 0) _currentLambdas.Add(node);

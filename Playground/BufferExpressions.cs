@@ -7,6 +7,8 @@ using Iceberg.Net.Query.Arrow;
 using Iceberg.Net.Query.Expressions;
 using Iceberg.Net.Schemas;
 using Varena;
+using ZLinq;
+using ArrowExtensions = Iceberg.Net.Query.Expressions.ArrowExtensions;
 using ExecutionContext = Iceberg.Net.Query.Expressions.ExecutionContext;
 
 namespace Playground;
@@ -14,9 +16,10 @@ namespace Playground;
 [ArrowSerializable]
 public partial record MyStruct
 {
-    public int A { get; set; } = 3;
+    public int? A { get; set; } = 3;
     public double B { get; set; } = 5;
     public List<int> L { get; set; } = [3, 3];
+    public List<List<int>> LNest { get; set; } = [[3, 3], [4, 4]];
     public Nested N { get; set; } = new() { C = 9 };
 }
 
@@ -37,10 +40,23 @@ public class BufferExpressions
         var list = Enumerable.Range(0, 26921).Select(_ => CreateRandom()).ToList();
 
         LambdaExpression test2 = (MyStruct str) => new { b = str.B, a = str.A + str.B, Z = str.N.C };
-        //method.MakeGenericMethod(typeof(MyStruct), test2.ReturnType).Invoke(null, [test2, list]);
+        // method.MakeGenericMethod(typeof(MyStruct), test2.ReturnType).Invoke(null, [test2, list]);
 
+        var val = Enumerable.Repeat(new[] { new List<int> { 1, 2 } }, 1);
+        var zzz = ArrowConverter.BuildSingleColumn(val);
+        
         LambdaExpression test3 = (MyStruct str) =>
-            new { Res = str.A > 300 && str.B < 500.0 && str.N.C > 12 };
+            new
+            {
+                Res = str.A > 300 &&
+                      str.B < 500.0 &&
+                      str.N.C > 12 &&
+                      // str.LNest.Concat(new[] { new List<int> { 1, 2 } }).Select(l => l.Concat(new[] { str.A.Value, 2 }))
+                      //     .All(l => l.Contains(5)) &&
+                      str.L.Select(n => n + 3).All(n => n > 5) &&
+                      str.L.Contains(65) &&
+                      str.L.Any(n => n == 7)
+            };
         method.MakeGenericMethod(typeof(MyStruct), test3.ReturnType).Invoke(null, [test3, list]);
     }
 
@@ -51,27 +67,77 @@ public class BufferExpressions
             A = Random.Shared.Next() % 1000,
             B = Random.Shared.NextDouble() * 1000,
             L = Enumerable.Range(0, Random.Shared.Next() % 10).Select(_ => Random.Shared.Next() % 1000).ToList(),
-            N = new Nested { C = Random.Shared.Next() % 10000 }
+            N = new Nested { C = Random.Shared.Next() % 10000 },
+            LNest = Enumerable.Range(0, Random.Shared.Next() % 10)
+                .Select(_ => Enumerable.Range(0, Random.Shared.Next() % 10).ToList()).ToList()
         };
     }
 
     public static void Execute<T, T2>(LambdaExpression expr, List<T> input)
     {
+        var manager = new VirtualArenaManager();
+        var ctx = new ExecutionContext { Arena = manager.CreateBuffer("default", 100000000), Manager = manager };
+        var inputBatch = ArrowFfiBridge.BuildRecordBatch(input).AsStructArray();
+
+        var l = (LargeListArray)inputBatch.Fields[2];
+        {
+            // str.L.Contains(65)
+            var b = new BooleanArray.Builder();
+            for (var i = 0; i < l.Length; i++)
+            {
+                var curValues = (Int32Array)l.GetSlicedValues(i);
+                b.Append(curValues.Values.Contains(65));
+            }
+
+            var res = b.Build();
+        }
+
+        var c1 = (PrimitiveArray<int>)ArrowExtensions.MakeConstantArray(typeof(int), 3, 100000).Value!;
+        var c2 = (PrimitiveArray<int>)ArrowExtensions.MakeConstantArray(typeof(int), 5, 100000).Value!;
+
+        var l2 = (LargeListArray)inputBatch.Fields[2];
+        {
+            // str.L.Select(n => n + 3).All(n => n > 5)
+            var b = new BooleanArray.Builder();
+            for (var i = 0; i < l2.Length; i++)
+            {
+                var curValues = (PrimitiveArray<int>)l2.GetSlicedValues(i);
+
+                // add
+                Func<ExecutionContext, PrimitiveArray<int>, PrimitiveArray<int>> sf = (context, ints) =>
+                    ArrowCompute.Zip(
+                        context,
+                        ints,
+                        c1,
+                        ExpressionType.Add);
+
+                Func<ExecutionContext, PrimitiveArray<int>, BooleanArray> af = (context, ints) =>
+                    ArrowCompute.BooleanArrayFromMask(
+                        context,
+                        ArrowCompute.Zip(
+                            context,
+                            ints,
+                            c2,
+                            ExpressionType.GreaterThan));
+
+                var itemres = af(ctx, sf(ctx, curValues)).All(b2 => b2 is true);
+                b.Append(itemres);
+            }
+
+            var res = b.Build();
+        }
+        
         BufferTransformVisitor visitor = new();
         var result = visitor.Visit(expr);
         Console.WriteLine(ToCSharpPrinter.ToCSharpString(result));
         var arrowRunner = (Func<ExecutionContext, StructArray, StructArray>)((LambdaExpression)result).Compile();
-
-        var manager = new VirtualArenaManager();
-        var ctx = new ExecutionContext { Arena = manager.CreateBuffer("default", 100000000), Manager = manager };
-
-        var inputBatch = ArrowFfiBridge.BuildRecordBatch(input).AsStructArray();
+        
         StructArray outputBatch;
         using (new MeasureTime("arrow"))
         {
             outputBatch = arrowRunner(ctx, inputBatch);
         }
-
+        
         var schema = ArrowSchema.FromSchema(CSharpSchema.ToIcebergSchema(typeof(T2), -1, _ => -1));
         var arrowResult = ArrowReader.ReadRecordBatch<T2>(outputBatch.AsRecordBatch(schema));
 
@@ -79,7 +145,7 @@ public class BufferExpressions
         List<T2> linqResult;
         using (new MeasureTime("linq"))
         {
-            linqResult = input.Select(linqRunner).ToList();
+            linqResult = input.AsValueEnumerable().Select(linqRunner).ToList();
         }
 
         Console.WriteLine(arrowResult.SequenceEqual(linqResult));

@@ -1,5 +1,6 @@
 ﻿using System.Reflection;
 using System.Threading.Channels;
+using Apache.Arrow;
 using Iceberg.Net.Query.Expressions;
 
 namespace Iceberg.Net.Query.Execution;
@@ -13,11 +14,11 @@ internal record LinqConstructionContext
 internal interface IQueryStep
 {
     internal Task ExecuteAsync(
-        Channel<ColumnBufferSet> outputs,
+        Channel<IArrowArray> outputs,
         CancellationToken cancellationToken = default);
 }
 
 internal interface IBufferTransform
 {
-    internal ColumnBufferSet Execute(ColumnBufferSet input);
+    internal IArrowArray Execute(IArrowArray input);
 }
