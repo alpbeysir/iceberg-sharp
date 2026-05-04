@@ -6,6 +6,7 @@ using Iceberg.Net.Catalog;
 using Iceberg.Net.Metadata;
 using Iceberg.Net.Schemas;
 using ParquetSharp.Schema;
+using Schema = Iceberg.Net.Schemas.Schema;
 
 namespace Iceberg.Net.Misc;
 
@@ -133,7 +134,8 @@ public static class Utils
         this Type type,
         Type iface)
     {
-        return type.GetInterfaces().Any(x => x.IsAssignableTo(iface) || (
+        return type.IsAssignableTo(iface) || (type.IsGenericType && type.GetGenericTypeDefinition() == iface) || type
+            .GetInterfaces().Any(x => x.IsAssignableTo(iface) || (
             x.IsGenericType &&
             x.GetGenericTypeDefinition() == iface));
     }
@@ -216,7 +218,7 @@ public static class Utils
                     break;
                 case PrimitiveType primitiveType:
                     break;
-                case Schemas.Schema schema:
+                case Schema schema:
                     foreach (var field in schema.Fields)
                         Visit(field.FieldType, visitor, repetition, field.Id, field.Required);
                     break;

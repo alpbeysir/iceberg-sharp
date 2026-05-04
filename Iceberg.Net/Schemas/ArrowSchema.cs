@@ -9,7 +9,7 @@ public class ArrowSchema
     {
         var fields = schema.Fields.Select(field => new Field(
             field.Name,
-            FromType(field.FieldType),
+            FromIcebergType(field.FieldType),
             !field.Required,
             FieldIdMetadata(field.Id)));
         return new Apache.Arrow.Schema(fields, []);
@@ -20,19 +20,23 @@ public class ArrowSchema
         yield return KeyValuePair.Create("PARQUET:field_id", fieldId.ToString());
     }
 
-    private static IArrowType FromType(IIcebergType type)
+    public static IArrowType FromIcebergType(IIcebergType type)
     {
         return type switch
         {
             ListType listType => new Apache.Arrow.Types.ListType(
                 new Field(
                     "element",
-                    FromType(listType.Element),
+                    FromIcebergType(listType.Element),
                     !listType.ElementRequired,
                     FieldIdMetadata(listType.ElementId))),
             MapType mapType => new Apache.Arrow.Types.MapType(
-                new Field("key", FromType(mapType.Key), false, FieldIdMetadata(mapType.KeyId)),
-                new Field("value", FromType(mapType.Value), !mapType.ValueRequired, FieldIdMetadata(mapType.ValueId))),
+                new Field("key", FromIcebergType(mapType.Key), false, FieldIdMetadata(mapType.KeyId)),
+                new Field(
+                    "value",
+                    FromIcebergType(mapType.Value),
+                    !mapType.ValueRequired,
+                    FieldIdMetadata(mapType.ValueId))),
             StructType structType => FromStructType(structType),
             PrimitiveType primitiveType => FromPrimitive(primitiveType),
 
@@ -45,7 +49,7 @@ public class ArrowSchema
         var fields =
             structType.Fields.Select(field => new Field(
                 field.Name,
-                FromType(field.FieldType),
+                FromIcebergType(field.FieldType),
                 !field.Required,
                 FieldIdMetadata(field.Id)));
         return new Apache.Arrow.Types.StructType(fields.ToList());

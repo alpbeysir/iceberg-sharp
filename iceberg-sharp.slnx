@@ -2,6 +2,7 @@
   <Project Path="Apache.Arrow.Serialization.Generator/Apache.Arrow.Serialization.Generator.csproj" />
   <Project Path="Apache.Arrow.Serialization/Apache.Arrow.Serialization.csproj" />
   <Project Path="Iceberg.Net.Benchmarks/Iceberg.Net.Benchmarks.csproj" />
+  <Project Path="Iceberg.Net.BufferTests/Iceberg.Net.BufferTests.csproj" />
   <Project Path="Iceberg.Net.DuckUtils/Iceberg.Net.DuckUtils.csproj" />
   <Project Path="Iceberg.Net.Tests/Iceberg.Net.Tests.csproj" />
   <Project Path="Iceberg.Net/Iceberg.Net.csproj" />

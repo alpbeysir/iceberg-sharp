@@ -5,6 +5,8 @@ using System.Reflection;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using Apache.Arrow;
+using Iceberg.Net.Misc;
+using Iceberg.Net.Query.Expressions;
 using Apache.Arrow.Arrays;
 using Apache.Arrow.Types;
 using Array = System.Array;
@@ -18,18 +20,23 @@ public static class ArrowReader
             DynamicallyAccessedMemberTypes.NonPublicFields | DynamicallyAccessedMemberTypes.PublicProperties)]
         T>(RecordBatch batch)
     {
+        return ReadRecordBatch<T>(batch.AsStructArray());
+    }
+
+    public static IEnumerable<T> ReadRecordBatch<
+        [DynamicallyAccessedMembers(
+            DynamicallyAccessedMemberTypes.NonPublicFields | DynamicallyAccessedMemberTypes.PublicProperties)]
+        T>(IArrowArray array)
+    {
         var targetType = typeof(T);
 
         // Scalar Mode
         if (IsScalarType(targetType))
         {
-            if (batch.ColumnCount == 0) yield break;
+            if (array.Length == 0) yield break;
 
-            var col = batch.Column(0);
-            var accessor = CreateAccessor(col, targetType);
-            var count = batch.Length;
-
-            for (var i = 0; i < count; i++)
+            var accessor = CreateAccessor(array, targetType);
+            for (var i = 0; i < array.Length; i++)
             {
                 var val = accessor(i);
                 yield return val == null ? default! : (T)val;
@@ -38,55 +45,81 @@ public static class ArrowReader
             yield break;
         }
 
-        // =========================================================
-        // Object Mapping Mode (No boxing)
-        // =========================================================
-        var rowCount = batch.Length;
+        // List Mode — e.g. IEnumerable<int>, IReadOnlyList<double>, List<string>
+        if (IsListType(targetType))
+        {
+            if (array.Length == 0) yield break;
+
+            var accessor = CreateAccessor(array, targetType);
+            for (var i = 0; i < array.Length; i++)
+            {
+                var val = accessor(i);
+                yield return val == null ? default! : (T)val;
+            }
+
+            yield break;
+        }
+
+        // Object Mapping Mode — requires StructArray
+        if (array is not StructArray structArray)
+            throw new ArgumentException(
+                $"Object mapping requires a StructArray, got {array.GetType().Name}");
+
+        foreach (var item in ReadStruct<T>(structArray))
+            yield return item;
+    }
+
+    private static IEnumerable<T> ReadStruct<
+        [DynamicallyAccessedMembers(
+            DynamicallyAccessedMemberTypes.NonPublicFields | DynamicallyAccessedMemberTypes.PublicProperties)]
+        T>(StructArray structArray)
+    {
+        var targetType = typeof(T);
+        var rowCount = structArray.Length;
         var isAnonymous = targetType.IsAnonymousType();
 
-// 1. Determine our "Writeable" Members
         MemberInfo[] members;
         if (isAnonymous)
-            // For anonymous types, we grab the backing fields directly.
-            // They are private and have names like <PropName>i__Field
             members = targetType.GetFields(BindingFlags.Instance | BindingFlags.NonPublic);
         else
-            // Standard POCO path: look for writable properties
             members = targetType.GetProperties(BindingFlags.Public | BindingFlags.Instance)
                 .Where(p => p.CanWrite).ToArray<MemberInfo>();
 
+        var structType = (StructType)structArray.Data.DataType;
         var setters = new Action<T, int>[members.Length];
 
         for (var i = 0; i < members.Length; i++)
         {
             var member = members[i];
-
-            // For anonymous fields, the column name matches the property, 
-            // but the field name is usually <PropName>i__Field. 
-            // We need to extract the clean name.
             var memberName = isAnonymous ? ExtractCleanFieldName(member.Name) : member.Name;
-            var col = batch.Column(memberName);
 
-            // BuildRowAssigner handles MemberInfo (FieldInfo or PropertyInfo)
-            setters[i] = FastAccessorBuilder.BuildRowAssigner<T>(col, member);
+            var fieldIdx = -1;
+            for (var k = 0; k < structType.Fields.Count; k++)
+                if (string.Equals(structType.Fields[k].Name, memberName, StringComparison.OrdinalIgnoreCase))
+                {
+                    fieldIdx = k;
+                    break;
+                }
+
+            if (fieldIdx == -1) continue;
+
+            setters[i] = FastAccessorBuilder.BuildRowAssigner<T>(structArray.Fields[fieldIdx], member);
         }
 
         var batchItems = new T[rowCount];
 
-// 2. Materialize objects using the "Uninitialized" hack
         for (var i = 0; i < rowCount; i++)
             if (isAnonymous)
-                // Skip constructors entirely
                 batchItems[i] = (T)RuntimeHelpers.GetUninitializedObject(targetType);
             else if (targetType.IsValueType)
-                batchItems[i] = default!; // Structs don't need Activator
+                batchItems[i] = default!;
             else
                 batchItems[i] = Activator.CreateInstance<T>()!;
 
-// 3. Columnar Loop (Remains identical)
         for (var p = 0; p < setters.Length; p++)
         {
             var setter = setters[p];
+            if (setter == null) continue;
             for (var i = 0; i < rowCount; i++) setter(batchItems[i], i);
         }
 
@@ -343,6 +376,23 @@ public static class ArrowReader
 
             return list;
         };
+    }
+
+    // --- Helper: Check whether is list type ---
+    private static bool IsListType(Type t)
+    {
+        var underlying = Nullable.GetUnderlyingType(t) ?? t;
+        if (underlying == typeof(string))
+            return false;
+        if (underlying.ImplementsInterface(typeof(IReadOnlyDictionary<,>))
+            || underlying.ImplementsInterface(typeof(IDictionary<,>)))
+            return false;
+        if (underlying.IsArray)
+            return true;
+        if (underlying.ImplementsInterface(typeof(IEnumerable<>)))
+            return true;
+        return underlying is { IsInterface: true, IsGenericType: true }
+               && underlying.GetGenericTypeDefinition() == typeof(IEnumerable<>);
     }
 
     // --- Helper: Check whether is scalartype ---

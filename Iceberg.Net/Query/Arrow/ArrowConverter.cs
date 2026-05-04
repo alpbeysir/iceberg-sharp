@@ -192,16 +192,16 @@ public static class ArrowConverter
     /// <summary>
     ///     Build ListArray
     /// </summary>
-    public static LargeListArray BuildListArray<U>(IEnumerable<IEnumerable<U>?> data)
+    public static ListArray BuildListArray<U>(IEnumerable<IEnumerable<U>?> data)
     {
         // Recursion Logic: Flatten -> Build<U>
         // This handles List<Struct>, List<List<int>>, etc.
         var flattenedData = new List<U>();
 
-        var offsetsBuilder = new Int64Array.Builder();
+        var offsetsBuilder = new Int32Array.Builder();
         var validityBuilder = new BooleanArray.Builder();
 
-        long currentOffset = 0;
+        var currentOffset = 0;
         offsetsBuilder.Append(0);
 
         var nullCount = 0;
@@ -234,9 +234,9 @@ public static class ArrowConverter
         var offsetsArray = offsetsBuilder.Build();
         var validityArray = validityBuilder.Build();
 
-        var listType = new LargeListType(valuesArray.Data.DataType);
+        var listType = new ListType(valuesArray.Data.DataType);
 
-        return new LargeListArray(
+        return new ListArray(
             listType,
             data.Count(),
             offsetsArray.ValueBuffer,

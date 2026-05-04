@@ -130,7 +130,7 @@ public static class CSharpSchema
         return new StructType(fields.ToList());
     }
 
-    private static IIcebergType ToIcebergType(Type type, Func<string, int> fieldIdProvider, string currentPath)
+    public static IIcebergType ToIcebergType(Type type, Func<string, int> fieldIdProvider, string currentPath)
     {
         if (type == typeof(string)) return new PrimitiveType.String();
         if (type == typeof(bool)) return new PrimitiveType.Boolean();
@@ -183,9 +183,36 @@ public static class CSharpSchema
             }
         }
 
+        if (IsEnumerableType(type) && type != typeof(string))
+        {
+            var elementType = type.IsArray ? type.GetElementType() : type.GetGenericArguments().FirstOrDefault();
+            if (elementType != null)
+            {
+                var elementId = fieldIdProvider($"{currentPath}.element");
+                var maybeUnderlyingType = Nullable.GetUnderlyingType(elementType);
+                var required = maybeUnderlyingType == null;
+                return new ListType(
+                    elementId,
+                    ToIcebergType(
+                        required ? elementType : maybeUnderlyingType!,
+                        fieldIdProvider,
+                        $"{currentPath}.element"),
+                    required);
+            }
+        }
+
         if (type.IsClass || type is { IsValueType: true, IsPrimitive: false })
             return ToIcebergStruct(type, fieldIdProvider, currentPath);
 
         throw new NotSupportedException($"Type {type.Name} at {currentPath} is not supported.");
+    }
+
+    private static bool IsEnumerableType(Type type)
+    {
+        if (type == typeof(string)) return false;
+        if (type.IsArray) return true;
+        if (type.ImplementsInterface(typeof(IEnumerable<>))) return true;
+        return type is { IsInterface: true, IsGenericType: true }
+               && type.GetGenericTypeDefinition() == typeof(IEnumerable<>);
     }
 }

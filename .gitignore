@@ -8,3 +8,5 @@ riderModule.iml
 /Iceberg.Net.Benchmarks/BenchmarkDotNet.Artifacts
 /nuget
 Playground/Properties/launchSettings.json
+/Apache.Arrow
+/.claude
