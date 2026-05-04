@@ -7,6 +7,7 @@ using System.Reflection;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using Apache.Arrow;
+using Apache.Arrow.Memory;
 using Apache.Arrow.Types;
 using DotNext.Linq.Expressions;
 using Iceberg.Net.Misc;
@@ -22,58 +23,6 @@ namespace Iceberg.Net.Query.Expressions;
 public sealed class ExecutionContext
 {
     public required VirtualBuffer Arena { get; init; }
-    public required VirtualArenaManager Manager { get; init; }
-}
-
-public interface IPrimitiveBuilder<T> where T : struct, IEquatable<T>
-{
-    public void Append(T value);
-
-    public void Append(T? value);
-
-    public void Append(ReadOnlySpan<T> span);
-
-    public void AppendRange(IEnumerable<T> values);
-
-    public void AppendNull();
-}
-
-public class PrimitiveBuilderWrapper<T, TArray, TBuilder> : IPrimitiveBuilder<T>
-    where TBuilder : class, IArrowArrayBuilder<TArray>
-    where TArray : IArrowArray
-    where T : struct, IEquatable<T>
-{
-    private PrimitiveArrayBuilder<T, TArray, TBuilder> _builder;
-
-    public void Append(T value)
-    {
-        _builder.Append(value);
-    }
-
-    public void Append(T? value)
-    {
-        _builder.Append(value);
-    }
-
-    public void Append(ReadOnlySpan<T> span)
-    {
-        _builder.Append(span);
-    }
-
-    public void AppendRange(IEnumerable<T> values)
-    {
-        _builder.AppendRange(values);
-    }
-
-    public void AppendNull()
-    {
-        _builder.AppendNull();
-    }
-
-    public static IPrimitiveBuilder<T> OfType()
-    {
-        throw new NotImplementedException();
-    }
 }
 
 public static class ArrowExtensions
@@ -94,17 +43,7 @@ public static class ArrowExtensions
         var length = arrays[0].Length;
         return new StructArray(type, length, arrays, ArrowBuffer.Empty);
     }
-
-    public static ListArray MakeListArray(
-        ListType type,
-        ArrowBuffer valueOffsetsBuffer,
-        IArrowArray values,
-        ArrowBuffer nullBitmapBuffer)
-    {
-        var length = values.Length;
-        return new ListArray(type, length, valueOffsetsBuffer, values, nullBitmapBuffer);
-    }
-
+    
     public static ConstantExpression MakeConstantArray(Type elementType, object? val, int size)
     {
         var method = typeof(ArrowExtensions)
@@ -129,7 +68,7 @@ public static class ArrowExtensions
         }
     }
 
-    public static ArrowTypeInfo GetTypeInfo(Type type)
+    private static ArrowTypeInfo GetTypeInfo(Type type)
     {
         if (!TypeInfo.TryGetValue(type, out var info))
             throw new NotSupportedException($"The type {type.FullName} is not supported.");
@@ -137,7 +76,7 @@ public static class ArrowExtensions
         return info;
     }
 
-    public static PrimitiveArray<T> ArrayFromBuffer<T>(ArrowBuffer valueBuffer, int length)
+    private static PrimitiveArray<T> ArrayFromBuffer<T>(ArrowBuffer valueBuffer, int length)
         where T : struct, IEquatable<T>
     {
         var result = (PrimitiveArray<T>)ArrowArrayFactory.BuildArray(
@@ -147,6 +86,24 @@ public static class ArrowExtensions
                 0,
                 0,
                 [ArrowBuffer.Empty, valueBuffer],
+                []
+            )
+        );
+        return result;
+    }
+
+    public static PrimitiveArray<T> ArrayFromSpan<T>(ReadOnlySpan<T> span)
+        where T : struct, IEquatable<T>
+    {
+        var builder = new ArrowBuffer.Builder<T>();
+        builder.Append(span);
+        var result = (PrimitiveArray<T>)ArrowArrayFactory.BuildArray(
+            new ArrayData(
+                GetTypeInfo(typeof(T)).ArrowType,
+                span.Length,
+                0,
+                0,
+                [ArrowBuffer.Empty, builder.Build()],
                 []
             )
         );
@@ -175,13 +132,13 @@ public static class ArrowExtensions
         { typeof(bool), new ArrowTypeInfo(new BooleanType(), typeof(BooleanArray), typeof(BooleanArray.Builder)) }
     };
 
-    public record ArrowTypeInfo(IArrowType ArrowType, Type ArrayType, Type BuilderType);
+    private record ArrowTypeInfo(IArrowType ArrowType, Type ArrayType, Type BuilderType);
 }
 
 public static class ArrowCompute
 {
     // TODO this will not handle nulls properly
-    public static Span<T> Zip<T>(
+    public static ReadOnlySpan<T> Zip<T>(
         ExecutionContext ctx,
         ReadOnlySpan<T> l,
         ReadOnlySpan<T> r,
@@ -217,10 +174,9 @@ public static class ArrowCompute
             r,
             vectorSelector,
             selector);
-        var builder = new ArrowBuffer.Builder<T>(l.Length);
-        builder.Resize(l.Length);
-        zip.CopyTo(builder.Span);
-        return ArrowExtensions.ArrayFromBuffer<T>(builder.Build(), l.Length);
+        var result = ArenaAllocate<T>(ctx.Arena, l.Length);
+        zip.CopyTo(result);
+        return result;
     }
 
     private static T UnsafeBitwise<T>(T l, T r, Func<int, int, int> func, Func<long, long, long> func2)
@@ -245,28 +201,57 @@ public static class ArrowCompute
         throw new UnreachableException();
     }
 
-    // we need to pass builders to retrieve result efficiently
-    public static IArrowArray ListOps<TElement, TElementBuilder, TResult, TResultBuilder>(
+    public static TResultArray ExecuteListSelect<TElementArray, TResultArray, TResultBuilder>(
         ExecutionContext ctx,
-        ListType type,
+        IArrowType resultType,
         ListArray l,
-        Func<ExecutionContext, TElement, TResult> func)
-        where TResult : class, IArrowArray
+        Action<ExecutionContext, TElementArray, IArrowArrayBuilder<TResultArray, TResultBuilder>> op)
+        where TResultBuilder : IArrowArrayBuilder<TResultArray, TResultBuilder>
+        where TResultArray : IArrowArray
     {
-        var s = new IArrowArray[l.Length];
+        var builder = MakeBuilderFor<TResultArray, TResultBuilder>(resultType);
         for (var i = 0; i < l.Length; i++)
         {
-            var element = (TElement)l.GetSlicedValues(i);
-            s[i] = func(ctx, element);
+            if (builder is ListArray.Builder lb) lb.Append();
+            var element = (TElementArray)l.GetSlicedValues(i);
+            op(ctx, element, builder);
         }
-        var total = ArrowArrayConcatenator.Concatenate(s);
-        return ArrowExtensions.MakeListArray(type, ArrowBuffer.Empty, total, ArrowBuffer.Empty);
+
+        return builder.Build(MemoryAllocator.Default.Value);
     }
 
-    public static BooleanArray BitmapOps(
+    public static TResultArray ExecuteStructSelect<TResultArray, TResultBuilder>(
         ExecutionContext ctx,
-        BooleanArray l,
-        BooleanArray r,
+        IArrowType resultType,
+        StructArray s,
+        Action<ExecutionContext, StructArray, IArrowArrayBuilder<TResultArray, TResultBuilder>> op)
+        where TResultBuilder : IArrowArrayBuilder<TResultArray, TResultBuilder>
+        where TResultArray : IArrowArray
+    {
+        var builder = MakeBuilderFor<TResultArray, TResultBuilder>(resultType);
+        op(ctx, s, builder);
+        return builder.Build(MemoryAllocator.Default.Value);
+    }
+
+    private static IArrowArrayBuilder<TResultArray, TResultBuilder>
+        MakeBuilderFor<TResultArray, TResultBuilder>(IArrowType arrowType)
+        where TResultArray : IArrowArray
+        where TResultBuilder : IArrowArrayBuilder<TResultArray>
+    {
+        return arrowType switch
+        {
+            DoubleType => (IArrowArrayBuilder<TResultArray, TResultBuilder>)new DoubleArray.Builder(),
+            Int32Type => (IArrowArrayBuilder<TResultArray, TResultBuilder>)new Int32Array.Builder(),
+            ListType l => (IArrowArrayBuilder<TResultArray, TResultBuilder>)new ListArray.Builder(l),
+            StructType s => (IArrowArrayBuilder<TResultArray, TResultBuilder>)new StructArrayBuilder(s),
+            _ => throw new ArgumentOutOfRangeException(nameof(arrowType), arrowType, null)
+        };
+    }
+
+    public static ReadOnlySpan<byte> BitmapOps(
+        ExecutionContext ctx,
+        ReadOnlySpan<byte> l,
+        ReadOnlySpan<byte> r,
         ExpressionType expressionType)
     {
         // TODO precompute these switches
@@ -278,18 +263,16 @@ public static class ArrowCompute
         };
         Func<byte, byte, byte> selector = expressionType switch
         {
-            ExpressionType.And => (n1, n2) => (byte)(n1 & n2),
-            ExpressionType.AndAlso => (n1, n2) => (byte)(n1 & n2),
+            ExpressionType.And or ExpressionType.AndAlso => (n1, n2) => (byte)(n1 & n2),
             _ => throw new ArgumentOutOfRangeException(nameof(expressionType), expressionType, null)
         };
-        var zip = l.Values.AsVectorizable().Zip(
-            r.Values,
+        var zip = l.AsVectorizable().Zip(
+            r,
             vectorSelector,
             selector);
-        var builder = new ArrowBuffer.BitmapBuilder();
-        builder.Resize(l.Length);
-        zip.CopyTo(builder.Span);
-        return ArrowExtensions.BooleanArrayFromBuffer(builder.Build(), l.Length);
+        var result = ArenaAllocate<byte>(ctx.Arena, l.Length);
+        zip.CopyTo(result);
+        return result;
     }
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
@@ -307,57 +290,24 @@ public static class ArrowCompute
     {
         return MemoryMarshal.Cast<byte, T>(buffer.AllocateRange(Unsafe.SizeOf<T>() * amount));
     }
-    
-    // public static PrimitiveArray<TResult> Select<T, TResult>(
-    //     ExecutionContext ctx,
-    //     ReadOnlySpan<T> span,
-    //     ExpressionType expressionType)
-    //     where T : struct, INumber<T>
-    //     where TResult : struct, INumber<TResult>
-    // {
-    //     // TODO precompute these switches
-    //     Func<Vector<T>, Vector<TResult>> vectorSelector = expressionType switch
-    //     {
-    //         ExpressionType.Convert => VectorCastHelper<T, TResult>,
-    //         _ => throw new ArgumentOutOfRangeException(nameof(expressionType), expressionType, null)
-    //     };
-    //     Func<T, TResult> selector = expressionType switch
-    //     {
-    //         ExpressionType.Convert => Unsafe.BitCast<T, TResult>,
-    //         _ => throw new ArgumentOutOfRangeException(nameof(expressionType), expressionType, null)
-    //     };
-    //     var select = span.AsVectorizable().Select(
-    //         vectorSelector,
-    //         selector);
-    //     var builder = new ArrowBuffer.Builder<TResult>(span.Length);
-    //     builder.Resize(span.Length);
-    //     select.CopyTo(builder.Span);
-    //     return FromBuffer<TResult>(builder.Build(), span.Length);
-    // }
 
-    public static PrimitiveArray<TResult> ConvertLogical<T, TResult>(
+    public static ReadOnlySpan<TResult> ConvertLogical<T, TResult>(
         ExecutionContext ctx,
-        PrimitiveArray<T> buffer)
+        ReadOnlySpan<T> buffer)
         where T : struct, INumber<T>
         where TResult : struct, INumber<TResult>
     {
-        var sourceSpan = buffer.Values;
-        var builder = new ArrowBuffer.Builder<TResult>(sourceSpan.Length);
-        builder.Resize(sourceSpan.Length);
-        var resultSpan = builder.Span;
-        for (var i = 0; i < sourceSpan.Length; i++) resultSpan[i] = TResult.CreateChecked(sourceSpan[i]);
+        var result = ArenaAllocate<TResult>(ctx.Arena, buffer.Length);
+        for (var i = 0; i < buffer.Length; i++) result[i] = TResult.CreateChecked(buffer[i]);
 
-        return ArrowExtensions.ArrayFromBuffer<TResult>(builder.Build(), resultSpan.Length);
+        return result;
     }
 
-    public static BooleanArray BooleanArrayFromMask<T>(ExecutionContext ctx, PrimitiveArray<T> mask)
+    public static ReadOnlySpan<byte> BooleanArrayFromMask<T>(ExecutionContext ctx, ReadOnlySpan<T> mask)
         where T : struct, INumber<T>
     {
-        var source = mask.Values;
-
-        var builder = new ArrowBuffer.BitmapBuilder();
-        builder.Resize(mask.Length);
-        var destination = builder.Span;
+        var source = mask;
+        var destination = ArenaAllocate<byte>(ctx.Arena, mask.Length);
 
         var vectorSize = Vector<T>.Count;
 
@@ -389,14 +339,7 @@ public static class ArrowCompute
                 if (source[startIndex + i] != T.Zero)
                     BitUtility.SetBit(destination, startIndex + i);
 
-        return ArrowExtensions.BooleanArrayFromBuffer(builder.Build(), mask.Length);
-    }
-
-    private static ReadOnlySpan<T> SpanFromBuffer<T>(ArrowBuffer buffer)
-        where T : struct
-    {
-        var sourceSpan = buffer.Span.CastTo<T>()[..buffer.Length];
-        return sourceSpan;
+        return destination;
     }
 }
 
@@ -405,19 +348,18 @@ public class BufferTransformVisitor : ExpressionVisitorNarrow<Expression, Lambda
 {
     private readonly Dictionary<string, ParameterExpression> _bindings = [];
     private readonly ParameterExpression _ctxParam = Expression.Parameter(typeof(ExecutionContext), "ctx");
-    private readonly Stack<ParameterExpression> _indexVars = [];
     private readonly Dictionary<MemberInfo, int> _memberIndex = [];
     private const int MaxBatchSize = 65536;
     private QueryStepVisitor QueryStepVisitor => new([]);
 
-    protected override Expression VisitMethodCall(MethodCallExpression node)
-    {
-        var declaringType = node.Method.DeclaringType!;
-        if (declaringType.Name.Contains("Enumerable") || declaringType.Name.Contains("Queryable"))
-            QueryStepVisitor.Visit(node);
-
-        return base.VisitMethodCall(node);
-    }
+    // protected override Expression VisitMethodCall(MethodCallExpression node)
+    // {
+    //     var declaringType = node.Method.DeclaringType!;
+    //     if (declaringType.Name.Contains("Enumerable") || declaringType.Name.Contains("Queryable"))
+    //         QueryStepVisitor.Visit(node);
+    //
+    //     return base.VisitMethodCall(node);
+    // }
 
     protected override Expression MakeBinary(
         BinaryExpression node,
@@ -471,8 +413,8 @@ public class BufferTransformVisitor : ExpressionVisitorNarrow<Expression, Lambda
             null,
             zipMethod,
             _ctxParam,
-            left,
-            right,
+            AccessValues(left),
+            AccessValues(right),
             node.NodeType.Quoted);
         return zipCall;
     }
@@ -562,6 +504,9 @@ public class BufferTransformVisitor : ExpressionVisitorNarrow<Expression, Lambda
         Expression @object,
         ReadOnlyCollection<Expression> arguments)
     {
+        if (node.Method.Name == "Select")
+        {
+        }
         return node;
     }
 
@@ -595,11 +540,14 @@ public class BufferTransformVisitor : ExpressionVisitorNarrow<Expression, Lambda
         {
             var method = typeof(ArrowExtensions).GetMethod(nameof(ArrowExtensions.MakeStructArray))!;
             var structType = new StructType(
-                ArrowSchema.FromSchema(CSharpSchema.ToIcebergSchema(node.Type, null, s => -1)).FieldsList);
+                ArrowSchema.FromSchema(CSharpSchema.ToIcebergSchema(node.Type, null, _ => -1)).FieldsList);
             return Expression.Call(
                 null,
                 method,
-                [structType.Quoted, Expression.NewArrayInit(typeof(IArrowArray), arguments)]);
+                [
+                    structType.Quoted,
+                    Expression.NewArrayInit(typeof(IArrowArray), arguments.Select(MakeBuffer))
+                ]);
         }
 
         throw new NotImplementedException("not yet");
@@ -638,12 +586,13 @@ public class BufferTransformVisitor : ExpressionVisitorNarrow<Expression, Lambda
         {
             var operandUnderlyingType = Nullable.GetUnderlyingType(node.Operand.Type) ?? node.Operand.Type;
             var resultUnderlyingType = Nullable.GetUnderlyingType(node.Type) ?? node.Type;
+            if (operandUnderlyingType == resultUnderlyingType) return operand;
             var convertMethod = typeof(ArrowCompute).GetMethod(nameof(ArrowCompute.ConvertLogical))
                 .MakeGenericMethod(operandUnderlyingType, resultUnderlyingType);
             return Expression.Call(
                 null,
                 convertMethod,
-                [_ctxParam, operand]);
+                [_ctxParam, AccessValues(operand)]);
         }
 
         return node;
@@ -662,6 +611,23 @@ public class BufferTransformVisitor : ExpressionVisitorNarrow<Expression, Lambda
         }
 
         throw new InvalidOperationException("only struct can be accessed");
+    }
+
+    private Expression AccessValues(Expression buffer)
+    {
+        if (buffer.Type.Name.Contains("Span")) return buffer;
+
+        return buffer.Property("Values");
+    }
+
+    private Expression MakeBuffer(Expression spanOrArray)
+    {
+        if (spanOrArray.Type.ImplementsInterface(typeof(IArrowArray))) return spanOrArray;
+
+        var method = typeof(ArrowExtensions).GetMethod(nameof(ArrowExtensions.ArrayFromSpan))!
+            .MakeGenericMethod(PrimitiveBufferElementType(spanOrArray));
+
+        return Expression.Call(null, method, spanOrArray);
     }
 
     private Type GetBufferType(Type type)
@@ -711,10 +677,16 @@ public class BufferTransformVisitor : ExpressionVisitorNarrow<Expression, Lambda
 
     private static Type PrimitiveBufferElementType(Expression expression)
     {
-        if (expression.Type == typeof(BooleanArray))
-            return typeof(bool);
-
         if (expression.Type.ImplementsInterface(typeof(IArrowArray)))
+        {
+            if (expression.Type == typeof(BooleanArray))
+                return typeof(bool);
+
+            return expression.Type.GetGenericArguments()[0];
+        }
+
+        if (expression.Type.Name.Contains("Span"))
+            // TODO bitmap is problematic
             return expression.Type.GetGenericArguments()[0];
 
         throw new InvalidOperationException("invalid");

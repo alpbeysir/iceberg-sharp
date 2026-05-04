@@ -8,7 +8,6 @@ using Iceberg.Net.Query.Expressions;
 using Iceberg.Net.Schemas;
 using Varena;
 using ZLinq;
-using ArrowExtensions = Iceberg.Net.Query.Expressions.ArrowExtensions;
 using ExecutionContext = Iceberg.Net.Query.Expressions.ExecutionContext;
 
 namespace Playground;
@@ -40,10 +39,10 @@ public class BufferExpressions
         var list = Enumerable.Range(0, 26921).Select(_ => CreateRandom()).ToList();
 
         LambdaExpression test2 = (MyStruct str) => new { b = str.B, a = str.A + str.B, Z = str.N.C };
-        // method.MakeGenericMethod(typeof(MyStruct), test2.ReturnType).Invoke(null, [test2, list]);
+        method.MakeGenericMethod(typeof(MyStruct), test2.ReturnType).Invoke(null, [test2, list]);
 
-        var val = Enumerable.Repeat(new[] { new List<int> { 1, 2 } }, 1);
-        var zzz = ArrowConverter.BuildSingleColumn(val);
+        LambdaExpression test4 = (MyStruct str) => str.L.Select(n => n + 3);
+        method.MakeGenericMethod(typeof(MyStruct), test4.ReturnType).Invoke(null, [test4, list]);
         
         LambdaExpression test3 = (MyStruct str) =>
             new
@@ -76,7 +75,7 @@ public class BufferExpressions
     public static void Execute<T, T2>(LambdaExpression expr, List<T> input)
     {
         var manager = new VirtualArenaManager();
-        var ctx = new ExecutionContext { Arena = manager.CreateBuffer("default", 100000000), Manager = manager };
+        var ctx = new ExecutionContext { Arena = manager.CreateBuffer("default", 100000000) };
         var inputBatch = ArrowFfiBridge.BuildRecordBatch(input).AsStructArray();
 
         var l = (LargeListArray)inputBatch.Fields[2];
@@ -92,41 +91,41 @@ public class BufferExpressions
             var res = b.Build();
         }
 
-        var c1 = (PrimitiveArray<int>)ArrowExtensions.MakeConstantArray(typeof(int), 3, 100000).Value!;
-        var c2 = (PrimitiveArray<int>)ArrowExtensions.MakeConstantArray(typeof(int), 5, 100000).Value!;
-
-        var l2 = (LargeListArray)inputBatch.Fields[2];
-        {
-            // str.L.Select(n => n + 3).All(n => n > 5)
-            var b = new BooleanArray.Builder();
-            for (var i = 0; i < l2.Length; i++)
-            {
-                var curValues = (PrimitiveArray<int>)l2.GetSlicedValues(i);
-
-                // add
-                Func<ExecutionContext, PrimitiveArray<int>, PrimitiveArray<int>> sf = (context, ints) =>
-                    ArrowCompute.Zip(
-                        context,
-                        ints,
-                        c1,
-                        ExpressionType.Add);
-
-                Func<ExecutionContext, PrimitiveArray<int>, BooleanArray> af = (context, ints) =>
-                    ArrowCompute.BooleanArrayFromMask(
-                        context,
-                        ArrowCompute.Zip(
-                            context,
-                            ints,
-                            c2,
-                            ExpressionType.GreaterThan));
-
-                var itemres = af(ctx, sf(ctx, curValues)).All(b2 => b2 is true);
-                b.Append(itemres);
-            }
-
-            var res = b.Build();
-        }
-        
+        // var c1 = (PrimitiveArray<int>)ArrowExtensions.MakeConstantArray(typeof(int), 3, 100000).Value!;
+        // var c2 = (PrimitiveArray<int>)ArrowExtensions.MakeConstantArray(typeof(int), 5, 100000).Value!;
+        //
+        // var l2 = (LargeListArray)inputBatch.Fields[2];
+        // {
+        //     // str.L.Select(n => n + 3).All(n => n > 5)
+        //     var b = new BooleanArray.Builder();
+        //     for (var i = 0; i < l2.Length; i++)
+        //     {
+        //         var curValues = (PrimitiveArray<int>)l2.GetSlicedValues(i);
+        //
+        //         // add
+        //         Func<ExecutionContext, PrimitiveArray<int>, PrimitiveArray<int>> sf = (context, ints) =>
+        //             ArrowCompute.Zip(
+        //                 context,
+        //                 ints,
+        //                 c1,
+        //                 ExpressionType.Add);
+        //
+        //         Func<ExecutionContext, PrimitiveArray<int>, BooleanArray> af = (context, ints) =>
+        //             ArrowCompute.BooleanArrayFromMask(
+        //                 context,
+        //                 ArrowCompute.Zip(
+        //                     context,
+        //                     ints,
+        //                     c2,
+        //                     ExpressionType.GreaterThan));
+        //
+        //         var itemres = af(ctx, sf(ctx, curValues)).All(b2 => b2 is true);
+        //         b.Append(itemres);
+        //     }
+        //
+        //     var res = b.Build();
+        // }
+        //
         BufferTransformVisitor visitor = new();
         var result = visitor.Visit(expr);
         Console.WriteLine(ToCSharpPrinter.ToCSharpString(result));
