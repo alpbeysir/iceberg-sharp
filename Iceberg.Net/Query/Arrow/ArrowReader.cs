@@ -272,40 +272,70 @@ public static class ArrowReader
             };
         }
 
-        // POCO 
-        var props = type.GetProperties(BindingFlags.Public | BindingFlags.Instance)
-            .Where(p => p.CanWrite).ToArray();
-
+        var isAnon = type.IsAnonymousType();
         var structType = (StructType)structArray.Data.DataType;
         var setters = new List<Action<object, int>>();
 
-        foreach (var prop in props)
+        if (isAnon)
         {
-            // Find Field Index
-            var fieldIndex = -1;
-            for (var k = 0; k < structType.Fields.Count; k++)
-                if (string.Equals(structType.Fields[k].Name, prop.Name, StringComparison.OrdinalIgnoreCase))
-                {
-                    fieldIndex = k;
-                    break;
-                }
-
-            if (fieldIndex == -1) continue;
-
-            var childArray = structArray.Fields[fieldIndex];
-            var childGetter = CreateAccessor(childArray, prop.PropertyType);
-
-            setters.Add((obj, rowIdx) =>
+            var fields = type.GetFields(BindingFlags.Instance | BindingFlags.NonPublic);
+            foreach (var field in fields)
             {
-                var val = childGetter(rowIdx);
-                if (val != null) prop.SetValue(obj, val);
-            });
+                var memberName = ExtractCleanFieldName(field.Name);
+                var fieldIndex = -1;
+                for (var k = 0; k < structType.Fields.Count; k++)
+                    if (string.Equals(structType.Fields[k].Name, memberName, StringComparison.OrdinalIgnoreCase))
+                    {
+                        fieldIndex = k;
+                        break;
+                    }
+
+                if (fieldIndex == -1) continue;
+
+                var childArray = structArray.Fields[fieldIndex];
+                var childGetter = CreateAccessor(childArray, field.FieldType);
+
+                setters.Add((obj, rowIdx) =>
+                {
+                    var val = childGetter(rowIdx);
+                    if (val != null) field.SetValue(obj, val);
+                });
+            }
+        }
+        else
+        {
+            var props = type.GetProperties(BindingFlags.Public | BindingFlags.Instance)
+                .Where(p => p.CanWrite).ToArray();
+
+            foreach (var prop in props)
+            {
+                var fieldIndex = -1;
+                for (var k = 0; k < structType.Fields.Count; k++)
+                    if (string.Equals(structType.Fields[k].Name, prop.Name, StringComparison.OrdinalIgnoreCase))
+                    {
+                        fieldIndex = k;
+                        break;
+                    }
+
+                if (fieldIndex == -1) continue;
+
+                var childArray = structArray.Fields[fieldIndex];
+                var childGetter = CreateAccessor(childArray, prop.PropertyType);
+
+                setters.Add((obj, rowIdx) =>
+                {
+                    var val = childGetter(rowIdx);
+                    if (val != null) prop.SetValue(obj, val);
+                });
+            }
         }
 
         return idx =>
         {
             if (structArray.IsNull(idx)) return null;
-            var instance = Activator.CreateInstance(type)!;
+            var instance = isAnon
+                ? RuntimeHelpers.GetUninitializedObject(type)
+                : Activator.CreateInstance(type)!;
             foreach (var setter in setters) setter(instance, idx);
             return instance;
         };

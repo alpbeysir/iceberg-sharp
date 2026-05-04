@@ -1,4 +1,3 @@
-using System.Collections.Immutable;
 using Apache.Arrow;
 using Apache.Arrow.Memory;
 using Apache.Arrow.Types;
@@ -8,32 +7,44 @@ namespace Iceberg.Net.Query.Expressions;
 public class StructArrayBuilder : IArrowArrayBuilder<StructArray, StructArrayBuilder>
 {
     private readonly StructType _type;
-    private readonly ImmutableArray<IArrowArrayBuilder<IArrowArray>> _builders;
+    private readonly IArrowArrayBuilder<IArrowArray>?[] _fieldBuilders;
+    private readonly IArrowArray?[] _fieldArrays;
 
     public StructArrayBuilder(StructType type)
     {
         _type = type;
-        _builders =
-        [
-            ..type.Fields
-                .Select(f => CreateFieldBuilder(f.DataType))
-        ];
+        var count = type.Fields.Count;
+        _fieldBuilders = new IArrowArrayBuilder<IArrowArray>?[count];
+        _fieldArrays = new IArrowArray?[count];
     }
 
-    public ImmutableArray<IArrowArrayBuilder<IArrowArray>> FieldBuilders => _builders;
+    public int FieldCount => _fieldArrays.Length;
 
-    public int FieldCount => _builders.Length;
+    /// <summary>Alias an existing array as a field — no copy.</summary>
+    public void SetFieldArray(int index, IArrowArray array)
+    {
+        if (_fieldBuilders[index] != null)
+            throw new InvalidOperationException(
+                $"Field {index} already has a builder; cannot alias.");
+        _fieldArrays[index] = array;
+    }
 
     public T GetFieldBuilder<T>(int index) where T : class, IArrowArrayBuilder
     {
-        return (T)_builders[index];
+        _fieldBuilders[index] ??= CreateFieldBuilder(_type.Fields[index].DataType);
+        return (T)_fieldBuilders[index]!;
     }
 
-    public StructArray Build(MemoryAllocator allocator = default)
+    public StructArray Build(MemoryAllocator? allocator = null)
     {
-        var arrays = new IArrowArray[_builders.Length];
-        for (var i = 0; i < _builders.Length; i++)
-            arrays[i] = _builders[i].Build(allocator);
+        var arrays = new IArrowArray[FieldCount];
+        for (var i = 0; i < FieldCount; i++)
+        {
+            arrays[i] = _fieldArrays[i]
+                        ?? _fieldBuilders[i]?.Build(allocator)
+                        ?? throw new InvalidOperationException(
+                            $"Field {i} ('{_type.Fields[i].Name}') not initialized.");
+        }
 
         return new StructArray(_type, Length, arrays, ArrowBuffer.Empty);
     }
@@ -42,39 +53,51 @@ public class StructArrayBuilder : IArrowArrayBuilder<StructArray, StructArrayBui
     {
         get
         {
-            if (_builders.Length == 0) return 0;
-            var lengths = _builders.Select(b => b.Length).Distinct().ToList();
-            if (lengths.Count != 1)
-                throw new InvalidOperationException("Field builders have mismatched lengths");
-            return lengths[0];
+            // Use the first available source for length
+            for (var i = 0; i < FieldCount; i++)
+            {
+                if (_fieldArrays[i] is { } arr) return arr.Length;
+                if (_fieldBuilders[i] is { } b) return b.Length;
+            }
+
+            return 0;
         }
     }
 
     public StructArrayBuilder Reserve(int capacity)
     {
-        foreach (var b in _builders)
-            ((dynamic)b).Reserve(capacity);
+        foreach (var b in _fieldBuilders)
+            if (b != null)
+                ((dynamic)b).Reserve(capacity);
         return this;
     }
 
     public StructArrayBuilder Resize(int length)
     {
-        foreach (var b in _builders)
-            ((dynamic)b).Resize(length);
+        foreach (var b in _fieldBuilders)
+            if (b != null)
+                ((dynamic)b).Resize(length);
         return this;
     }
 
     public StructArrayBuilder Clear()
     {
-        foreach (var b in _builders)
-            ((dynamic)b).Clear();
+        for (var i = 0; i < FieldCount; i++)
+        {
+            if (_fieldBuilders[i] != null)
+                ((dynamic)_fieldBuilders[i]!).Clear();
+            _fieldBuilders[i] = null;
+            _fieldArrays[i] = null;
+        }
+
         return this;
     }
 
     public StructArrayBuilder AppendNull()
     {
-        foreach (var b in _builders)
-            ((dynamic)b).AppendNull();
+        foreach (var b in _fieldBuilders)
+            if (b != null)
+                ((dynamic)b).AppendNull();
         return this;
     }
 

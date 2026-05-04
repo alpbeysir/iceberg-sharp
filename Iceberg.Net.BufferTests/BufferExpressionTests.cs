@@ -52,6 +52,9 @@ public class BufferExpressionTests
                 L((TestRow str) => new { b = str.B, c = str.N.C }),
                 "simple projection"),
             new TestCase(
+                L((TestRow str) => new { b = str.B, nested = new { c = str.N.C + 3 } }),
+                "nested struct"),
+            new TestCase(
                 L((TestRow str) => str.N.C + 3),
                 "struct-field add constant"),
             new TestCase(

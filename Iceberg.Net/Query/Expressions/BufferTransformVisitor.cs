@@ -210,7 +210,7 @@ public static class ArrowCompute
         throw new UnreachableException();
     }
 
-    public static TResultArray ExecuteListSelect<TElementArray, TResultArray, TResultBuilder>(
+    public static TResultArray ExecuteListOp<TElementArray, TResultArray, TResultBuilder>(
         ExecutionContext ctx,
         IArrowType resultType,
         ListArray l,
@@ -250,6 +250,7 @@ public static class ArrowCompute
         };
     }
 
+    // TODO don't pass in interface here, use generics to avoid
     public static void AppendToBuilder<T>(IArrowArrayBuilder builder, ReadOnlySpan<T> values)
         where T : struct, IEquatable<T>
     {
@@ -396,7 +397,7 @@ public class BufferTransformVisitor : ExpressionVisitorNarrow<Expression, Lambda
     private readonly Dictionary<string, ParameterExpression> _bindings = [];
     private readonly ParameterExpression _ctxParam = Expression.Parameter(typeof(ExecutionContext), "ctx");
     private readonly Dictionary<MemberInfo, int> _memberIndex = [];
-    private readonly Stack<ParameterExpression> _builderStack = new();
+    private readonly Stack<Expression> _builderStack = new();
     private const int MaxBatchSize = 65536;
 
     private Expression GenerateListSelect(Expression source, LambdaExpression transformedInner)
@@ -408,7 +409,7 @@ public class BufferTransformVisitor : ExpressionVisitorNarrow<Expression, Lambda
         var valueType = ArrowExtensions.GetTypeInfo(resultElementType).ArrowType;
         var listType = new ListType(valueType);
 
-        var selectMethod = typeof(ArrowCompute).GetMethod(nameof(ArrowCompute.ExecuteListSelect))!
+        var selectMethod = typeof(ArrowCompute).GetMethod(nameof(ArrowCompute.ExecuteListOp))!
             .MakeGenericMethod(elementArrayType, typeof(ListArray), typeof(ListArray.Builder));
 
         var ctxP = Expression.Parameter(typeof(ExecutionContext), "ctx");
@@ -433,7 +434,7 @@ public class BufferTransformVisitor : ExpressionVisitorNarrow<Expression, Lambda
         var elementArrayType = transformedInner.Parameters[1].Type;
         var resultElementType = transformedInner.ReturnType.GetGenericArguments()[0];
 
-        var selectMethod = typeof(ArrowCompute).GetMethod(nameof(ArrowCompute.ExecuteListSelect))!
+        var selectMethod = typeof(ArrowCompute).GetMethod(nameof(ArrowCompute.ExecuteListOp))!
             .MakeGenericMethod(elementArrayType, typeof(BooleanArray), typeof(BooleanArray.Builder));
 
         var ctxP = Expression.Parameter(typeof(ExecutionContext), "ctx");
@@ -477,7 +478,7 @@ public class BufferTransformVisitor : ExpressionVisitorNarrow<Expression, Lambda
         var elementArrayType = transformedInner.Parameters[1].Type;
         var resultElementType = transformedInner.ReturnType.GetGenericArguments()[0];
 
-        var selectMethod = typeof(ArrowCompute).GetMethod(nameof(ArrowCompute.ExecuteListSelect))!
+        var selectMethod = typeof(ArrowCompute).GetMethod(nameof(ArrowCompute.ExecuteListOp))!
             .MakeGenericMethod(elementArrayType, typeof(BooleanArray), typeof(BooleanArray.Builder));
 
         var ctxP = Expression.Parameter(typeof(ExecutionContext), "ctx");
@@ -524,7 +525,7 @@ public class BufferTransformVisitor : ExpressionVisitorNarrow<Expression, Lambda
         var elementType = Nullable.GetUnderlyingType(valueExpr.Type) ?? valueExpr.Type;
         var elementArrayType = typeof(PrimitiveArray<>).MakeGenericType(elementType);
 
-        var selectMethod = typeof(ArrowCompute).GetMethod(nameof(ArrowCompute.ExecuteListSelect))!
+        var selectMethod = typeof(ArrowCompute).GetMethod(nameof(ArrowCompute.ExecuteListOp))!
             .MakeGenericMethod(elementArrayType, typeof(BooleanArray), typeof(BooleanArray.Builder));
 
         var ctxP = Expression.Parameter(typeof(ExecutionContext), "ctx");
@@ -698,11 +699,12 @@ public class BufferTransformVisitor : ExpressionVisitorNarrow<Expression, Lambda
                 lambdaParams.Add(arrowParam);
         }
 
-        var builder = _builderStack.Peek();
-        lambdaParams.Add(builder);
+        if (_builderStack.Count > 0 && _builderStack.Peek() is ParameterExpression builderParam)
+            lambdaParams.Add(builderParam);
 
-        if (body.Type != typeof(void))
+        if (_builderStack.Count > 0 && body.Type != typeof(void))
         {
+            var builder = _builderStack.Peek();
             if (body.Type.Name.Contains("ReadOnlySpan"))
                 body = Expression.Call(
                     null,
@@ -803,6 +805,46 @@ public class BufferTransformVisitor : ExpressionVisitorNarrow<Expression, Lambda
         };
     }
 
+    protected override Expression VisitNew(NewExpression node)
+    {
+        var type = node.Type;
+        if (_builderStack.Count == 0
+            || !(type.IsClass || type is { IsValueType: true, IsPrimitive: false }))
+            return base.VisitNew(node);
+
+        var structType = new StructType(
+            ArrowSchema.FromSchema(CSharpSchema.ToIcebergSchema(node.Type, null, _ => -1)).FieldsList);
+        var members = type.GetMembers(BindingFlags.Public | BindingFlags.Instance)
+            .Where(m => m is PropertyInfo or FieldInfo).ToList();
+
+        var visitedArgs = new List<Expression>(node.Arguments.Count);
+        for (var i = 0; i < node.Arguments.Count; i++)
+        {
+            var memberType = Utils.PropertyOrFieldType(members[i]);
+            var underlying = Nullable.GetUnderlyingType(memberType) ?? memberType;
+
+            if (underlying.IsClass || underlying is { IsValueType: true, IsPrimitive: false })
+            {
+                var parentBuilder = _builderStack.Peek();
+                var sbExpr = Expression.Convert(parentBuilder, typeof(StructArrayBuilder));
+                var subBuilder = Expression.Call(sbExpr,
+                    typeof(StructArrayBuilder).GetMethod(
+                        nameof(StructArrayBuilder.GetFieldBuilder))!
+                        .MakeGenericMethod(typeof(StructArrayBuilder)),
+                    Expression.Constant(i));
+                _builderStack.Push(subBuilder);
+                visitedArgs.Add(Visit(node.Arguments[i]));
+                _builderStack.Pop();
+            }
+            else
+            {
+                visitedArgs.Add(Visit(node.Arguments[i]));
+            }
+        }
+
+        return MakeNew(node, visitedArgs.AsReadOnly());
+    }
+
     protected override Expression MakeNew(NewExpression node, ReadOnlyCollection<Expression> arguments)
     {
         var type = node.Type;
@@ -821,15 +863,15 @@ public class BufferTransformVisitor : ExpressionVisitorNarrow<Expression, Lambda
             }
         }
 
-        // TODO: change this path to handle three cases
-        // 1. Aliasing already existing array to another. Needs changes in StructArrayBuilder to handle built arrays without copy
-        // 2. Append span to primitive builder
-        // 3. Append built buffer (concatanate) should never happen?
         if (type.IsClass || type is { IsValueType: true, IsPrimitive: false })
         {
-            var method = typeof(ArrowExtensions).GetMethod(nameof(ArrowExtensions.MakeStructArray))!;
             var structType = new StructType(
                 ArrowSchema.FromSchema(CSharpSchema.ToIcebergSchema(node.Type, null, _ => -1)).FieldsList);
+
+            if (_builderStack.Count > 0)
+                return BuildStructWithBuilder(structType, arguments);
+
+            var method = typeof(ArrowExtensions).GetMethod(nameof(ArrowExtensions.MakeStructArray))!;
             return Expression.Call(
                 null,
                 method,
@@ -840,6 +882,67 @@ public class BufferTransformVisitor : ExpressionVisitorNarrow<Expression, Lambda
         }
 
         throw new NotImplementedException("not yet");
+    }
+
+    private Expression BuildStructWithBuilder(
+        StructType structType,
+        ReadOnlyCollection<Expression> arguments)
+    {
+        var builder = _builderStack.Peek();
+        var sbExpr = Expression.Convert(builder, typeof(StructArrayBuilder));
+        var body = new List<Expression>(arguments.Count);
+
+        for (var i = 0; i < arguments.Count; i++)
+        {
+            var arg = arguments[i];
+
+            if (arg.Type == typeof(void))
+            {
+                // Case 0: nested struct already builder-populated via VisitNew
+                // the arg IS the block that populates the sub-builder — include it
+                body.Add(arg);
+            }
+            else if (arg.Type.ImplementsInterface(typeof(IArrowArray)))
+            {
+                // Case 1: alias existing array directly (zero-copy)
+                body.Add(
+                    Expression.Call(
+                        sbExpr,
+                        typeof(StructArrayBuilder).GetMethod(
+                            nameof(StructArrayBuilder.SetFieldArray))!,
+                        Expression.Constant(i),
+                        arg));
+            }
+            else if (arg.Type.Name.Contains("ReadOnlySpan"))
+            {
+                // Case 2: append span to field builder
+                var elemType = arg.Type.GetGenericArguments()[0];
+                var arrayType = GetBufferType(elemType);
+                var fbExpr = Expression.Call(
+                    sbExpr,
+                    typeof(StructArrayBuilder).GetMethod(
+                            nameof(StructArrayBuilder.GetFieldBuilder))!
+                        .MakeGenericMethod(GetConcreteBuilderType(arrayType)),
+                    Expression.Constant(i));
+                var appendMethod = typeof(ArrowCompute)
+                    .GetMethod(nameof(ArrowCompute.AppendToBuilder))!
+                    .MakeGenericMethod(elemType);
+                body.Add(
+                    Expression.Call(
+                        null,
+                        appendMethod,
+                        Expression.Convert(fbExpr, typeof(IArrowArrayBuilder)),
+                        arg));
+            }
+            else
+            {
+                throw new NotImplementedException(
+                    $"Unsupported field type in builder: {arg.Type.Name}");
+            }
+        }
+
+        return Expression.Block(
+            body.Count > 0 ? body : [Expression.Empty()]);
     }
 
     protected override Expression MakeNewArray(NewArrayExpression node, ReadOnlyCollection<Expression> expressions)
