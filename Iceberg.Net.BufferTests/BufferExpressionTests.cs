@@ -1,5 +1,6 @@
 using System.Linq.Expressions;
 using System.Reflection;
+using Apache.Arrow;
 using AwesomeAssertions;
 using Iceberg.Net.Misc;
 using Iceberg.Net.Query.Arrow;
@@ -62,15 +63,13 @@ public class BufferExpressionTests
                 "list select"),
             new TestCase(
                 L((TestRow str) =>
-                    new
-                    {
-                        Res = str.A > 300 &&
-                              str.B < 500.0 &&
-                              str.N.C > 12 &&
-                              str.L.Select(n => n + 3).All(n => n > 5) &&
-                              str.L.Contains(65) &&
-                              str.L.Any(n => n == 7)
-                    }),
+                    str.A > 300 &&
+                    str.B < 500.0 &&
+                    str.N.C > 12 &&
+                    str.L.Select(n => n + 3).All(n => n > 5) &&
+                    str.L.Contains(65) &&
+                    str.L.Any(n => n == 7)
+                ),
                 "complex boolean with list ops"));
         return data;
     }
@@ -107,8 +106,8 @@ public class BufferExpressionTests
             compiled.DynamicInvoke(ctx, inputBatch, builder);
         }
 
-        var output = ((dynamic)builder).Build();
-        var arrowResult = (IEnumerable<T2>)ArrowReader.ReadRecordBatch<T2>(output);
+        IArrowArray output = ((dynamic)builder).Build();
+        var arrowResult = ArrowReader.ReadRecordBatch<T2>(output);
 
         var linqRunner = (Func<T, T2>)expr.Compile();
         List<T2> linqResult;
