@@ -116,9 +116,9 @@ public static class ArrowUtilities
 
     private static readonly IReadOnlyDictionary<Type, ArrowTypeInfo> TypeInfo = new Dictionary<Type, ArrowTypeInfo>
     {
-        { typeof(int), new ArrowTypeInfo(new Int32Type(), typeof(Int32Array), typeof(Int32Array.Builder)) },
-        { typeof(double), new ArrowTypeInfo(new DoubleType(), typeof(DoubleArray), typeof(DoubleArray.Builder)) },
-        { typeof(bool), new ArrowTypeInfo(new BooleanType(), typeof(BooleanArray), typeof(BooleanArray.Builder)) }
+        { typeof(int), new ArrowTypeInfo(Int32Type.Default, typeof(Int32Array), typeof(Int32Array.Builder)) },
+        { typeof(double), new ArrowTypeInfo(DoubleType.Default, typeof(DoubleArray), typeof(DoubleArray.Builder)) },
+        { typeof(bool), new ArrowTypeInfo(BooleanType.Default, typeof(BooleanArray), typeof(BooleanArray.Builder)) }
     };
 
     internal record ArrowTypeInfo(IArrowType ArrowType, Type ArrayType, Type BuilderType);

@@ -82,13 +82,12 @@ public class BufferExpressionTests
             .GetMethod(nameof(Execute), BindingFlags.NonPublic | BindingFlags.Static)!
             .MakeGenericMethod(typeof(TestRow), testCase.Expr.ReturnType);
 
-        var success = (bool)method.Invoke(null, [testCase.Expr, Rows])!;
-        success.Should().BeTrue($"results should match for '{testCase.Desc}'");
+        method.Invoke(null, [testCase.Expr, Rows]);
     }
 
     // ── same pattern as BufferExpressions.Execute ────────────────
 
-    private static bool Execute<T, T2>(LambdaExpression expr, List<T> input)
+    private static void Execute<T, T2>(LambdaExpression expr, List<T> input)
     {
         var manager = new VirtualArenaManager();
         var ctx = new ExecutionContext { Arena = manager.CreateBuffer("default", 100_000_000) };
@@ -116,6 +115,6 @@ public class BufferExpressionTests
             linqResult = input.AsValueEnumerable().Select(linqRunner).ToList();
         }
 
-        return arrowResult.SequenceEqual(linqResult);
+        arrowResult.Should().BeEquivalentTo(linqResult);
     }
 }

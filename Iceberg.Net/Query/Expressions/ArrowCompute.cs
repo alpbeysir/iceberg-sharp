@@ -77,13 +77,12 @@ public static class ArrowCompute
         throw new UnreachableException();
     }
 
-    public static void ExecuteListOp<TElementArray, TResultArray, TResultBuilder>(
+    public static TResultBuilder ExecuteListOp<TElementArray, TResultBuilder>(
         ExecutionContext ctx,
         ListArray l,
         TResultBuilder builder,
         Action<ExecutionContext, TElementArray, TResultBuilder> op)
-        where TResultBuilder : IArrowArrayBuilder<TResultArray, TResultBuilder>
-        where TResultArray : IArrowArray
+        where TResultBuilder : IArrowArrayBuilder
     {
         for (var i = 0; i < l.Length; i++)
         {
@@ -91,6 +90,8 @@ public static class ArrowCompute
             var element = (TElementArray)l.GetSlicedValues(i);
             op(ctx, element, builder);
         }
+
+        return builder;
     }
 
     public static TResultBuilder MakeBuilderFor<TResultBuilder>(IArrowType arrowType)

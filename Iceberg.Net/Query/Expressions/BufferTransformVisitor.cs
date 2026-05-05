@@ -25,6 +25,12 @@ public class BufferTransformVisitor : ExpressionVisitorNarrow<Expression, Lambda
     private readonly Stack<Expression> _builderStack = new();
     private const int MaxBatchSize = 65536;
 
+    private static BlockExpression HideBuilderReturn(Expression expression)
+    {
+        Debug.Assert(expression.Type.Name.Contains("Builder"));
+        return Expression.Block(expression, Expression.Empty());
+    }
+
     private Expression GenerateListSelect(Expression source, LambdaExpression transformedInner)
     {
         var elementArrayType = transformedInner.Parameters[1].Type;
@@ -39,9 +45,8 @@ public class BufferTransformVisitor : ExpressionVisitorNarrow<Expression, Lambda
         var assignLb = Expression.Assign(
             lbVar,
             Expression.Convert(builderP, typeof(ListArray.Builder)));
-        var valueBuilder = Expression.Property(lbVar, "ValueBuilder");
         var typedVb = Expression.Convert(
-            valueBuilder,
+            Expression.Property(lbVar, "ValueBuilder"),
             transformedInner.Parameters[2].Type);
         var invokeInner = Expression.Invoke(transformedInner, ctxP, elemP, typedVb);
         var body = Expression.Block([lbVar], assignLb, invokeInner);
@@ -52,7 +57,7 @@ public class BufferTransformVisitor : ExpressionVisitorNarrow<Expression, Lambda
         var valueType = ArrowUtilities.GetTypeInfo(valueElementType).ArrowType;
 
         var selectMethod = typeof(ArrowCompute).GetMethod(nameof(ArrowCompute.ExecuteListOp))!
-            .MakeGenericMethod(elementArrayType, typeof(ListArray), typeof(ListArray.Builder));
+            .MakeGenericMethod(elementArrayType, typeof(ListArray.Builder));
 
         var opLambda = Expression.Lambda(body, ctxP, elemP, builderP);
 
@@ -60,8 +65,7 @@ public class BufferTransformVisitor : ExpressionVisitorNarrow<Expression, Lambda
             selectMethod,
             source,
             opLambda,
-            typeof(ListArray.Builder),
-            Expression.Constant(valueType));
+            new ArrowUtilities.ArrowTypeInfo(valueType, typeof(ListArray), typeof(ListArray.Builder)));
     }
     
     private Expression GenerateListAll(Expression source, LambdaExpression transformedInner)
@@ -102,12 +106,12 @@ public class BufferTransformVisitor : ExpressionVisitorNarrow<Expression, Lambda
             typeof(IArrowArrayBuilder<BooleanArray, BooleanArray.Builder>));
         var opLambda = Expression.Lambda(
             actionType,
-            Expression.Block(appendCall, Expression.Empty()),
+            HideBuilderReturn(appendCall),
             ctxP,
             elemP,
             builderP);
 
-        return CallListOpWithBuilder(selectMethod, source, opLambda, typeof(BooleanArray.Builder));
+        return CallListOpWithBuilder(selectMethod, source, opLambda, ArrowUtilities.GetTypeInfo(typeof(bool)));
     }
 
     private Expression GenerateListAny(Expression source, LambdaExpression transformedInner)
@@ -144,12 +148,12 @@ public class BufferTransformVisitor : ExpressionVisitorNarrow<Expression, Lambda
             typeof(IArrowArrayBuilder<BooleanArray, BooleanArray.Builder>));
         var opLambda = Expression.Lambda(
             actionType,
-            Expression.Block(appendCall, Expression.Empty()),
+            HideBuilderReturn(appendCall),
             ctxP,
             elemP,
             builderP);
 
-        return CallListOpWithBuilder(selectMethod, source, opLambda, typeof(BooleanArray.Builder));
+        return CallListOpWithBuilder(selectMethod, source, opLambda, ArrowUtilities.GetTypeInfo(typeof(bool)));
     }
 
     private Expression GenerateListContains(Expression source, Expression valueExpr)
@@ -190,48 +194,35 @@ public class BufferTransformVisitor : ExpressionVisitorNarrow<Expression, Lambda
             typeof(IArrowArrayBuilder<BooleanArray, BooleanArray.Builder>));
         var opLambda = Expression.Lambda(
             actionType,
-            Expression.Block(appendCall, Expression.Empty()),
+            HideBuilderReturn(appendCall),
             ctxP,
             elemP,
             builderP);
 
-        return CallListOpWithBuilder(selectMethod, source, opLambda, typeof(BooleanArray.Builder));
+        return CallListOpWithBuilder(selectMethod, source, opLambda, ArrowUtilities.GetTypeInfo(typeof(bool)));
     }
 
     private Expression CallListOpWithBuilder(
         MethodInfo selectMethod,
         Expression source,
         LambdaExpression opLambda,
-        Type concreteBuilderType,
-        params Expression[] ctorArgs)
+        ArrowUtilities.ArrowTypeInfo resultInfo)
     {
         var outer = _builderStack.Peek();
         if (outer != null)
             return Expression.Call(null, selectMethod, _ctxParam, source, outer, opLambda);
 
-        // Intermediate: create temp builder, execute, build, return
-        var bVar = Expression.Variable(concreteBuilderType);
-        Expression init = ctorArgs.Length > 0
-            ? Expression.New(
-                concreteBuilderType.GetConstructor(
-                    BindingFlags.Public | BindingFlags.Instance,
-                    null,
-                    ctorArgs.Select(a => a.Type).ToArray(),
-                    [])!,
-                ctorArgs)
-            : Expression.New(concreteBuilderType);
+        var builder = Expression.Variable(resultInfo.BuilderType, "tmpBuilder");
+        var init = Expression.Call(
+            null,
+            typeof(ArrowCompute).GetMethod(nameof(ArrowCompute.MakeBuilderFor))!
+                .MakeGenericMethod(resultInfo.BuilderType),
+            resultInfo.ArrowType.Quoted);
         return Expression.Block(
-            [bVar],
-            Expression.Assign(bVar, init),
-            Expression.Call(null, selectMethod, _ctxParam, source, bVar, opLambda),
-            Expression.Call(
-                bVar,
-                concreteBuilderType.GetMethod(
-                    "Build",
-                    BindingFlags.Public | BindingFlags.Instance,
-                    null,
-                    Type.EmptyTypes,
-                    [])!));
+            [builder],
+            Expression.Assign(builder, init),
+            Expression.Call(null, selectMethod, _ctxParam, source, builder, opLambda),
+            builder.Call(nameof(IArrowArrayBuilder<>.Build)));
     }
 
     protected override Expression MakeBinary(
@@ -338,23 +329,9 @@ public class BufferTransformVisitor : ExpressionVisitorNarrow<Expression, Lambda
         var expr = base.VisitLambda(node);
         
         _builderStack.Pop();
-        _bindings.Clear();
+        _bindings.Pop();
 
         return expr;
-    }
-    
-    private static Type GetConcreteBuilderType(Type bufferType)
-    {
-        if (bufferType.IsGenericType && bufferType.GetGenericTypeDefinition() == typeof(PrimitiveArray<>))
-        {
-            var innerType = bufferType.GetGenericArguments()[0];
-            return ArrowUtilities.GetTypeInfo(innerType).BuilderType;
-        }
-
-        if (bufferType == typeof(StructArray)) return typeof(StructArrayBuilder);
-        if (bufferType == typeof(ListArray)) return typeof(ListArray.Builder);
-        if (bufferType == typeof(BooleanArray)) return typeof(BooleanArray.Builder);
-        throw new NotSupportedException($"No concrete builder for {bufferType.Name}");
     }
 
     protected override LambdaExpression MakeLambda<T>(
@@ -362,6 +339,7 @@ public class BufferTransformVisitor : ExpressionVisitorNarrow<Expression, Lambda
         Expression body,
         ReadOnlyCollection<Expression> parameters)
     {
+        // TODO maybe use 'parameters' here instead of manual stack
         List<ParameterExpression> lambdaParams = [_ctxParam, .._bindings.Peek().Values];
 
         var builder = _builderStack.Peek();
@@ -373,7 +351,7 @@ public class BufferTransformVisitor : ExpressionVisitorNarrow<Expression, Lambda
             body = builder.Call(nameof(IArrowArrayBuilder<,,>.Append), body);
         }
 
-        var lambda = Expression.Lambda(body, lambdaParams);
+        var lambda = Expression.Lambda(HideBuilderReturn(body), lambdaParams);
         return lambda;
     }
 
@@ -436,13 +414,7 @@ public class BufferTransformVisitor : ExpressionVisitorNarrow<Expression, Lambda
         if (methodName == "Contains")
             return GenerateListContains(source, node.Arguments[1]);
 
-        // already visited by base — MakeLambda scoped bindings correctly
-        var lambdaArg = arguments[1];
-        if (lambdaArg is UnaryExpression { NodeType: ExpressionType.Quote } u)
-            lambdaArg = u.Operand;
-
-        if (lambdaArg is not LambdaExpression transformedInner)
-            return node;
+        var transformedInner = (LambdaExpression)arguments[1];
 
         return methodName switch
         {
@@ -632,6 +604,13 @@ public class BufferTransformVisitor : ExpressionVisitorNarrow<Expression, Lambda
 
         throw new InvalidOperationException("only struct can be accessed");
     }
+    
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public static T AccessField<T>(StructArray arr, int index) where T : class, IArrowArray
+    {
+        // TOOD use Unsafe.As in release mode
+        return (T)arr.Fields[index];
+    }
 
     private static Expression AccessValues(Expression buffer)
     {
@@ -696,11 +675,20 @@ public class BufferTransformVisitor : ExpressionVisitorNarrow<Expression, Lambda
         throw new NotImplementedException("not yet");
     }
 
-    [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    public static T AccessField<T>(StructArray arr, int index) where T : class, IArrowArray
+
+
+    private static Type GetConcreteBuilderType(Type bufferType)
     {
-        // TOOD use Unsafe.As in release mode
-        return (T)arr.Fields[index];
+        if (bufferType.IsGenericType && bufferType.GetGenericTypeDefinition() == typeof(PrimitiveArray<>))
+        {
+            var innerType = bufferType.GetGenericArguments()[0];
+            return ArrowUtilities.GetTypeInfo(innerType).BuilderType;
+        }
+
+        if (bufferType == typeof(StructArray)) return typeof(StructArrayBuilder);
+        if (bufferType == typeof(ListArray)) return typeof(ListArray.Builder);
+        if (bufferType == typeof(BooleanArray)) return typeof(BooleanArray.Builder);
+        throw new NotSupportedException($"No concrete builder for {bufferType.Name}");
     }
 
     private static Type PrimitiveBufferElementType(Expression expression)

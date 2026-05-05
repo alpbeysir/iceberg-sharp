@@ -21,12 +21,13 @@ public class StructArrayBuilder : IArrowArrayBuilder<StructArray, StructArrayBui
     public int FieldCount => _fieldArrays.Length;
 
     /// <summary>Alias an existing array as a field — no copy.</summary>
-    public void SetFieldArray(int index, IArrowArray array)
+    public StructArrayBuilder SetFieldArray(int index, IArrowArray array)
     {
         if (_fieldBuilders[index] != null)
             throw new InvalidOperationException(
                 $"Field {index} already has a builder; cannot alias.");
         _fieldArrays[index] = array;
+        return this;
     }
 
     public T GetFieldBuilder<T>(int index) where T : class, IArrowArrayBuilder
