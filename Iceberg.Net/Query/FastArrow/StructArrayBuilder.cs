@@ -1,19 +1,22 @@
 using Apache.Arrow;
 using Apache.Arrow.Memory;
 using Apache.Arrow.Types;
+using Iceberg.Net.Query.Expressions;
 
-namespace Iceberg.Net.Query.Expressions;
+namespace Iceberg.Net.Query.FastArrow;
 
 public class StructArrayBuilder : IArrowArrayBuilder<StructArray, StructArrayBuilder>
 {
+    public MemoryAllocator? Allocator { get; }
     private readonly StructType _type;
     private readonly IArrowArrayBuilder<IArrowArray>?[] _fieldBuilders;
     private readonly IArrowArray?[] _fieldArrays;
 
-    public StructArrayBuilder(StructType type)
+    public StructArrayBuilder(StructType dataType, MemoryAllocator? allocator = null)
     {
-        _type = type;
-        var count = type.Fields.Count;
+        Allocator = allocator;
+        _type = dataType;
+        var count = dataType.Fields.Count;
         _fieldBuilders = new IArrowArrayBuilder<IArrowArray>?[count];
         _fieldArrays = new IArrowArray?[count];
     }
@@ -32,7 +35,7 @@ public class StructArrayBuilder : IArrowArrayBuilder<StructArray, StructArrayBui
 
     public T GetFieldBuilder<T>(int index) where T : class, IArrowArrayBuilder
     {
-        _fieldBuilders[index] ??= CreateFieldBuilder(_type.Fields[index].DataType);
+        _fieldBuilders[index] ??= ArrowCompute.MakeBuilderFor(_type.Fields[index].DataType, Allocator);
         return (T)_fieldBuilders[index]!;
     }
 
@@ -100,18 +103,5 @@ public class StructArrayBuilder : IArrowArrayBuilder<StructArray, StructArrayBui
             if (b != null)
                 ((dynamic)b).AppendNull();
         return this;
-    }
-
-    private static IArrowArrayBuilder<IArrowArray> CreateFieldBuilder(IArrowType dataType)
-    {
-        return dataType switch
-        {
-            Int32Type => new Int32Array.Builder(),
-            DoubleType => new DoubleArray.Builder(),
-            BooleanType => new BooleanArray.Builder(),
-            ListType l => new ListArray.Builder(l),
-            StructType s => new StructArrayBuilder(s),
-            _ => throw new NotSupportedException($"No field builder for {dataType.TypeId}")
-        };
     }
 }

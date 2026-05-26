@@ -4,9 +4,12 @@ using System.Numerics;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using Apache.Arrow;
+using Apache.Arrow.Memory;
 using Apache.Arrow.Types;
+using Iceberg.Net.Query.FastArrow;
 using Varena;
 using ZLinq.Simd;
+using BitUtility = Apache.Arrow.BitUtility;
 
 namespace Iceberg.Net.Query.Expressions;
 
@@ -32,6 +35,7 @@ public static class ArrowCompute
             ExpressionType.LessThan => Vector.LessThan,
             ExpressionType.And => Vector.BitwiseAnd,
             ExpressionType.AndAlso => Vector.BitwiseAnd,
+            ExpressionType.Equal => Vector.Equals,
             _ => throw new ArgumentOutOfRangeException(nameof(expressionType), expressionType, null)
         };
         Func<T, T, T> selector = expressionType switch
@@ -44,6 +48,7 @@ public static class ArrowCompute
             ExpressionType.LessThan => (n1, n2) => FromBoolMask<T>(n1 < n2),
             ExpressionType.And => (n1, n2) => UnsafeBitwise(n1, n2, (i, i1) => i & i1, (l1, l2) => l1 & l2),
             ExpressionType.AndAlso => (n1, n2) => UnsafeBitwise(n1, n2, (i, i1) => i & i1, (l1, l2) => l1 & l2),
+            ExpressionType.Equal => (n1, n2) => FromBoolMask<T>(n1 == n2),
             _ => throw new ArgumentOutOfRangeException(nameof(expressionType), expressionType, null)
         };
         var zip = l.AsVectorizable().Zip(
@@ -77,16 +82,18 @@ public static class ArrowCompute
         throw new UnreachableException();
     }
 
-    public static TResultBuilder ExecuteListOp<TElementArray, TResultBuilder>(
+    public static TResultBuilder ExecuteElementWiseListOp<TElementArray, TResultBuilder>(
         ExecutionContext ctx,
         ListArray l,
         TResultBuilder builder,
         Action<ExecutionContext, TElementArray, TResultBuilder> op)
         where TResultBuilder : IArrowArrayBuilder
+        where TElementArray : IArrowArray
     {
+        var asListBuilder = builder as ListArrayBuilder;
         for (var i = 0; i < l.Length; i++)
         {
-            if (builder is ListArray.Builder lb) lb.Append();
+            asListBuilder?.Append();
             var element = (TElementArray)l.GetSlicedValues(i);
             op(ctx, element, builder);
         }
@@ -94,45 +101,36 @@ public static class ArrowCompute
         return builder;
     }
 
-    public static TResultBuilder MakeBuilderFor<TResultBuilder>(IArrowType arrowType)
-        where TResultBuilder : IArrowArrayBuilder
+    // fast path when result is a list and we can reuse the original offsets
+    public static ListArrayBuilder ExecuteOneToOneListOp<TElementArray>(
+        ExecutionContext ctx,
+        ListArray l,
+        ListArrayBuilder builder,
+        Action<ExecutionContext, TElementArray, ListArrayBuilder> op)
     {
-        return (TResultBuilder)MakeBuilderFor(arrowType);
+        var values = (TElementArray)l.Values;
+        op(ctx, values, builder);
+        builder.InitializeFromList(l);
+        return builder;
     }
 
-    public static IArrowArrayBuilder MakeBuilderFor(IArrowType arrowType)
+    public static TResultBuilder MakeBuilderForGeneric<TResultBuilder>(IArrowType arrowType, MemoryAllocator? allocator)
+        where TResultBuilder : IArrowArrayBuilder
+    {
+        return (TResultBuilder)MakeBuilderFor(arrowType, allocator);
+    }
+
+    public static IArrowArrayBuilder<IArrowArray> MakeBuilderFor(IArrowType arrowType, MemoryAllocator? allocator)
     {
         return arrowType switch
         {
             DoubleType => new DoubleArray.Builder(),
             Int32Type => new Int32Array.Builder(),
-            BooleanType => new BooleanArray.Builder(),
-            ListType l => new ListArray.Builder(l.ValueDataType),
+            BooleanType => new BooleanArrayBuilder(allocator),
+            ListType l => new ListArrayBuilder(l.ValueDataType),
             StructType s => new StructArrayBuilder(s),
             _ => throw new ArgumentOutOfRangeException(nameof(arrowType), arrowType, null)
         };
-    }
-
-    [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    public static bool AllTrue<T>(ReadOnlySpan<T> mask)
-        where T : unmanaged, INumber<T>
-    {
-        foreach (var t in mask)
-            if (t == T.Zero)
-                return false;
-
-        return true;
-    }
-
-    [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    public static bool AnyTrue<T>(ReadOnlySpan<T> mask)
-        where T : unmanaged, INumber<T>
-    {
-        foreach (var t in mask)
-            if (t != T.Zero)
-                return true;
-
-        return false;
     }
 
     public static ReadOnlySpan<byte> BitmapOps(

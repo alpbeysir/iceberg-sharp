@@ -3,6 +3,7 @@ using System.Reflection;
 using Apache.Arrow;
 using Apache.Arrow.Types;
 using DotNext.Linq.Expressions;
+using Iceberg.Net.Query.FastArrow;
 
 namespace Iceberg.Net.Query.Expressions;
 
@@ -10,19 +11,16 @@ public static class ArrowUtilities
 {
     public static StructArray AsStructArray(this RecordBatch batch)
     {
-        return new StructArray(new StructType(batch.Schema.FieldsList), batch.Length, batch.Arrays, ArrowBuffer.Empty);
+        return new StructArray(
+            new StructType(batch.Schema.FieldsList),
+            batch.Length,
+            batch.Arrays,
+            ArrowBuffer.Empty);
     }
 
     public static RecordBatch AsRecordBatch(this StructArray array, Schema schema)
     {
         return new RecordBatch(schema, array.Fields, array.Length);
-    }
-
-    public static StructArray MakeStructArray(this StructType type, IArrowArray[] arrays)
-    {
-        // TODO account for constants
-        var length = arrays[0].Length;
-        return new StructArray(type, length, arrays, ArrowBuffer.Empty);
     }
 
     public static ConstantExpression MakeConstantArray(Type elementType, object? val, int size)
@@ -38,7 +36,7 @@ public static class ArrowUtilities
     {
         if (item.HasValue)
         {
-            var builder = new ArrowBuffer.Builder<T>(size);
+            var builder = new ArrowBufferBuilder<T>(size);
             builder.Resize(size);
             builder.Span.Fill(item.Value);
             return ArrayFromBuffer<T>(builder.Build(), size).Quoted;
@@ -49,12 +47,23 @@ public static class ArrowUtilities
         }
     }
 
+    internal static ArrowTypeInfo ListOf(IArrowType arrowType)
+    {
+        return new ArrowTypeInfo(new ListType(arrowType), typeof(ListArray), typeof(ListArrayBuilder));
+    }
+
     internal static ArrowTypeInfo GetTypeInfo(Type type)
     {
         if (!TypeInfo.TryGetValue(type, out var info))
             throw new NotSupportedException($"The type {type.FullName} is not supported.");
 
         return info;
+    }
+
+    public static T AccessField<T>(StructArray arr, int index) where T : class, IArrowArray
+    {
+        // TODO use Unsafe.As in release mode
+        return (T)arr.Fields[index];
     }
 
     private static PrimitiveArray<T> ArrayFromBuffer<T>(ArrowBuffer valueBuffer, int length)
@@ -118,7 +127,7 @@ public static class ArrowUtilities
     {
         { typeof(int), new ArrowTypeInfo(Int32Type.Default, typeof(Int32Array), typeof(Int32Array.Builder)) },
         { typeof(double), new ArrowTypeInfo(DoubleType.Default, typeof(DoubleArray), typeof(DoubleArray.Builder)) },
-        { typeof(bool), new ArrowTypeInfo(BooleanType.Default, typeof(BooleanArray), typeof(BooleanArray.Builder)) }
+        { typeof(bool), new ArrowTypeInfo(BooleanType.Default, typeof(BooleanArray), typeof(BooleanArrayBuilder)) }
     };
 
     internal record ArrowTypeInfo(IArrowType ArrowType, Type ArrayType, Type BuilderType);

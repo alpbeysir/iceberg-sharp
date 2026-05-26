@@ -3,6 +3,7 @@ using System.Reflection;
 using System.Runtime.CompilerServices;
 using Apache.Arrow;
 using Apache.Arrow.Types;
+using Iceberg.Net.Query.FastArrow;
 using Array = System.Array;
 
 namespace Iceberg.Net.Query.Arrow;
@@ -199,7 +200,7 @@ public static class ArrowConverter
         var flattenedData = new List<U>();
 
         var offsetsBuilder = new Int32Array.Builder();
-        var validityBuilder = new BooleanArray.Builder();
+        var validityBuilder = new BooleanArrayBuilder();
 
         var currentOffset = 0;
         offsetsBuilder.Append(0);
