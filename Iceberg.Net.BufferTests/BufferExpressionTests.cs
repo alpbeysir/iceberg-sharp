@@ -114,10 +114,10 @@ public class BufferExpressionTests
         {
             compiled.DynamicInvoke(ctx, inputBatch, builder);
         }
-
-        ctx.Arena.Dispose();
-
+        
         IArrowArray output = ((dynamic)builder).Build();
+        ctx.Arena.Dispose();
+        
         var arrowResult = ArrowReader.ReadRecordBatch<T2>(output);
 
         var linqRunner = (Func<T, T2>)expr.Compile();
