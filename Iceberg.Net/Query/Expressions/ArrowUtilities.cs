@@ -3,6 +3,8 @@ using System.Reflection;
 using Apache.Arrow;
 using Apache.Arrow.Types;
 using DotNext.Linq.Expressions;
+using DotNext.Reflection;
+using Iceberg.Net.Misc;
 using Iceberg.Net.Query.FastArrow;
 
 namespace Iceberg.Net.Query.Expressions;
@@ -54,6 +56,7 @@ public static class ArrowUtilities
 
     internal static ArrowTypeInfo GetTypeInfo(Type type)
     {
+        if (type.ImplementsInterface(typeof(IEnumerable<>))) return ListOf(GetTypeInfo(type.GetGenericArguments()[0]).ArrowType);
         if (!TypeInfo.TryGetValue(type, out var info))
             throw new NotSupportedException($"The type {type.FullName} is not supported.");
 

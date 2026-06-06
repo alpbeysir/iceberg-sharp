@@ -1,4 +1,5 @@
 ﻿using System.Buffers;
+using System.Runtime;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using Apache.Arrow.Memory;
@@ -10,6 +11,7 @@ public class UnsafeArenaMemoryAllocator(VirtualBuffer buffer) : MemoryAllocator
 {
     private sealed unsafe class ArenaMemoryManager(byte* pointer, int length) : MemoryManager<byte>
     {
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public override Span<byte> GetSpan()
         {
             return new Span<byte>(pointer, length);

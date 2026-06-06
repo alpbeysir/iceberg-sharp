@@ -1,8 +1,10 @@
 ﻿using System.Collections.ObjectModel;
 using System.Diagnostics;
+using System.Diagnostics.CodeAnalysis;
 using System.Linq.CompilerServices;
 using System.Linq.Expressions;
 using System.Reflection;
+using System.Runtime.CompilerServices;
 using Apache.Arrow;
 using DotNext.Linq.Expressions;
 using Iceberg.Net.Misc;
@@ -17,13 +19,22 @@ public sealed class ExecutionContext
     public required UnsafeArenaMemoryAllocator ArrowAllocator { get; init; }
 }
 
+public record InputInfo(Expression Array, Expression? Range)
+{
+    public bool HasRange()
+    {
+        return Range is not null;
+    }
+}
+
 public class BufferTransformVisitor : ExpressionVisitorNarrow<Expression, LambdaExpression, Expression,
     NewExpression, ElementInit, MemberBinding, MemberAssignment, MemberListBinding, MemberMemberBinding>
 {
     private readonly Stack<Dictionary<string, ParameterExpression>> _bindings = [];
     private readonly ParameterExpression _ctxParam = Expression.Parameter(typeof(ExecutionContext), "ctx");
     private readonly Dictionary<MemberInfo, int> _memberIndex = [];
-    private readonly Stack<Expression> _builderStack = new();
+    private readonly Stack<Expression?> _builderStack = new();
+    private readonly Stack<ParameterExpression?> _rangeStack = new();
     private const int MaxBatchSize = 65536;
 
     protected override Expression VisitLambda<T>(Expression<T> node)
@@ -93,43 +104,79 @@ public class BufferTransformVisitor : ExpressionVisitorNarrow<Expression, Lambda
         return expr;
     }
 
+    protected override Expression VisitMethodCall(MethodCallExpression node)
+    {
+        Expression? o = Visit(node.Object);
+        var isRangeNeeded = IsRangeNeeded(node);
+        if (isRangeNeeded) _rangeStack.Push(Expression.Parameter(typeof(Range), "range"));
+        ReadOnlyCollection<Expression>? a = Visit(node.Arguments);
+        if (isRangeNeeded) _rangeStack.Pop();
+        return MakeMethodCall(node, o, a);
+    }
+
     private Expression GenerateListSelect(
         Expression source,
         Type originalReturnType,
-        LambdaExpression arrowPredicate)
+        LambdaExpression predicate)
     {
         return ExecuteOneToOneListOp(
             source,
-            AccessValueBuilderAndCallPredicate(arrowPredicate),
+            AccessValueBuilderAndCallPredicate(predicate),
             ArrowUtilities.GetTypeInfo(originalReturnType));
     }
 
     private static LambdaExpression AccessValueBuilderAndCallPredicate(
         LambdaExpression arrowPredicate)
     {
+        var hasRange = HasRange(arrowPredicate);
         var arrowInputArrayType = arrowPredicate.Parameters[1].Type;
-        var arrowElementBuilderType = arrowPredicate.Parameters[2].Type;
+        Type arrowElementBuilderType = GetResultBuilder(arrowPredicate).Type;
 
         var ctxP = Expression.Parameter(typeof(ExecutionContext), "ctx");
         var elemP = Expression.Parameter(arrowInputArrayType, "elem");
         var builderP = Expression.Parameter(typeof(ListArrayBuilder), "builder");
 
-        return Expression.Lambda(
-            Expression.Invoke(
-                arrowPredicate,
-                ctxP,
-                elemP,
-                AccessValueBuilder(arrowElementBuilderType, builderP)),
+        var invokeArgs = new List<Expression>
+        {
             ctxP,
             elemP,
-            builderP);
+            AccessValueBuilder(arrowElementBuilderType, builderP)
+        };
+        List<ParameterExpression> outerParams = [ctxP, elemP, builderP];
+
+        if (hasRange)
+        {
+            ParameterExpression rangeP = Expression.Parameter(typeof(Range), "range");
+            invokeArgs.Insert(2, rangeP);
+            outerParams.Insert(2, rangeP);
+        }
+
+        return Expression.Lambda(
+            Expression.Invoke(arrowPredicate, invokeArgs),
+            outerParams);
+    }
+
+    private static ParameterExpression GetResultBuilder(LambdaExpression arrowPredicate)
+    {
+        return arrowPredicate.Parameters[^1];
+    }
+
+    private static bool HasRange(LambdaExpression op)
+    {
+        return op.Parameters.Count == 4 && op.Parameters[2].Type == typeof(Range);
     }
 
     private static Expression AccessValueBuilder(Type valueBuilderType, ParameterExpression listBuilder)
     {
+#if DEBUG
         return Expression.Convert(
             Expression.Property(listBuilder, nameof(ListArrayBuilder.ValueBuilder)),
             valueBuilderType);
+#else
+        return typeof(Unsafe).GetMethod(nameof(Unsafe.As), [typeof(object)])!.CallStatic(
+            [valueBuilderType],
+            [listBuilder.Property(nameof(ListArrayBuilder.ValueBuilder))]);
+#endif
     }
 
     private Expression GenerateListAll(
@@ -138,11 +185,13 @@ public class BufferTransformVisitor : ExpressionVisitorNarrow<Expression, Lambda
         LambdaExpression predicate)
     {
         _builderStack.Push(Expression.Empty());
+        _rangeStack.Push(null);
         var map = GenerateListSelect(source, originalReturnType, predicate);
         _builderStack.Pop();
+        _rangeStack.Pop();
 
-        LambdaExpression all = (ExecutionContext ctx, BooleanArray b, BooleanArrayBuilder builder) =>
-            HideBuilderReturnGeneric(builder.Append(false));
+        LambdaExpression all = (ExecutionContext ctx, BooleanArray b, Range r, BooleanArrayBuilder builder) =>
+            HideBuilderReturnGeneric(builder.Append(ArrowCompute.All(b, r)));
 
         return ExecuteElementWiseListOp(
             map,
@@ -155,11 +204,13 @@ public class BufferTransformVisitor : ExpressionVisitorNarrow<Expression, Lambda
         Type originalReturnType,
         LambdaExpression predicate)
     {
-        _builderStack.Push(Expression.Empty());
+        _builderStack.Push(null);
+        _rangeStack.Push(null);
         var map = GenerateListSelect(source, originalReturnType, predicate);
+        _rangeStack.Pop();
         _builderStack.Pop();
 
-        LambdaExpression all = (ExecutionContext ctx, BooleanArray b, BooleanArrayBuilder builder) =>
+        LambdaExpression all = (ExecutionContext ctx, BooleanArray b, Range r, BooleanArrayBuilder builder) =>
             HideBuilderReturnGeneric(builder.Append(true));
 
         return ExecuteElementWiseListOp(
@@ -184,7 +235,7 @@ public class BufferTransformVisitor : ExpressionVisitorNarrow<Expression, Lambda
             .MakeGenericMethod(arrowInputArrayType);
 
         var outer = _builderStack.Peek();
-        if (outer is not DefaultExpression)
+        if (outer is not null)
         {
             return Expression.Call(null, method, _ctxParam, source, outer, op);
         }
@@ -197,34 +248,30 @@ public class BufferTransformVisitor : ExpressionVisitorNarrow<Expression, Lambda
                     .MakeGenericMethod(resultListType.BuilderType),
                 resultListType.ArrowType.Quoted,
                 ArrowArenaAllocator());
-            var reserveInListBuilder = builder.Call(
-                nameof(IArrowArrayBuilder<,>.Reserve),
-                source.Property(nameof(IArrowArray.Length)));
-            var reserveInValues = AccessValueBuilder(resultElementType.BuilderType, builder).Call(
-                nameof(IArrowArrayBuilder<,>.Reserve),
-                AccessListValues(source).Property(nameof(IArrowArray.Length)));
             return Expression.Block(
                 [builder],
                 Expression.Assign(builder, init),
-                reserveInListBuilder,
-                reserveInValues,
                 Expression.Call(null, method, _ctxParam, source, builder, op),
                 builder.Call(nameof(IArrowArrayBuilder<>.Build), ArrowArenaAllocator()));
         }
     }
-
+    
     private Expression ExecuteElementWiseListOp(
         Expression source,
         LambdaExpression op,
         ArrowUtilities.ArrowTypeInfo resultInfo)
     {
-        var arrowInputArrayType = op.Parameters[1].Type;
-        var arrowResultBuilderType = op.Parameters[2].Type;
-        var method = typeof(ArrowCompute).GetMethod(nameof(ArrowCompute.ExecuteElementWiseListOp))!
-            .MakeGenericMethod(arrowInputArrayType, arrowResultBuilderType);
+        var hasRange = HasRange(op);
+        if (!hasRange) throw new InvalidOperationException("must have range to execute element-wise");
+
+        Type arrowInputArrayType = GetInput(op).Type;
+        Type arrowResultBuilderType = GetResultBuilder(op).Type;
+        MethodInfo method =
+            typeof(ArrowCompute).GetMethod(nameof(ArrowCompute.ExecuteElementWiseListOpWithRange))!
+                .MakeGenericMethod(arrowInputArrayType, arrowResultBuilderType);
         
         var outer = _builderStack.Peek();
-        if (outer is not DefaultExpression)
+        if (outer is not null)
         {
             return Expression.Call(null, method, _ctxParam, source, outer, op);
         }
@@ -237,16 +284,21 @@ public class BufferTransformVisitor : ExpressionVisitorNarrow<Expression, Lambda
                     .MakeGenericMethod(resultInfo.BuilderType),
                 resultInfo.ArrowType.Quoted,
                 ArrowArenaAllocator());
-            var reserveInListBuilder = builder.Call(
+            var reserveInBuilder = builder.Call(
                 nameof(IArrowArrayBuilder<,>.Reserve),
                 source.Property(nameof(IArrowArray.Length)));
             return Expression.Block(
                 [builder],
                 Expression.Assign(builder, init),
-                reserveInListBuilder,
+                reserveInBuilder,
                 Expression.Call(null, method, _ctxParam, source, builder, op),
                 builder.Call(nameof(IArrowArrayBuilder<>.Build), ArrowArenaAllocator()));
         }
+    }
+
+    private static ParameterExpression GetInput(LambdaExpression op)
+    {
+        return op.Parameters[1];
     }
 
     protected override Expression MakeBinary(
@@ -264,24 +316,24 @@ public class BufferTransformVisitor : ExpressionVisitorNarrow<Expression, Lambda
         {
             if (leftElementType != typeof(bool))
             {
-                left = typeof(ArrowCompute).GetMethod(nameof(ArrowCompute.BooleanArrayFromMask))!.CallStatic(
+                left = typeof(ArrowCompute).GetMethod(nameof(ArrowCompute.BitmapFromMask))!.CallStatic(
                     [leftElementType],
-                    [_ctxParam, left]);
+                    [_ctxParam, MaybeApplyRange(AccessPrimitiveValues(left))]);
             }
 
             if (rightElementType != typeof(bool))
             {
-                right = typeof(ArrowCompute).GetMethod(nameof(ArrowCompute.BooleanArrayFromMask))!.CallStatic(
+                right = typeof(ArrowCompute).GetMethod(nameof(ArrowCompute.BitmapFromMask))!.CallStatic(
                     [rightElementType],
-                    [_ctxParam, right]);
+                    [_ctxParam, MaybeApplyRange(AccessPrimitiveValues(right))]);
             }
 
             return typeof(ArrowCompute).GetMethod(nameof(ArrowCompute.BitmapOps))!.CallStatic(
                 [],
                 [
                     _ctxParam,
-                    AccessPrimitiveValues(left),
-                    AccessPrimitiveValues(right),
+                    MaybeApplyRange(AccessPrimitiveValues(left)),
+                    MaybeApplyRange(AccessPrimitiveValues(right)),
                     node.NodeType.Quoted
                 ]);
         }
@@ -290,8 +342,8 @@ public class BufferTransformVisitor : ExpressionVisitorNarrow<Expression, Lambda
             [leftElementType],
             [
                 _ctxParam,
-                AccessPrimitiveValues(left),
-                AccessPrimitiveValues(right),
+                MaybeApplyRange(AccessPrimitiveValues(left)),
+                MaybeApplyRange(AccessPrimitiveValues(right)),
                 node.NodeType.Quoted
             ]);
     }
@@ -334,6 +386,9 @@ public class BufferTransformVisitor : ExpressionVisitorNarrow<Expression, Lambda
         ReadOnlyCollection<Expression> parameters)
     {
         List<ParameterExpression> lambdaParams = [_ctxParam, ..parameters.Cast<ParameterExpression>()];
+
+        if (TryGetParameter(_rangeStack, out ParameterExpression? rangeParam))
+            lambdaParams.Add(rangeParam);
 
         var builder = _builderStack.Peek();
         lambdaParams.Add((ParameterExpression)builder);
@@ -544,7 +599,7 @@ public class BufferTransformVisitor : ExpressionVisitorNarrow<Expression, Lambda
                 return Expression.Call(
                     null,
                     convertMethod,
-                    [_ctxParam, AccessPrimitiveValues(operand)]);
+                    [_ctxParam, MaybeApplyRange(AccessPrimitiveValues(operand))]);
             }
 
             var opUnderlying = Nullable.GetUnderlyingType(node.Operand.Type) ?? node.Operand.Type;
@@ -555,7 +610,7 @@ public class BufferTransformVisitor : ExpressionVisitorNarrow<Expression, Lambda
             return Expression.Call(
                 null,
                 convertMethod2,
-                [_ctxParam, AccessPrimitiveValues(operand)]);
+                [_ctxParam, MaybeApplyRange(AccessPrimitiveValues(operand))]);
         }
 
         return node;
@@ -687,9 +742,24 @@ public class BufferTransformVisitor : ExpressionVisitorNarrow<Expression, Lambda
         return buffer.Property(nameof(PrimitiveArray<>.Values));
     }
 
-    private static Expression AccessListValues(Expression buffer)
+    private static bool IsRangeNeeded(MethodCallExpression node)
     {
-        return buffer.Property(nameof(ListArray.Values));
+        Type? declaringType = node.Method.DeclaringType;
+        if (declaringType == null) return false;
+        List<string> names = [];
+        return names.Contains(node.Method.Name);
+    }
+
+    private Expression MaybeApplyRange(Expression spanExpr)
+    {
+        if (TryGetParameter(_rangeStack, out ParameterExpression? rangeParam))
+        {
+            Type elemType = spanExpr.Type.GetGenericArguments()[0];
+            return typeof(ArrowCompute).GetMethod(nameof(ArrowCompute.SliceSpan))!
+                .CallStatic([elemType], [spanExpr, rangeParam]);
+        }
+
+        return spanExpr;
     }
 
     private Expression ArrowArenaAllocator()
@@ -697,4 +767,22 @@ public class BufferTransformVisitor : ExpressionVisitorNarrow<Expression, Lambda
         return _ctxParam.Property(nameof(ExecutionContext.ArrowAllocator));
     }
 
+    private static bool TryGetParameter<T>(Stack<T?> stack, [NotNullWhen(true)] out ParameterExpression? param) where T : Expression
+    {
+        if (stack.Count == 0)
+        {
+            param = null;
+            return false;
+        }
+
+        T? item = stack.Peek();
+        if (item is ParameterExpression param2)
+        {
+            param = param2;
+            return true;
+        }
+
+        param = null;
+        return false;
+    }
 }

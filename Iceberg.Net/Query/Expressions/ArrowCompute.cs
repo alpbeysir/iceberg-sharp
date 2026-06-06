@@ -60,6 +60,12 @@ public static class ArrowCompute
         return result;
     }
 
+    public static ReadOnlySpan<T> SliceSpan<T>(ReadOnlySpan<T> span, Range range)
+    {
+        (int Offset, int Length) offsetAndLength = range.GetOffsetAndLength(span.Length);
+        return span.Slice(offsetAndLength.Offset, offsetAndLength.Length);
+    }
+
     private static T UnsafeBitwise<T>(T l, T r, Func<int, int, int> func, Func<long, long, long> func2)
         where T : unmanaged, INumber<T>
     {
@@ -82,20 +88,22 @@ public static class ArrowCompute
         throw new UnreachableException();
     }
 
-    public static TResultBuilder ExecuteElementWiseListOp<TElementArray, TResultBuilder>(
+    public static TResultBuilder ExecuteElementWiseListOpWithRange<TElementArray, TResultBuilder>(
         ExecutionContext ctx,
         ListArray l,
         TResultBuilder builder,
-        Action<ExecutionContext, TElementArray, TResultBuilder> op)
-        where TResultBuilder : IArrowArrayBuilder
-        where TElementArray : IArrowArray
+        Action<ExecutionContext, TElementArray, Range, TResultBuilder> op)
+        where TResultBuilder : IArrowArrayBuilder<IArrowArray>
+        where TElementArray : class, IArrowArray
     {
         var asListBuilder = builder as ListArrayBuilder;
         for (var i = 0; i < l.Length; i++)
         {
             asListBuilder?.Append();
-            var element = (TElementArray)l.GetSlicedValues(i);
-            op(ctx, element, builder);
+            var start = l.ValueOffsets[i];
+            var end = start + l.GetValueLength(i);
+            Range range = new(start, end);
+            op(ctx, Unsafe.As<TElementArray>(l.Values), range, builder);
         }
 
         return builder;
@@ -108,6 +116,8 @@ public static class ArrowCompute
         ListArrayBuilder builder,
         Action<ExecutionContext, TElementArray, ListArrayBuilder> op)
     {
+        builder.Reserve(l.Length);
+        builder.ValueBuilder.Reserve(l.Values.Length);
         var values = (TElementArray)l.Values;
         op(ctx, values, builder);
         builder.InitializeFromList(l);
@@ -127,8 +137,8 @@ public static class ArrowCompute
             DoubleType => new DoubleArray.Builder(),
             Int32Type => new Int32Array.Builder(),
             BooleanType => new BooleanArrayBuilder(allocator),
-            ListType l => new ListArrayBuilder(l.ValueDataType),
-            StructType s => new StructArrayBuilder(s),
+            ListType l => new ListArrayBuilder(l, allocator),
+            StructType s => new StructArrayBuilder(s, allocator),
             _ => throw new ArgumentOutOfRangeException(nameof(arrowType), arrowType, null)
         };
     }
@@ -188,7 +198,162 @@ public static class ArrowCompute
         return result;
     }
 
-    public static ReadOnlySpan<byte> BooleanArrayFromMask<T>(ExecutionContext ctx, ReadOnlySpan<T> mask)
+    private static readonly int VectorSize = Vector<byte>.Count;
+
+    public static bool All(BooleanArray array, Range range)
+    {
+        ReadOnlySpan<byte> bitmap = array.Values;
+
+        (int Offset, int Length) offsetAndLength = range.GetOffsetAndLength(array.Length);
+        var currentBit = offsetAndLength.Offset;
+        var bitsRemaining = offsetAndLength.Length;
+
+        if (bitsRemaining <= 0) return true;
+
+        // 1. Handle Head (Unsynchronized bits up to the next byte boundary)
+        var headBits = (8 - (currentBit & 7)) & 7;
+        if (headBits > 0)
+        {
+            var bitsToRead = Math.Min(headBits, bitsRemaining);
+            if (!MatchScalar(bitmap, currentBit, bitsToRead, true))
+                return false;
+
+            currentBit += bitsToRead;
+            bitsRemaining -= bitsToRead;
+        }
+
+        if (bitsRemaining <= 0) return true;
+
+        // Move to byte-based tracking
+        var byteIndex = currentBit >> 3;
+        var byteLength = bitsRemaining >> 3;
+        var tailBits = bitsRemaining & 7;
+
+        // 2. Vectorized Loop (Process full Vector chunks)
+        if (Vector.IsHardwareAccelerated && byteLength >= VectorSize)
+        {
+            // Vector of 0xFF (all bits set)
+            Vector<byte> allOnes = Vector<byte>.AllBitsSet;
+
+            while (byteLength >= VectorSize)
+            {
+                Vector<byte> vector = new(bitmap.Slice(byteIndex, VectorSize));
+
+                // If any byte in the vector is not 0xFF, Vector.Equals won't match allOnes
+                if (!Vector.EqualsAll(vector, allOnes))
+                    return false;
+
+                byteIndex += VectorSize;
+                byteLength -= VectorSize;
+            }
+        }
+
+        // 3. Handle Middle Tail (Remaining full bytes less than a Vector size)
+        while (byteLength > 0)
+        {
+            if (bitmap[byteIndex] != 0xFF)
+                return false;
+
+            byteIndex++;
+            byteLength--;
+        }
+
+        // 4. Handle Tail Bits (The remaining fractional bits at the end)
+        if (tailBits > 0)
+        {
+            currentBit = byteIndex << 3;
+            if (!MatchScalar(bitmap, currentBit, tailBits, true))
+                return false;
+        }
+
+        return true;
+    }
+
+    public static bool Any(BooleanArray array, int bitOffset, int length)
+    {
+        ReadOnlySpan<byte> bitmap = array.Values;
+        if (length <= 0) return false;
+
+        var currentBit = bitOffset;
+        var bitsRemaining = length;
+
+        // 1. Handle Head
+        var headBits = (8 - (currentBit & 7)) & 7;
+        if (headBits > 0)
+        {
+            var bitsToRead = Math.Min(headBits, bitsRemaining);
+            if (MatchScalar(bitmap, currentBit, bitsToRead, false))
+                return true;
+
+            currentBit += bitsToRead;
+            bitsRemaining -= bitsToRead;
+        }
+
+        if (bitsRemaining <= 0) return false;
+
+        var byteIndex = currentBit >> 3;
+        var byteLength = bitsRemaining >> 3;
+        var tailBits = bitsRemaining & 7;
+
+        // 2. Vectorized Loop
+        if (Vector.IsHardwareAccelerated && byteLength >= VectorSize)
+        {
+            Vector<byte> allZeros = Vector<byte>.Zero;
+
+            while (byteLength >= VectorSize)
+            {
+                Vector<byte> vector = new(bitmap.Slice(byteIndex, VectorSize));
+
+                // If the vector is NOT entirely zeros, then it contains at least one '1' bit
+                if (!Vector.EqualsAll(vector, allZeros))
+                    return true;
+
+                byteIndex += VectorSize;
+                byteLength -= VectorSize;
+            }
+        }
+
+        // 3. Handle Middle Tail
+        while (byteLength > 0)
+        {
+            if (bitmap[byteIndex] != 0x00)
+                return true;
+
+            byteIndex++;
+            byteLength--;
+        }
+
+        // 4. Handle Tail Bits
+        if (tailBits > 0)
+        {
+            currentBit = byteIndex << 3;
+            if (MatchScalar(bitmap, currentBit, tailBits, false))
+                return true;
+        }
+
+        return false;
+    }
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    private static bool MatchScalar(ReadOnlySpan<byte> bitmap, int bitOffset, int length, bool expected)
+    {
+        var byteIndex = bitOffset >> 3;
+        var bitPos = bitOffset & 7;
+
+        // Create a mask for the bits we care about in this byte
+        // e.g., if bitPos = 2 and length = 3, we want bits 2, 3, and 4.
+        var mask = (byte)(((1 << length) - 1) << bitPos);
+        var value = (byte)(bitmap[byteIndex] & mask);
+
+        if (expected)
+            // For 'All', the masked bits must match the mask itself (all 1s)
+            return value == mask;
+        else
+            // For 'Any', the masked bits must not be completely 0
+            return value != 0;
+    }
+
+    public static ReadOnlySpan<byte> BitmapFromMask<T>(ExecutionContext ctx, ReadOnlySpan<T> mask)
         where T : struct, INumber<T>
     {
         var source = mask;

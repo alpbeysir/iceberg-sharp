@@ -1,6 +1,7 @@
 ﻿using System.Linq.Expressions;
 using Apache.Arrow;
 using Apache.Arrow.Serialization;
+using FastExpressionCompiler;
 using Iceberg.Net.Misc;
 using Iceberg.Net.Query.Arrow;
 using Iceberg.Net.Query.Expressions;
@@ -34,15 +35,17 @@ public class BufferExpressions
         LambdaExpression test = (int a, int b) => a + b;
         //Do(test);   
 
-        var list = Enumerable.Range(0, 500000).Select(_ => CreateRandom()).ToList();
+        var size = (int)Math.Pow(2, 20);
+        Console.WriteLine($"size: {size}");
+        List<MyStruct> list = Enumerable.Range(0, size).Select(_ => CreateRandom()).ToList();
 
-        // LambdaExpression test2 = (MyStruct str) => new { b = str.B, a = str.A + str.B, Z = str.N.C };
-        // method.MakeGenericMethod(typeof(MyStruct), test2.ReturnType).Invoke(null, [test2, list]);
-        //
-        // LambdaExpression test4 = (MyStruct str) => str.L.Select(n => n + 3);
-        // method.MakeGenericMethod(typeof(MyStruct), test4.ReturnType).Invoke(null, [test4, list]);
+        LambdaExpression test2 = (MyStruct str) => new { b = str.B, a = str.A + str.B, Z = str.N.C };
+        Run(test2, list);
 
-        LambdaExpression test5 = (MyStruct str) => str.LNest.Select(n => n.All(n2 => n2 == 5));
+        LambdaExpression test4 = (MyStruct str) => str.L.Select(n => n + 3);
+        Run(test4, list);
+
+        LambdaExpression test5 = (MyStruct str) => str.LNest.All(n => n.All(n2 => n2 > 0));
         Run(test5, list);
 
         // LambdaExpression test3 = (MyStruct str) =>
@@ -59,14 +62,16 @@ public class BufferExpressions
         // method.MakeGenericMethod(typeof(MyStruct), test3.ReturnType).Invoke(null, [test3, list]);
     }
 
-    private static void Run(LambdaExpression test5, List<MyStruct> list)
+    private static void Run(LambdaExpression expr, List<MyStruct> list)
     {
-        var arrow = CompileArrow(test5);
-        var linq = CompileLinq(test5);
-        var inputBatch = ArrowFfiBridge.BuildRecordBatch(list).AsStructArray();
+        Console.WriteLine($"{expr}");
+        
+        var arrow = CompileArrow(expr);
+        var linq = CompileLinq(expr);
+        using StructArray inputBatch = ArrowFfiBridge.BuildRecordBatch(list).AsStructArray();
         var method = typeof(BufferExpressions).GetMethod(nameof(Execute))!
-            .MakeGenericMethod(typeof(MyStruct), test5.ReturnType);
-        for (var i = 0; i < 100000; i++) method.Invoke(null, [linq, arrow, list, inputBatch]);
+            .MakeGenericMethod(typeof(MyStruct), expr.ReturnType);
+        for (var i = 0; i < 5; i++) method.Invoke(null, [linq, arrow, list, inputBatch]);
     }
 
     private static MyStruct CreateRandom()
@@ -88,8 +93,8 @@ public class BufferExpressions
         List<T> input,
         StructArray structArray)
     {
-        var manager = new VirtualArenaManager();
-        var buffer = manager.CreateBuffer("default", 1000_000_000);
+        using VirtualArenaManager manager = new();
+        using VirtualBuffer buffer = manager.CreateBuffer("default", 4_000_000_000);
         var allocator = new UnsafeArenaMemoryAllocator(buffer);
         var ctx = new ExecutionContext { Arena = buffer, ArrowAllocator = allocator };
 
@@ -100,20 +105,20 @@ public class BufferExpressions
         {
             arrowCompiled.DynamicInvoke(ctx, structArray, builder);
         }
+        
+        Console.WriteLine($"arena used: {Utils.ToFileSize(buffer.AllocatedBytes)}");
 
-        IArrowArray output = ((dynamic)builder).Build();
-        ctx.Arena.Dispose();
-        output.Dispose();
+        using IArrowArray output = ((dynamic)builder).Build();
 
-        // var linqRunner = (Func<T, T2>)linqCompiled;
-        // List<T2> linqResult;
-        // using (new MeasureTime("linq"))
-        // {
-        //     linqResult = input.AsValueEnumerable().Select(linqRunner).ToList();
-        // }
+        Func<T, T2> linqRunner = (Func<T, T2>)linqCompiled;
+        List<T2> linqResult;
+        using (new MeasureTime("linq"))
+        {
+            linqResult = input.Select(linqRunner).ToList();
+        }
 
-        // var arrowResult = ArrowReader.ReadRecordBatch<T2>(output);
-        // Console.WriteLine(linqResult.Count == arrowResult.Count());
+        IEnumerable<T2> arrowResult = ArrowReader.ReadRecordBatch<T2>(output);
+        Console.WriteLine(linqResult.Count == arrowResult.Count());
     }
 
     private static Delegate CompileLinq(LambdaExpression expr)
@@ -126,7 +131,7 @@ public class BufferExpressions
         BufferTransformVisitor visitor = new();
         var result = visitor.Visit(expr);
 
-        var compiled = ((LambdaExpression)result).Compile();
+        Delegate? compiled = ((LambdaExpression)result).CompileFast();
         return compiled;
     }
 

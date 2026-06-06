@@ -42,7 +42,7 @@ public static class BitUtility
     {
         data[index / 8] |= BitMask[index % 8];
     }
-
+    
     public static void SetBit(Span<byte> data, int index, bool value)
     {
         var idx = index / 8;

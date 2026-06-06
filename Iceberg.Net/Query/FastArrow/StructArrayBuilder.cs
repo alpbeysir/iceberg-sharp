@@ -1,3 +1,4 @@
+using System.Buffers;
 using Apache.Arrow;
 using Apache.Arrow.Memory;
 using Apache.Arrow.Types;
@@ -26,10 +27,12 @@ public class StructArrayBuilder : IArrowArrayBuilder<StructArray, StructArrayBui
     /// <summary>Alias an existing array as a field — no copy.</summary>
     public StructArrayBuilder SetFieldArray(int index, IArrowArray array)
     {
+        // For now we need to copy to prevent ownership issues - will fix later
+        var copy = ArrowArrayFactory.BuildArray(array.Data.Clone(Allocator));
         if (_fieldBuilders[index] != null)
             throw new InvalidOperationException(
                 $"Field {index} already has a builder; cannot alias.");
-        _fieldArrays[index] = array;
+        _fieldArrays[index] = copy;
         return this;
     }
 

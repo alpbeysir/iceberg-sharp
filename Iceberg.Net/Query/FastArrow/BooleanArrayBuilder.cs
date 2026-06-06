@@ -92,37 +92,41 @@ public class BooleanArrayBuilder(MemoryAllocator? allocator = null)
 
     public BooleanArrayBuilder Toggle(int index)
     {
+        throw new InvalidOperationException("fast builder doesn't have this");
         CheckIndex(index);
 
         // If there is a null at this index, assume it was set to false in the value buffer, and so becomes
         // true/non-null after toggling.
-        ValueBuffer.Toggle(index);
-        ValidityBuffer.Set(index);
+        // ValueBuffer.Toggle(index);
+        // ValidityBuffer.Set(index);
         return this;
     }
 
     public BooleanArrayBuilder Set(int index)
     {
+        throw new InvalidOperationException("fast builder doesn't have this");
         CheckIndex(index);
-        ValueBuffer.Set(index);
-        ValidityBuffer.Set(index);
+        // ValueBuffer.Set(index);
+        // ValidityBuffer.Set(index);
         return this;
     }
 
     public BooleanArrayBuilder Set(int index, bool value)
     {
+        throw new InvalidOperationException("fast builder doesn't have this");
         CheckIndex(index);
-        ValueBuffer.Set(index, value);
-        ValidityBuffer.Set(index);
+        // ValueBuffer.Set(index, value);
+        // ValidityBuffer.Set(index);
         return this;
     }
 
     public BooleanArrayBuilder Swap(int i, int j)
     {
+        throw new InvalidOperationException("fast builder doesn't have this");
         CheckIndex(i);
         CheckIndex(j);
-        ValueBuffer.Swap(i, j);
-        ValidityBuffer.Swap(i, j);
+        // ValueBuffer.Swap(i, j);
+        // ValidityBuffer.Swap(i, j);
         return this;
     }
 
