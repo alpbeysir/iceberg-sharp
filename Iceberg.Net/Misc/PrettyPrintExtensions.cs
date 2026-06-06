@@ -17,8 +17,8 @@ public static class PrettyPrintExtensions
                 genTypeName = genTypeName[..index];
 
             // retrieve generic type arguments
-            var genTypeArgs = type.GetGenericArguments();
-            var argNames = genTypeArgs.Select(genTypeArg => recursionLevel != 0
+            Type[] genTypeArgs = type.GetGenericArguments();
+            List<string> argNames = genTypeArgs.Select(genTypeArg => recursionLevel != 0
                     ? PrettyPrint(genTypeArg, recursionLevel - 1, expandNullable)
                     : "?")
                 .ToList();
@@ -37,7 +37,7 @@ public static class PrettyPrintExtensions
     public static string ToPrettyString<T>(in T[] array, int edgeItems = 3)
     {
         var len = array.Length;
-        var sb = new StringBuilder();
+        StringBuilder sb = new();
         sb.Append('[');
 
         if (len <= edgeItems * 2)
@@ -60,7 +60,7 @@ public static class PrettyPrintExtensions
             throw new ArgumentException("Arrays must be of the same length.");
 
         var len = keys.Length;
-        var sb = new StringBuilder();
+        StringBuilder sb = new();
         sb.Append('{');
 
         if (len <= edgeItems * 2)

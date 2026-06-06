@@ -89,14 +89,14 @@ public static class BitUtility
         // Bits we will be using to finish up the first byte
         if (startBitOffset != 0)
         {
-            var slice = data.Slice(startByteIndex, 1);
+            Span<byte> slice = data.Slice(startByteIndex, 1);
             for (var i = startBitOffset; i <= 7; i++)
                 SetBit(slice, i, value);
         }
 
         if (fullByteEndIndex >= fullByteStartIndex)
         {
-            var slice = data.Slice(fullByteStartIndex, fullByteEndIndex - fullByteStartIndex + 1);
+            Span<byte> slice = data.Slice(fullByteStartIndex, fullByteEndIndex - fullByteStartIndex + 1);
             var fill = (byte)(value ? 0xFF : 0x00);
 
             slice.Fill(fill);
@@ -104,7 +104,7 @@ public static class BitUtility
 
         if (endBitOffset != 7)
         {
-            var slice = data.Slice(endByteIndex, 1);
+            Span<byte> slice = data.Slice(endByteIndex, 1);
             for (var i = 0; i <= endBitOffset; i++)
                 SetBit(slice, i, value);
         }
@@ -153,7 +153,7 @@ public static class BitUtility
         if (startByteIndex == endByteIndex)
         {
             // Range starts and ends within the same byte.
-            var slice = data.Slice(startByteIndex, 1);
+            ReadOnlySpan<byte> slice = data.Slice(startByteIndex, 1);
             for (var i = startBitOffset; i <= endBitOffset; i++)
                 count += GetBit(slice, i) ? 1 : 0;
 
@@ -169,20 +169,20 @@ public static class BitUtility
 
         if (startBitOffset != 0)
         {
-            var slice = data.Slice(startByteIndex, 1);
+            ReadOnlySpan<byte> slice = data.Slice(startByteIndex, 1);
             for (var i = startBitOffset; i <= 7; i++)
                 count += GetBit(slice, i) ? 1 : 0;
         }
 
         if (fullByteEndIndex >= fullByteStartIndex)
         {
-            var slice = data.Slice(fullByteStartIndex, fullByteEndIndex - fullByteStartIndex + 1);
+            ReadOnlySpan<byte> slice = data.Slice(fullByteStartIndex, fullByteEndIndex - fullByteStartIndex + 1);
             count += CountBits(slice);
         }
 
         if (endBitOffset != 7)
         {
-            var slice = data.Slice(endByteIndex, 1);
+            ReadOnlySpan<byte> slice = data.Slice(endByteIndex, 1);
             for (var i = 0; i <= endBitOffset; i++)
                 count += GetBit(slice, i) ? 1 : 0;
         }

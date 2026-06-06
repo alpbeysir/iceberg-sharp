@@ -39,21 +39,21 @@ public class BufferTransformVisitor : ExpressionVisitorNarrow<Expression, Lambda
 
     protected override Expression VisitLambda<T>(Expression<T> node)
     {
-        var returnType = Nullable.GetUnderlyingType(node.ReturnType) ?? node.ReturnType;
-        var builderParam = Expression.Parameter(
+        Type returnType = Nullable.GetUnderlyingType(node.ReturnType) ?? node.ReturnType;
+        ParameterExpression builderParam = Expression.Parameter(
             GetConcreteBuilderType(GetBufferType(returnType)),
             "builder");
 
         _builderStack.Push(builderParam);
         _bindings.Push([]);
 
-        var curBindings = _bindings.Peek();
-        foreach (var expression in node.Parameters)
+        Dictionary<string, ParameterExpression> curBindings = _bindings.Peek();
+        foreach (ParameterExpression expression in node.Parameters)
             curBindings.Add(
                 expression.Name!,
                 Expression.Parameter(GetBufferType(expression.Type), expression.Name));
 
-        var expr = base.VisitLambda(node);
+        Expression? expr = base.VisitLambda(node);
 
         _builderStack.Pop();
         _bindings.Pop();
@@ -63,21 +63,21 @@ public class BufferTransformVisitor : ExpressionVisitorNarrow<Expression, Lambda
 
     protected override Expression VisitNew(NewExpression node)
     {
-        var structType = node.Type;
+        Type structType = node.Type;
 
-        var members = structType.GetMembers(BindingFlags.Public | BindingFlags.Instance)
+        List<MemberInfo> members = structType.GetMembers(BindingFlags.Public | BindingFlags.Instance)
             .Where(m => m is PropertyInfo or FieldInfo).ToList();
 
-        var visitedArgs = new List<Expression>(node.Arguments.Count);
+        List<Expression> visitedArgs = new(node.Arguments.Count);
         for (var i = 0; i < node.Arguments.Count; i++)
         {
-            var memberType = Utils.PropertyOrFieldType(members[i]);
-            var underlying = Nullable.GetUnderlyingType(memberType) ?? memberType;
+            Type memberType = Utils.PropertyOrFieldType(members[i]);
+            Type underlying = Nullable.GetUnderlyingType(memberType) ?? memberType;
 
             if (underlying.IsClass || underlying is { IsValueType: true, IsPrimitive: false })
             {
-                var parentBuilder = _builderStack.Peek();
-                var subBuilder = Expression.Call(
+                Expression? parentBuilder = _builderStack.Peek();
+                MethodCallExpression subBuilder = Expression.Call(
                     parentBuilder,
                     typeof(StructArrayBuilder).GetMethod(
                             nameof(StructArrayBuilder.GetFieldBuilder))!
@@ -99,7 +99,7 @@ public class BufferTransformVisitor : ExpressionVisitorNarrow<Expression, Lambda
     protected override Expression VisitBinary(BinaryExpression node)
     {
         _builderStack.Push(Expression.Empty());
-        var expr = base.VisitBinary(node);
+        Expression? expr = base.VisitBinary(node);
         _builderStack.Pop();
         return expr;
     }
@@ -129,14 +129,14 @@ public class BufferTransformVisitor : ExpressionVisitorNarrow<Expression, Lambda
         LambdaExpression arrowPredicate)
     {
         var hasRange = HasRange(arrowPredicate);
-        var arrowInputArrayType = arrowPredicate.Parameters[1].Type;
+        Type arrowInputArrayType = arrowPredicate.Parameters[1].Type;
         Type arrowElementBuilderType = GetResultBuilder(arrowPredicate).Type;
 
-        var ctxP = Expression.Parameter(typeof(ExecutionContext), "ctx");
-        var elemP = Expression.Parameter(arrowInputArrayType, "elem");
-        var builderP = Expression.Parameter(typeof(ListArrayBuilder), "builder");
+        ParameterExpression ctxP = Expression.Parameter(typeof(ExecutionContext), "ctx");
+        ParameterExpression elemP = Expression.Parameter(arrowInputArrayType, "elem");
+        ParameterExpression builderP = Expression.Parameter(typeof(ListArrayBuilder), "builder");
 
-        var invokeArgs = new List<Expression>
+        List<Expression> invokeArgs = new()
         {
             ctxP,
             elemP,
@@ -186,7 +186,7 @@ public class BufferTransformVisitor : ExpressionVisitorNarrow<Expression, Lambda
     {
         _builderStack.Push(Expression.Empty());
         _rangeStack.Push(null);
-        var map = GenerateListSelect(source, originalReturnType, predicate);
+        Expression map = GenerateListSelect(source, originalReturnType, predicate);
         _builderStack.Pop();
         _rangeStack.Pop();
 
@@ -206,7 +206,7 @@ public class BufferTransformVisitor : ExpressionVisitorNarrow<Expression, Lambda
     {
         _builderStack.Push(null);
         _rangeStack.Push(null);
-        var map = GenerateListSelect(source, originalReturnType, predicate);
+        Expression map = GenerateListSelect(source, originalReturnType, predicate);
         _rangeStack.Pop();
         _builderStack.Pop();
 
@@ -229,20 +229,20 @@ public class BufferTransformVisitor : ExpressionVisitorNarrow<Expression, Lambda
         LambdaExpression op,
         ArrowUtilities.ArrowTypeInfo resultElementType)
     {
-        var resultListType = ArrowUtilities.ListOf(resultElementType.ArrowType);
-        var arrowInputArrayType = op.Parameters[1].Type;
-        var method = typeof(ArrowCompute).GetMethod(nameof(ArrowCompute.ExecuteOneToOneListOp))!
+        ArrowUtilities.ArrowTypeInfo resultListType = ArrowUtilities.ListOf(resultElementType.ArrowType);
+        Type arrowInputArrayType = op.Parameters[1].Type;
+        MethodInfo method = typeof(ArrowCompute).GetMethod(nameof(ArrowCompute.ExecuteOneToOneListOp))!
             .MakeGenericMethod(arrowInputArrayType);
 
-        var outer = _builderStack.Peek();
+        Expression? outer = _builderStack.Peek();
         if (outer is not null)
         {
             return Expression.Call(null, method, _ctxParam, source, outer, op);
         }
         else
         {
-            var builder = Expression.Variable(resultListType.BuilderType, "tmpBuilder");
-            var init = Expression.Call(
+            ParameterExpression builder = Expression.Variable(resultListType.BuilderType, "tmpBuilder");
+            MethodCallExpression init = Expression.Call(
                 null,
                 typeof(ArrowCompute).GetMethod(nameof(ArrowCompute.MakeBuilderForGeneric))!
                     .MakeGenericMethod(resultListType.BuilderType),
@@ -269,22 +269,22 @@ public class BufferTransformVisitor : ExpressionVisitorNarrow<Expression, Lambda
         MethodInfo method =
             typeof(ArrowCompute).GetMethod(nameof(ArrowCompute.ExecuteElementWiseListOpWithRange))!
                 .MakeGenericMethod(arrowInputArrayType, arrowResultBuilderType);
-        
-        var outer = _builderStack.Peek();
+
+        Expression? outer = _builderStack.Peek();
         if (outer is not null)
         {
             return Expression.Call(null, method, _ctxParam, source, outer, op);
         }
         else
         {
-            var builder = Expression.Variable(resultInfo.BuilderType, "tmpBuilder");
-            var init = Expression.Call(
+            ParameterExpression builder = Expression.Variable(resultInfo.BuilderType, "tmpBuilder");
+            MethodCallExpression init = Expression.Call(
                 null,
                 typeof(ArrowCompute).GetMethod(nameof(ArrowCompute.MakeBuilderForGeneric))!
                     .MakeGenericMethod(resultInfo.BuilderType),
                 resultInfo.ArrowType.Quoted,
                 ArrowArenaAllocator());
-            var reserveInBuilder = builder.Call(
+            MethodCallExpression reserveInBuilder = builder.Call(
                 nameof(IArrowArrayBuilder<,>.Reserve),
                 source.Property(nameof(IArrowArray.Length)));
             return Expression.Block(
@@ -307,8 +307,8 @@ public class BufferTransformVisitor : ExpressionVisitorNarrow<Expression, Lambda
         LambdaExpression conversion,
         Expression right)
     {
-        var leftElementType = PrimitiveBufferElementType(left);
-        var rightElementType = PrimitiveBufferElementType(right);
+        Type leftElementType = PrimitiveBufferElementType(left);
+        Type rightElementType = PrimitiveBufferElementType(right);
 
         // if not equal, convert both to bitmap
         if ((leftElementType == typeof(bool) && rightElementType == typeof(bool)) ||
@@ -390,11 +390,14 @@ public class BufferTransformVisitor : ExpressionVisitorNarrow<Expression, Lambda
         if (TryGetParameter(_rangeStack, out ParameterExpression? rangeParam))
             lambdaParams.Add(rangeParam);
 
-        var builder = _builderStack.Peek();
-        lambdaParams.Add((ParameterExpression)builder);
-        var append = IsSpan(body) ? AppendSpanToBuilder(body, builder) : body;
+        var hasBuilderParam = TryGetParameter(_builderStack, out ParameterExpression? builderParam);
+        if (!hasBuilderParam)
+            throw new InvalidOperationException("Lambda cannot be constructed without a builder parameter");
 
-        var lambda = Expression.Lambda(HideBuilderReturn(append), lambdaParams);
+        lambdaParams.Add(builderParam!);
+
+        Expression append = IsSpan(body) ? AppendSpanToBuilder(body, builderParam!) : body;
+        LambdaExpression lambda = Expression.Lambda(HideBuilderReturn(append), lambdaParams);
         return lambda;
     }
 
@@ -402,7 +405,7 @@ public class BufferTransformVisitor : ExpressionVisitorNarrow<Expression, Lambda
     {
         if (IsBooleanBuilder(builder))
         {
-            var method = typeof(BooleanArrayBuilder).GetMethod(nameof(BooleanArrayBuilder.AppendMask))!
+            MethodInfo method = typeof(BooleanArrayBuilder).GetMethod(nameof(BooleanArrayBuilder.AppendMask))!
                 .MakeGenericMethod(PrimitiveBufferElementType(span));
             return builder.Call(method, span);
         }
@@ -464,22 +467,22 @@ public class BufferTransformVisitor : ExpressionVisitorNarrow<Expression, Lambda
         else
         {
             // TODO replace this with 'function registry'
-            var declaringType = node.Method.DeclaringType;
+            Type? declaringType = node.Method.DeclaringType;
             if (declaringType == null ||
                 (!declaringType.Name.Contains("Enumerable") && !declaringType.Name.Contains("Queryable")))
                 throw new NotImplementedException("this method can't be mapped yet");
 
             var methodName = node.Method.Name;
 
-            var enumerable = arguments[0];
+            Expression enumerable = arguments[0];
             if (enumerable.Type != typeof(ListArray))
                 throw new NotImplementedException("this method can't be mapped yet");
 
             if (methodName == "Contains")
                 return GenerateListContains(enumerable, node.Arguments[1]);
 
-            var predicate = (LambdaExpression)arguments[1];
-            var originalPredicate = (LambdaExpression)node.Arguments[1];
+            LambdaExpression predicate = (LambdaExpression)arguments[1];
+            LambdaExpression originalPredicate = (LambdaExpression)node.Arguments[1];
 
             return methodName switch
             {
@@ -493,7 +496,7 @@ public class BufferTransformVisitor : ExpressionVisitorNarrow<Expression, Lambda
 
     protected override Expression MakeNew(NewExpression node, ReadOnlyCollection<Expression> arguments)
     {
-        var type = node.Type;
+        Type type = node.Type;
 
         if (type.ImplementsInterface(typeof(IReadOnlyDictionary<,>)))
         {
@@ -502,7 +505,7 @@ public class BufferTransformVisitor : ExpressionVisitorNarrow<Expression, Lambda
 
         if (type.ImplementsInterface(typeof(IEnumerable<>)))
         {
-            var elementType = type.IsArray ? type.GetElementType() : type.GetGenericArguments().FirstOrDefault();
+            Type? elementType = type.IsArray ? type.GetElementType() : type.GetGenericArguments().FirstOrDefault();
             if (elementType != null)
             {
                 throw new NotImplementedException("not yet");
@@ -520,12 +523,12 @@ public class BufferTransformVisitor : ExpressionVisitorNarrow<Expression, Lambda
     private Expression BuildStructWithBuilder(
         ReadOnlyCollection<Expression> arguments)
     {
-        var sbExpr = _builderStack.Peek();
-        var ops = new List<Expression>(arguments.Count);
+        Expression? sbExpr = _builderStack.Peek();
+        List<Expression> ops = new(arguments.Count);
 
         for (var i = 0; i < arguments.Count; i++)
         {
-            var arg = arguments[i];
+            Expression arg = arguments[i];
 
             if (arg.Type == typeof(void) || arg.Type.Name.Contains("Builder"))
             {
@@ -546,9 +549,9 @@ public class BufferTransformVisitor : ExpressionVisitorNarrow<Expression, Lambda
             else if (IsSpan(arg))
             {
                 // Case 2: append span to field builder
-                var elemType = arg.Type.GetGenericArguments()[0];
-                var builderType = GetConcreteBuilderType(GetBufferType(elemType));
-                var builder = Expression.Call(
+                Type elemType = arg.Type.GetGenericArguments()[0];
+                Type builderType = GetConcreteBuilderType(GetBufferType(elemType));
+                MethodCallExpression builder = Expression.Call(
                     sbExpr,
                     typeof(StructArrayBuilder).GetMethod(nameof(StructArrayBuilder.GetFieldBuilder))!.MakeGenericMethod(
                         builderType),
@@ -571,7 +574,7 @@ public class BufferTransformVisitor : ExpressionVisitorNarrow<Expression, Lambda
 
     protected override Expression MakeParameter(ParameterExpression node)
     {
-        if (!_bindings.Peek().TryGetValue(node.Name!, out var param))
+        if (!_bindings.Peek().TryGetValue(node.Name!, out ParameterExpression? param))
         {
             throw new UnreachableException("we should have seen this parameter");
         }
@@ -591,10 +594,10 @@ public class BufferTransformVisitor : ExpressionVisitorNarrow<Expression, Lambda
             // If operand is already an Arrow array, compare element types
             if (operand.Type.ImplementsInterface(typeof(IArrowArray)))
             {
-                var elemType = PrimitiveBufferElementType(operand);
-                var resultUnderlyingType = Nullable.GetUnderlyingType(node.Type) ?? node.Type;
+                Type elemType = PrimitiveBufferElementType(operand);
+                Type resultUnderlyingType = Nullable.GetUnderlyingType(node.Type) ?? node.Type;
                 if (elemType == resultUnderlyingType) return operand;
-                var convertMethod = typeof(ArrowCompute).GetMethod(nameof(ArrowCompute.ConvertLogical))!
+                MethodInfo convertMethod = typeof(ArrowCompute).GetMethod(nameof(ArrowCompute.ConvertLogical))!
                     .MakeGenericMethod(elemType, resultUnderlyingType);
                 return Expression.Call(
                     null,
@@ -602,10 +605,10 @@ public class BufferTransformVisitor : ExpressionVisitorNarrow<Expression, Lambda
                     [_ctxParam, MaybeApplyRange(AccessPrimitiveValues(operand))]);
             }
 
-            var opUnderlying = Nullable.GetUnderlyingType(node.Operand.Type) ?? node.Operand.Type;
-            var resUnderlying = Nullable.GetUnderlyingType(node.Type) ?? node.Type;
+            Type opUnderlying = Nullable.GetUnderlyingType(node.Operand.Type) ?? node.Operand.Type;
+            Type resUnderlying = Nullable.GetUnderlyingType(node.Type) ?? node.Type;
             if (opUnderlying == resUnderlying) return operand;
-            var convertMethod2 = typeof(ArrowCompute).GetMethod(nameof(ArrowCompute.ConvertLogical))!
+            MethodInfo convertMethod2 = typeof(ArrowCompute).GetMethod(nameof(ArrowCompute.ConvertLogical))!
                 .MakeGenericMethod(opUnderlying, resUnderlying);
             return Expression.Call(
                 null,
@@ -622,7 +625,7 @@ public class BufferTransformVisitor : ExpressionVisitorNarrow<Expression, Lambda
     {
         if (buffer.Type == typeof(StructArray))
         {
-            var method =
+            MethodInfo method =
                 typeof(ArrowUtilities).GetMethod(nameof(ArrowUtilities.AccessField))!.MakeGenericMethod(
                     GetBufferType(expr.Type));
             return Expression.Call(null, method, buffer, _memberIndex[expr.Member].Quoted);
@@ -650,7 +653,7 @@ public class BufferTransformVisitor : ExpressionVisitorNarrow<Expression, Lambda
 
     private Type GetBufferType(Type type)
     {
-        var underlying = Nullable.GetUnderlyingType(type) ?? type;
+        Type underlying = Nullable.GetUnderlyingType(type) ?? type;
         if (underlying == typeof(int)) return typeof(PrimitiveArray<int>);
         if (underlying == typeof(double)) return typeof(PrimitiveArray<double>);
         if (underlying == typeof(bool)) return typeof(BooleanArray);
@@ -664,7 +667,7 @@ public class BufferTransformVisitor : ExpressionVisitorNarrow<Expression, Lambda
             || (type is { IsInterface: true, IsGenericType: true }
                 && type.GetGenericTypeDefinition() == typeof(IEnumerable<>)))
         {
-            var elementType = type.IsArray ? type.GetElementType() : type.GetGenericArguments().FirstOrDefault();
+            Type? elementType = type.IsArray ? type.GetElementType() : type.GetGenericArguments().FirstOrDefault();
             if (elementType != null)
             {
                 return typeof(ListArray);
@@ -673,9 +676,9 @@ public class BufferTransformVisitor : ExpressionVisitorNarrow<Expression, Lambda
 
         if (type.IsClass || type is { IsValueType: true, IsPrimitive: false })
         {
-            var members = type.GetMembers(BindingFlags.Instance | BindingFlags.Public)
+            List<MemberInfo> members = type.GetMembers(BindingFlags.Instance | BindingFlags.Public)
                 .Where(info => info is PropertyInfo or FieldInfo).ToList();
-            foreach (var (idx, member) in members.Index()) _memberIndex.Add(member, idx);
+            foreach ((var idx, MemberInfo member) in members.Index()) _memberIndex.Add(member, idx);
             return typeof(StructArray);
         }
 
@@ -689,7 +692,7 @@ public class BufferTransformVisitor : ExpressionVisitorNarrow<Expression, Lambda
     {
         if (bufferType.IsGenericType && bufferType.GetGenericTypeDefinition() == typeof(PrimitiveArray<>))
         {
-            var innerType = bufferType.GetGenericArguments()[0];
+            Type innerType = bufferType.GetGenericArguments()[0];
             return ArrowUtilities.GetTypeInfo(innerType).BuilderType;
         }
 

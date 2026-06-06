@@ -1,5 +1,4 @@
 ﻿using System.Buffers;
-using System.Runtime;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using Apache.Arrow.Memory;
@@ -43,11 +42,11 @@ public class UnsafeArenaMemoryAllocator(VirtualBuffer buffer) : MemoryAllocator
     protected override IMemoryOwner<byte> AllocateInternal(int length, out int bytesAllocated)
     {
         bytesAllocated = length;
-        var span = buffer.AllocateRange(length);
+        Span<byte> span = buffer.AllocateRange(length);
         unsafe
         {
             var ptr = (byte*)Unsafe.AsPointer(ref MemoryMarshal.GetReference(span));
-            var manager = new ArenaMemoryManager(ptr, length);
+            ArenaMemoryManager manager = new(ptr, length);
             return new ArenaMemoryOwner(manager.Memory);
         }
     }

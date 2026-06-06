@@ -1,4 +1,5 @@
 ﻿using System.Collections.Immutable;
+using Avro;
 using Avro.IO;
 
 namespace Iceberg.Net.Metadata;
@@ -7,8 +8,8 @@ internal static class AvroUtils
 {
     // Iceberg expects custom element-id for arrays
     public class AvroSchemaWrapper(
-        Avro.Schema wrapped,
-        string schemaJson) : Avro.Schema(wrapped.Tag, [])
+        Schema wrapped,
+        string schemaJson) : Schema(wrapped.Tag, [])
     {
         public override string Name => wrapped.Name;
 
@@ -36,7 +37,7 @@ internal static class AvroUtils
 
         internal ImmutableArray<T> ReadArray<T>(Func<Decoder, T> read)
         {
-            var builder = ImmutableArray.CreateBuilder<T>();
+            ImmutableArray<T>.Builder builder = ImmutableArray.CreateBuilder<T>();
             for (var n = decoder.ReadArrayStart(); n > 0; n = decoder.ReadArrayNext())
                 builder.Add(read(decoder));
             return builder.ToImmutable();
@@ -46,7 +47,7 @@ internal static class AvroUtils
             Func<Decoder, TKey> readKey,
             Func<Decoder, TValue> readValue) where TKey : notnull
         {
-            var map = ImmutableDictionary.CreateBuilder<TKey, TValue>();
+            ImmutableDictionary<TKey, TValue>.Builder map = ImmutableDictionary.CreateBuilder<TKey, TValue>();
             for (var n = decoder.ReadMapStart(); n > 0; n = decoder.ReadMapNext())
             for (var i = 0; i < n; i++)
                 map.Add(readKey(decoder), readValue(decoder));
@@ -107,7 +108,7 @@ internal static class AvroUtils
         {
             encoder.WriteMapStart();
             encoder.SetItemCount(map.Count);
-            foreach (var kvp in map)
+            foreach (KeyValuePair<TKey, TValue> kvp in map)
             {
                 encoder.StartItem();
                 writeKey(encoder, kvp.Key);
@@ -121,7 +122,7 @@ internal static class AvroUtils
         {
             encoder.WriteArrayStart();
             encoder.SetItemCount(array.Length);
-            foreach (var item in array)
+            foreach (T item in array)
             {
                 encoder.StartItem();
                 writeItem(encoder, item);

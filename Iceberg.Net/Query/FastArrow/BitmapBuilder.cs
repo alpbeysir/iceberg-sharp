@@ -1,4 +1,5 @@
-﻿using System.Diagnostics;
+﻿using System.Buffers;
+using System.Diagnostics;
 using System.Numerics;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
@@ -146,7 +147,7 @@ public class BitmapBuilder
         if (Vector.IsHardwareAccelerated && bytes.Length >= VectorSize)
             while (i <= bytes.Length - VectorSize)
             {
-                var vector = new Vector<byte>(bytes.Slice(i, VectorSize));
+                Vector<byte> vector = new(bytes.Slice(i, VectorSize));
                 // Vectorized population count across all elements
                 for (var j = 0; j < VectorSize; j++) count += BitOperations.PopCount(vector[j]);
                 i += VectorSize;
@@ -175,8 +176,8 @@ public class BitmapBuilder
         Flush();
         if (Allocator == allocator) return new ArrowBuffer(Memory);
         var bufferLength = checked((int)BitUtility.RoundUpToMultipleOf64(Memory.Length));
-        var memoryAllocator = allocator ?? MemoryAllocator.Default.Value;
-        var memoryOwner = memoryAllocator.Allocate(bufferLength);
+        MemoryAllocator? memoryAllocator = allocator ?? MemoryAllocator.Default.Value;
+        IMemoryOwner<byte>? memoryOwner = memoryAllocator.Allocate(bufferLength);
         Memory[..].CopyTo(memoryOwner.Memory);
         return new ArrowBuffer(memoryOwner.Memory);
     }
@@ -248,7 +249,7 @@ public class BitmapBuilder
         if (numBytes != 0)
         {
             Debug.Assert(numBytes > Memory.Length);
-            var memory = Allocator is not null
+            Memory<byte> memory = Allocator is not null
                 ? Allocator.Allocate(numBytes).Memory
                 : new Memory<byte>(new byte[numBytes]);
             Memory.CopyTo(memory);

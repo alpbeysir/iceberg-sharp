@@ -3,7 +3,6 @@ using System.Reflection;
 using Apache.Arrow;
 using Apache.Arrow.Types;
 using DotNext.Linq.Expressions;
-using DotNext.Reflection;
 using Iceberg.Net.Misc;
 using Iceberg.Net.Query.FastArrow;
 
@@ -27,7 +26,7 @@ public static class ArrowUtilities
 
     public static ConstantExpression MakeConstantArray(Type elementType, object? val, int size)
     {
-        var method = typeof(ArrowUtilities)
+        MethodInfo method = typeof(ArrowUtilities)
             .GetMethod(
                 nameof(MakeConstantArrayInternal),
                 BindingFlags.NonPublic | BindingFlags.Static)!.MakeGenericMethod(elementType);
@@ -38,7 +37,7 @@ public static class ArrowUtilities
     {
         if (item.HasValue)
         {
-            var builder = new ArrowBufferBuilder<T>(size);
+            ArrowBufferBuilder<T> builder = new(size);
             builder.Resize(size);
             builder.Span.Fill(item.Value);
             return ArrayFromBuffer<T>(builder.Build(), size).Quoted;
@@ -57,7 +56,7 @@ public static class ArrowUtilities
     internal static ArrowTypeInfo GetTypeInfo(Type type)
     {
         if (type.ImplementsInterface(typeof(IEnumerable<>))) return ListOf(GetTypeInfo(type.GetGenericArguments()[0]).ArrowType);
-        if (!TypeInfo.TryGetValue(type, out var info))
+        if (!TypeInfo.TryGetValue(type, out ArrowTypeInfo? info))
             throw new NotSupportedException($"The type {type.FullName} is not supported.");
 
         return info;
@@ -72,7 +71,7 @@ public static class ArrowUtilities
     private static PrimitiveArray<T> ArrayFromBuffer<T>(ArrowBuffer valueBuffer, int length)
         where T : struct, IEquatable<T>
     {
-        var result = (PrimitiveArray<T>)ArrowArrayFactory.BuildArray(
+        PrimitiveArray<T>? result = (PrimitiveArray<T>)ArrowArrayFactory.BuildArray(
             new ArrayData(
                 GetTypeInfo(typeof(T)).ArrowType,
                 length,
@@ -88,9 +87,9 @@ public static class ArrowUtilities
     public static PrimitiveArray<T> ArrayFromSpan<T>(ReadOnlySpan<T> span)
         where T : struct, IEquatable<T>
     {
-        var builder = new ArrowBuffer.Builder<T>();
+        ArrowBuffer.Builder<T> builder = new();
         builder.Append(span);
-        var result = (PrimitiveArray<T>)ArrowArrayFactory.BuildArray(
+        PrimitiveArray<T>? result = (PrimitiveArray<T>)ArrowArrayFactory.BuildArray(
             new ArrayData(
                 GetTypeInfo(typeof(T)).ArrowType,
                 span.Length,
@@ -105,7 +104,7 @@ public static class ArrowUtilities
 
     private static BooleanArray BooleanArrayFromBuffer(ArrowBuffer valueBuffer, int length)
     {
-        var result = (BooleanArray)ArrowArrayFactory.BuildArray(
+        BooleanArray? result = (BooleanArray)ArrowArrayFactory.BuildArray(
             new ArrayData(
                 GetTypeInfo(typeof(bool)).ArrowType,
                 length,
@@ -120,7 +119,7 @@ public static class ArrowUtilities
 
     public static BooleanArray BooleanArrayFromBitmap(ReadOnlySpan<byte> bitmap, int length)
     {
-        var builder = new ArrowBuffer.BitmapBuilder(length);
+        ArrowBuffer.BitmapBuilder builder = new(length);
         if (bitmap.Length > 0)
             bitmap[..((length + 7) / 8)].CopyTo(builder.Span);
         return BooleanArrayFromBuffer(builder.Build(), length);

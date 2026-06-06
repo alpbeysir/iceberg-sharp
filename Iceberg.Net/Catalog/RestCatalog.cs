@@ -3,6 +3,7 @@ using System.Runtime.CompilerServices;
 using Iceberg.Net.Rest;
 using Iceberg.Net.Rest.TableRequirement;
 using Iceberg.Net.Rest.TableUpdate;
+using Iceberg.Net.Schemas;
 using Iceberg.Net.Storage;
 
 namespace Iceberg.Net.Catalog;
@@ -56,11 +57,11 @@ public sealed class RestCatalog : ICatalog
 
     async Task<Table> ICatalog.CreateTableInternalAsync(
         Identifier identifier,
-        Schemas.Schema schema,
+        Schema schema,
         bool stage,
         CancellationToken cancellationToken)
     {
-        var request = new CreateTableRequest
+        CreateTableRequest request = new()
         {
             Name = identifier.GetTableName(),
             Schema = schema,
@@ -70,11 +71,11 @@ public sealed class RestCatalog : ICatalog
             StageCreate = stage,
             Properties = null
         };
-        var response = await ApiClient.CreateTableAsync(
+        LoadTableResult response = await ApiClient.CreateTableAsync(
             request,
             identifier.GetParent().GetEncoded(),
             cancellationToken: cancellationToken);
-        var table = new Table(identifier, this);
+        Table table = new(identifier, this);
         table.Initialize(response.Metadata, response.StorageCredentials);
         return table;
     }
@@ -85,7 +86,7 @@ public sealed class RestCatalog : ICatalog
         List<ITableRequirement> requirements,
         CancellationToken cancellationToken)
     {
-        var response = await ApiClient.UpdateTableAsync(
+        CommitTableResponse response = await ApiClient.UpdateTableAsync(
             new CommitTableRequest
             {
                 Identifier = identifier.ToTableIdentifier(),
@@ -95,7 +96,7 @@ public sealed class RestCatalog : ICatalog
             identifier.GetParent().GetEncoded(),
             identifier.GetTableName(),
             cancellationToken: cancellationToken);
-        var table = new Table(identifier, this);
+        Table table = new(identifier, this);
         table.Initialize(response.Metadata, null);
         return table;
     }
@@ -105,12 +106,12 @@ public sealed class RestCatalog : ICatalog
         Snapshots snapshots = Snapshots.All,
         CancellationToken cancellationToken = default)
     {
-        var response = await ApiClient.LoadTableAsync(
+        LoadTableResult response = await ApiClient.LoadTableAsync(
             identifier.GetParent().GetEncoded(),
             identifier.GetTableName(),
             snapshots: snapshots,
             cancellationToken: cancellationToken);
-        var table = new Table(identifier, this);
+        Table table = new(identifier, this);
         table.Initialize(response.Metadata, response.StorageCredentials);
         return table;
     }
@@ -127,9 +128,9 @@ public sealed class RestCatalog : ICatalog
         Dictionary<string, string>? properties = null,
         CancellationToken cancellationToken = default)
     {
-        var ns = new Rest.Namespace();
+        Rest.Namespace ns = new();
         ns.AddRange(identifier);
-        var request = new CreateNamespaceRequest(ns, properties ?? new Dictionary<string, string>());
+        CreateNamespaceRequest request = new(ns, properties ?? new Dictionary<string, string>());
         await ApiClient.CreateNamespaceAsync(request, null, cancellationToken);
     }
 
@@ -153,9 +154,9 @@ public sealed class RestCatalog : ICatalog
         Dictionary<string, string>? properties = null,
         CancellationToken cancellationToken = default)
     {
-        var ns = new Rest.Namespace();
+        Rest.Namespace ns = new();
         foreach (var part in identifier) ns.Add(part);
-        var request = new CreateNamespaceRequest(ns, properties ?? new Dictionary<string, string>());
+        CreateNamespaceRequest request = new(ns, properties ?? new Dictionary<string, string>());
         try
         {
             await ApiClient.CreateNamespaceAsync(request, null, cancellationToken);
@@ -173,11 +174,11 @@ public sealed class RestCatalog : ICatalog
         string? pageToken = null;
         do
         {
-            var resp =
+            ListNamespacesResponse resp =
                 await ApiClient.ListNamespacesAsync(pageToken, PageSize, parent?.GetEncoded(), cancellationToken);
-            foreach (var ns in resp.Namespaces)
+            foreach (Rest.Namespace ns in resp.Namespaces)
             {
-                var identifier = new Identifier(ns);
+                Identifier identifier = new(ns);
                 yield return GetNamespace(identifier, cancellationToken);
             }
 
@@ -192,9 +193,9 @@ public sealed class RestCatalog : ICatalog
         string? pageToken = null;
         do
         {
-            var resp =
+            ListTablesResponse resp =
                 await ApiClient.ListTablesAsync(ns.GetEncoded(), pageToken, PageSize, cancellationToken);
-            foreach (var table in resp.Identifiers)
+            foreach (TableIdentifier table in resp.Identifiers)
                 yield return new Table(Identifier.FromTableIdentifier(table), this);
 
             pageToken = resp.NextPageToken;
@@ -204,10 +205,14 @@ public sealed class RestCatalog : ICatalog
     public async Task<INode> GenerateTree(Identifier? parent = null, CancellationToken cancellationToken = default)
     {
         List<INode> children = [];
-        var nsResponse = await ApiClient.ListNamespacesAsync(null, null, parent?.GetEncoded(), cancellationToken);
-        foreach (var ns in nsResponse.Namespaces)
+        ListNamespacesResponse nsResponse = await ApiClient.ListNamespacesAsync(
+            null,
+            null,
+            parent?.GetEncoded(),
+            cancellationToken);
+        foreach (Rest.Namespace ns in nsResponse.Namespaces)
         {
-            var child = await GenerateTree(new Identifier(ns), cancellationToken);
+            INode child = await GenerateTree(new Identifier(ns), cancellationToken);
             children.Add(child);
         }
 
@@ -230,8 +235,8 @@ public sealed class RestCatalog : ICatalog
     {
         if (recursive)
         {
-            var ns = GetNamespace(identifier, cancellationToken);
-            await foreach (var child in ns.Children.WithCancellation(cancellationToken))
+            Namespace ns = GetNamespace(identifier, cancellationToken);
+            await foreach (INode child in ns.Children.WithCancellation(cancellationToken))
                 switch (child)
                 {
                     case Namespace childNamespace:
@@ -256,16 +261,17 @@ public sealed class RestCatalog : ICatalog
 
     public static async Task<RestCatalog> Create(UserConfig userConfig, CancellationToken cancellationToken = default)
     {
-        var httpClient = new HttpClient();
-        var client = new RestCatalogClient(httpClient)
+        HttpClient httpClient = new();
+        RestCatalogClient client = new(httpClient)
         {
             BaseUrl = userConfig.BaseUrl
         };
 
-        foreach (var kvp in userConfig.RequestHeaders) httpClient.DefaultRequestHeaders.Add(kvp.Key, kvp.Value);
+        foreach (KeyValuePair<string, string> kvp in userConfig.RequestHeaders)
+            httpClient.DefaultRequestHeaders.Add(kvp.Key, kvp.Value);
 
-        var catalogConfig = await client.GetConfigAsync(userConfig.Warehouse, cancellationToken);
-        var typedConfig = new TypedCatalogConfig(catalogConfig, userConfig);
+        CatalogConfig catalogConfig = await client.GetConfigAsync(userConfig.Warehouse, cancellationToken);
+        TypedCatalogConfig typedConfig = new(catalogConfig, userConfig);
 
         // TODO make this better
         client.BaseUrl = $"{client.BaseUrl}{typedConfig.Prefix}";

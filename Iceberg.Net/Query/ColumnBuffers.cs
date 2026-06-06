@@ -27,7 +27,7 @@ public sealed record ColumnBufferSet : IDisposable
 
     public void Dispose()
     {
-        foreach (var buffers in Buffers.Values) buffers.Dispose();
+        foreach (IColumnBuffer buffers in Buffers.Values) buffers.Dispose();
     }
 
     public bool SanityCheck()
@@ -128,7 +128,7 @@ internal sealed record PooledColumnBuffer<T>(T[] TypedBuffer, int Count) : IPool
 
     internal static PooledColumnBuffer<T> Create(int size)
     {
-        var buf = ArrayPool<T>.Shared.Rent(size);
+        T[] buf = ArrayPool<T>.Shared.Rent(size);
         return new PooledColumnBuffer<T>(buf, size);
     }
 }
@@ -146,7 +146,7 @@ internal sealed record ArrowColumnBuffer(Array ArrowArray) : IPooledBuffer
     {
         get
         {
-            var type = ArrowArray.GetType();
+            Type type = ArrowArray.GetType();
             if (type.ImplementsInterface(typeof(IReadOnlyList<>)))
                 return type.GetInterface("IReadOnlyList")!.GetGenericArguments()[0];
             else
@@ -187,7 +187,7 @@ internal static class ColumnBuffers
 
     internal static IConstantBuffer MakeConstantBuffer(Type elementType, object? val, int size)
     {
-        var method = typeof(ConstantColumnBuffer<>)
+        MethodInfo method = typeof(ConstantColumnBuffer<>)
             .MakeGenericType(elementType)
             .GetMethod(
                 nameof(ConstantColumnBuffer<>.Create),
@@ -197,7 +197,7 @@ internal static class ColumnBuffers
 
     internal static IPooledBuffer MakePooledBuffer(Type elementType, int size)
     {
-        var method = typeof(PooledColumnBuffer<>)
+        MethodInfo method = typeof(PooledColumnBuffer<>)
             .MakeGenericType(elementType)
             .GetMethod(
                 nameof(PooledColumnBuffer<>.Create),
@@ -213,15 +213,15 @@ internal static class ColumnBuffers
         {
             case true when target.GetGenericTypeDefinition() == typeof(Nested<>):
             {
-                var innerType = target.GetGenericArguments()[0];
-                var wrappedInner = WrapToTargetType(value, innerType);
-                var ctor = target.GetConstructor([innerType])!;
+                Type innerType = target.GetGenericArguments()[0];
+                Expression wrappedInner = WrapToTargetType(value, innerType);
+                ConstructorInfo ctor = target.GetConstructor([innerType])!;
                 return Expression.New(ctor, wrappedInner);
             }
             case true when target.GetGenericTypeDefinition() == typeof(Nullable<>):
             {
-                var innerType = target.GetGenericArguments()[0];
-                var wrappedInner = WrapToTargetType(value, innerType);
+                Type innerType = target.GetGenericArguments()[0];
+                Expression wrappedInner = WrapToTargetType(value, innerType);
                 return Expression.Convert(wrappedInner, target);
             }
             default:
@@ -243,7 +243,7 @@ internal static class ColumnBuffers
 
     internal static Expression UnwrapNullable(Expression value)
     {
-        var nullableValue = Expression.PropertyOrField(value, NestedValueAccess);
+        MemberExpression nullableValue = Expression.PropertyOrField(value, NestedValueAccess);
         if (nullableValue.Type.IsGenericType && nullableValue.Type.GetGenericTypeDefinition() == typeof(Nested<>))
             return Expression.PropertyOrField(nullableValue, NestedValueAccess);
         return nullableValue;

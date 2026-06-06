@@ -10,7 +10,7 @@ public static class ExpressionUtilities
         Type[] generics,
         Expression[] args)
     {
-        var instantiated = generics.Length > 0 ? info.MakeGenericMethod(generics.ToArray()) : info;
+        MethodInfo instantiated = generics.Length > 0 ? info.MakeGenericMethod(generics.ToArray()) : info;
         return Expression.Call(null, instantiated, args);
     }
 }

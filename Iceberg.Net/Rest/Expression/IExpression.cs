@@ -192,7 +192,7 @@ internal class TermConverter : JsonConverter<ITerm>
     {
         if (reader.TokenType == JsonTokenType.String) return new ReferenceTerm(reader.GetString()!);
 
-        using var jsonDoc = JsonDocument.ParseValue(ref reader);
+        using JsonDocument jsonDoc = JsonDocument.ParseValue(ref reader);
         return JsonSerializer.Deserialize<TransformTerm>(
             jsonDoc.RootElement.GetRawText(),
             SourceGenerationContext.Default.TransformTerm);

@@ -65,7 +65,7 @@ public unsafe class ArrowStreamExporter(IEnumerator<RecordBatch> enumerator, Sch
     {
         try
         {
-            var exporter = GetExporter(stream);
+            ArrowStreamExporter exporter = GetExporter(stream);
             CArrowSchemaExporter.ExportSchema(exporter._schema, outSchema);
             return 0; // Success
         }
@@ -81,11 +81,11 @@ public unsafe class ArrowStreamExporter(IEnumerator<RecordBatch> enumerator, Sch
     {
         try
         {
-            var exporter = GetExporter(stream);
+            ArrowStreamExporter exporter = GetExporter(stream);
 
             if (exporter._enumerator.MoveNext())
             {
-                var batch = exporter._enumerator.Current;
+                RecordBatch batch = exporter._enumerator.Current;
                 CArrowArrayExporter.ExportRecordBatch(batch, outArray);
             }
             else
@@ -110,7 +110,7 @@ public unsafe class ArrowStreamExporter(IEnumerator<RecordBatch> enumerator, Sch
 
         try
         {
-            var handle = GCHandle.FromIntPtr((IntPtr)stream->private_data);
+            GCHandle handle = GCHandle.FromIntPtr((IntPtr)stream->private_data);
 
             if (handle.Target is ArrowStreamExporter exporter) return (byte*)exporter._lastErrorPointer;
         }
@@ -129,10 +129,10 @@ public unsafe class ArrowStreamExporter(IEnumerator<RecordBatch> enumerator, Sch
         var ptr = (IntPtr)stream->private_data;
         if (ptr != IntPtr.Zero)
         {
-            var handle = GCHandle.FromIntPtr(ptr);
+            GCHandle handle = GCHandle.FromIntPtr(ptr);
             if (handle.IsAllocated)
             {
-                var exporter = (ArrowStreamExporter)handle.Target!;
+                ArrowStreamExporter exporter = (ArrowStreamExporter)handle.Target!;
                 exporter.Dispose();
                 handle.Free();
             }
@@ -147,7 +147,7 @@ public unsafe class ArrowStreamExporter(IEnumerator<RecordBatch> enumerator, Sch
 
     private static ArrowStreamExporter GetExporter(CArrowArrayStream* stream)
     {
-        var handle = GCHandle.FromIntPtr((IntPtr)stream->private_data);
+        GCHandle handle = GCHandle.FromIntPtr((IntPtr)stream->private_data);
         return (ArrowStreamExporter)handle.Target!;
     }
 
@@ -156,7 +156,7 @@ public unsafe class ArrowStreamExporter(IEnumerator<RecordBatch> enumerator, Sch
         if (stream == null || stream->private_data == null) return;
         try
         {
-            var handle = GCHandle.FromIntPtr((IntPtr)stream->private_data);
+            GCHandle handle = GCHandle.FromIntPtr((IntPtr)stream->private_data);
             if (handle.Target is ArrowStreamExporter exp) exp.SetLastError(message);
         }
         catch

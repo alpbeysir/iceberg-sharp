@@ -2,7 +2,9 @@
 using System.Diagnostics.CodeAnalysis;
 using System.Threading.Channels;
 using Apache.Arrow;
+using Apache.Arrow.Ipc;
 using Apache.Arrow.Serialization;
+using Avro.File;
 using Avro.Generic;
 using Iceberg.Net.Metadata;
 using Iceberg.Net.Misc;
@@ -38,20 +40,20 @@ public sealed class Transaction(Table table, bool commitOnDispose = false) : IAs
         TRow>(
         long? snapshotId = null) where TRow : IArrowSerializer<TRow>
     {
-        var provider = new IcebergQueryProvider<TRow>(this);
+        IcebergQueryProvider<TRow> provider = new(this);
         return new IcebergQueryable<TRow>(provider, null);
     }
 
     private IEnumerable<PathAndStream> AllFiles(long? snapshotId)
     {
-        var snapshot = GetSnapshotOrLatest(snapshotId);
-        var manifestListFile = OpenFile(snapshot.ManifestList).GetAwaiter().GetResult();
-        using var manifestListReader = ManifestListEntry.GetReader(manifestListFile.Stream);
-        foreach (var manifestListEntry in manifestListReader.NextEntries)
+        Snapshot snapshot = GetSnapshotOrLatest(snapshotId);
+        PathAndStream manifestListFile = OpenFile(snapshot.ManifestList).GetAwaiter().GetResult();
+        using IFileReader<ManifestListEntry> manifestListReader = ManifestListEntry.GetReader(manifestListFile.Stream);
+        foreach (ManifestListEntry manifestListEntry in manifestListReader.NextEntries)
         {
-            var manifestFile = OpenFile(manifestListEntry.ManifestPath).GetAwaiter().GetResult();
-            using var manifestReader = ManifestEntry.GetReader(manifestFile.Stream);
-            foreach (var manifestEntry in manifestReader.NextEntries)
+            PathAndStream manifestFile = OpenFile(manifestListEntry.ManifestPath).GetAwaiter().GetResult();
+            using IFileReader<ManifestEntry> manifestReader = ManifestEntry.GetReader(manifestFile.Stream);
+            foreach (ManifestEntry manifestEntry in manifestReader.NextEntries)
                 yield return OpenFile(manifestEntry.DataFile.FilePath).GetAwaiter().GetResult();
         }
     }
@@ -59,7 +61,7 @@ public sealed class Transaction(Table table, bool commitOnDispose = false) : IAs
     public IEnumerable<TRow> ReadRows<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.AllProperties)] TRow>(
         long? snapshotId = null) where TRow : IArrowSerializer<TRow>
     {
-        var columnBuffers = Channel.CreateBounded<RecordBatch>(
+        Channel<RecordBatch> columnBuffers = Channel.CreateBounded<RecordBatch>(
             new BoundedChannelOptions(16384)
             {
                 FullMode = BoundedChannelFullMode.Wait
@@ -67,10 +69,10 @@ public sealed class Transaction(Table table, bool commitOnDispose = false) : IAs
 
         Read(snapshotId, columnBuffers).ContinueWith(_ => columnBuffers.Writer.TryComplete());
 
-        foreach (var batch in columnBuffers.Reader.ReadAllAsync().ToBlockingEnumerable())
+        foreach (RecordBatch batch in columnBuffers.Reader.ReadAllAsync().ToBlockingEnumerable())
         {
-            var rows = TRow.ListFromRecordBatch(batch);
-            foreach (var row in rows) yield return row;
+            IReadOnlyList<TRow> rows = TRow.ListFromRecordBatch(batch);
+            foreach (TRow row in rows) yield return row;
             batch.Dispose();
         }
     }
@@ -82,24 +84,24 @@ public sealed class Transaction(Table table, bool commitOnDispose = false) : IAs
     {
         if (!Table.IsLoaded) throw new InvalidOperationException("Cannot read uninitialized table");
 
-        var snapshot = GetSnapshotOrLatest(snapshotId);
+        Snapshot snapshot = GetSnapshotOrLatest(snapshotId);
 
-        var manifestListEntries = Channel.CreateBounded<ManifestListEntry>(
+        Channel<ManifestListEntry> manifestListEntries = Channel.CreateBounded<ManifestListEntry>(
             new BoundedChannelOptions(8192)
             {
                 FullMode = BoundedChannelFullMode.Wait,
                 SingleWriter = true
             });
 
-        var manifestEntries = Channel.CreateBounded<ManifestEntry>(
+        Channel<ManifestEntry> manifestEntries = Channel.CreateBounded<ManifestEntry>(
             new BoundedChannelOptions(8192)
             {
                 FullMode = BoundedChannelFullMode.Wait
             });
 
-        var snapshotRead = ReadSnapshotAsync(snapshot.SnapshotId, manifestListEntries, cancellationToken);
+        Task snapshotRead = ReadSnapshotAsync(snapshot.SnapshotId, manifestListEntries, cancellationToken);
 
-        var manifestReaders = Parallel.ForEachAsync(
+        Task manifestReaders = Parallel.ForEachAsync(
             manifestListEntries.Reader.ReadAllAsync(cancellationToken),
             new ParallelOptions
             {
@@ -108,7 +110,7 @@ public sealed class Transaction(Table table, bool commitOnDispose = false) : IAs
             },
             async (entry, token) => { await ReadManifestAsync(entry, manifestEntries, token); });
 
-        var dataFileReaders = Parallel.ForEachAsync(
+        Task dataFileReaders = Parallel.ForEachAsync(
             manifestEntries.Reader.ReadAllAsync(cancellationToken),
             new ParallelOptions
             {
@@ -132,26 +134,26 @@ public sealed class Transaction(Table table, bool commitOnDispose = false) : IAs
     {
         var schemaId = Table.Metadata?.CurrentSchemaId ?? 0;
         var nextFieldId = (Table.Metadata?.LastColumnId ?? 0) + 1;
-        var schema = CSharpSchema.ToIcebergSchema(typeof(TRow), schemaId, _ => nextFieldId++);
+        Schema schema = CSharpSchema.ToIcebergSchema(typeof(TRow), schemaId, _ => nextFieldId++);
 
-        var channel = Channel.CreateBounded<RecordBatch>(
+        Channel<RecordBatch> channel = Channel.CreateBounded<RecordBatch>(
             new BoundedChannelOptions(2048)
             {
                 SingleWriter = true
             });
 
-        var convertToArrow = Task.Run(
+        Task convertToArrow = Task.Run(
             async () =>
             {
-                foreach (var chunk in rows.Chunk(16384))
+                foreach (TRow[] chunk in rows.Chunk(16384))
                 {
-                    var batch = TRow.ToRecordBatch(chunk);
+                    RecordBatch batch = TRow.ToRecordBatch(chunk);
                     await channel.Writer.WriteAsync(batch, cancellationToken);
                 }
             },
             cancellationToken);
 
-        var append = Append(channel, schema, cancellationToken);
+        Task append = Append(channel, schema, cancellationToken);
 
         await convertToArrow;
         channel.Writer.TryComplete();
@@ -164,26 +166,26 @@ public sealed class Transaction(Table table, bool commitOnDispose = false) : IAs
     {
         var schemaId = Table.Metadata?.CurrentSchemaId ?? 0;
         var nextFieldId = (Table.Metadata?.LastColumnId ?? 0) + 1;
-        var schema = CSharpSchema.ToIcebergSchema(typeof(TRow), schemaId, _ => nextFieldId++);
+        Schema schema = CSharpSchema.ToIcebergSchema(typeof(TRow), schemaId, _ => nextFieldId++);
 
-        var channel = Channel.CreateBounded<RecordBatch>(
+        Channel<RecordBatch> channel = Channel.CreateBounded<RecordBatch>(
             new BoundedChannelOptions(2048)
             {
                 SingleWriter = true
             });
 
-        var convertToArrow = Task.Run(
+        Task convertToArrow = Task.Run(
             async () =>
             {
-                foreach (var chunk in rows.Chunk(16384))
+                foreach (TRow[] chunk in rows.Chunk(16384))
                 {
-                    var batch = RecordBatchBuilder.FromObjects(chunk);
+                    RecordBatch batch = RecordBatchBuilder.FromObjects(chunk);
                     await channel.Writer.WriteAsync(batch, cancellationToken);
                 }
             },
             cancellationToken);
 
-        var append = Append(channel, schema, cancellationToken);
+        Task append = Append(channel, schema, cancellationToken);
 
         await convertToArrow;
         channel.Writer.TryComplete();
@@ -195,27 +197,27 @@ public sealed class Transaction(Table table, bool commitOnDispose = false) : IAs
         Schema schema,
         CancellationToken cancellationToken = default)
     {
-        var partitionSpec = new PartitionSpec([], 0);
-        var sortOrder = new SortOrder([], 0);
+        PartitionSpec partitionSpec = new([], 0);
+        SortOrder sortOrder = new([], 0);
 
         await EnsureTableInitialized(schema, partitionSpec, sortOrder, cancellationToken);
 
         schema = GetSchema();
 
-        var dataFiles = Channel.CreateBounded<DataFileWriteResult>(
+        Channel<DataFileWriteResult> dataFiles = Channel.CreateBounded<DataFileWriteResult>(
             new BoundedChannelOptions(1024)
             {
                 SingleReader = true,
                 FullMode = BoundedChannelFullMode.Wait
             });
 
-        var parallelOptions = new ParallelOptions
+        ParallelOptions parallelOptions = new()
         {
             CancellationToken = cancellationToken,
             MaxDegreeOfParallelism = 32
         };
 
-        var dataFileWrite = Parallel.ForEachAsync(
+        Task dataFileWrite = Parallel.ForEachAsync(
             Enumerable.Range(0, 1),
             parallelOptions,
             async (i, token) =>
@@ -229,21 +231,21 @@ public sealed class Transaction(Table table, bool commitOnDispose = false) : IAs
 
         var snapshotId = Utils.GenerateSnapshotId();
 
-        var existingManifests = Channel.CreateBounded<ManifestListEntry>(
+        Channel<ManifestListEntry> existingManifests = Channel.CreateBounded<ManifestListEntry>(
             new BoundedChannelOptions(1024)
             {
                 SingleReader = true,
                 FullMode = BoundedChannelFullMode.Wait
             });
 
-        var existingSnapshotRead = Task.CompletedTask;
+        Task existingSnapshotRead = Task.CompletedTask;
         if (Table.Metadata!.CurrentSnapshotId > 0)
             existingSnapshotRead = ReadSnapshotAsync(
                 Table.Metadata!.CurrentSnapshotId.Value,
                 existingManifests,
                 cancellationToken);
 
-        var newManifests = Channel.CreateBounded<ManifestFileWriteResult>(
+        Channel<ManifestFileWriteResult> newManifests = Channel.CreateBounded<ManifestFileWriteResult>(
             new BoundedChannelOptions(1024)
             {
                 SingleReader = true,
@@ -251,7 +253,7 @@ public sealed class Transaction(Table table, bool commitOnDispose = false) : IAs
             });
 
         // TODO allow writing multiple manifests for scaling
-        var manifestWrite = WriteManifestAsync(
+        Task manifestWrite = WriteManifestAsync(
             snapshotId,
             schema,
             partitionSpec,
@@ -259,7 +261,7 @@ public sealed class Transaction(Table table, bool commitOnDispose = false) : IAs
             newManifests,
             cancellationToken);
 
-        var snapshotCreate = CreateSnapshotAsync(
+        Task<Snapshot> snapshotCreate = CreateSnapshotAsync(
             snapshotId,
             null,
             existingManifests,
@@ -276,7 +278,7 @@ public sealed class Transaction(Table table, bool commitOnDispose = false) : IAs
         await existingSnapshotRead;
         existingManifests.Writer.Complete();
 
-        var snapshot = await snapshotCreate;
+        Snapshot snapshot = await snapshotCreate;
 
         StageChanges(
             [],
@@ -298,22 +300,22 @@ public sealed class Transaction(Table table, bool commitOnDispose = false) : IAs
         Channel<RecordBatch> results,
         CancellationToken cancellationToken)
     {
-        await using var dataFileStream = await OpenFile(dataFile.FilePath, cancellationToken);
+        await using PathAndStream dataFileStream = await OpenFile(dataFile.FilePath, cancellationToken);
         // using var faucet = CreateFaucet(dataFileStream.Stream, schema);
 
-        using var arrowReaderProperties = ArrowReaderProperties.GetDefault();
-        using var parquetReaderProperties = ReaderProperties.GetDefaultReaderProperties();
-        using var arrowReader = new FileReader(
+        using ArrowReaderProperties arrowReaderProperties = ArrowReaderProperties.GetDefault();
+        using ReaderProperties parquetReaderProperties = ReaderProperties.GetDefaultReaderProperties();
+        using FileReader arrowReader = new(
             dataFileStream.Stream,
             parquetReaderProperties,
             arrowReaderProperties,
             true);
-        using var recordBatchReader = arrowReader.GetRecordBatchReader();
+        using IArrowArrayStream recordBatchReader = arrowReader.GetRecordBatchReader();
 
         while (!cancellationToken.IsCancellationRequested)
         {
             // TODO exceptions are swallowed
-            var batch = await recordBatchReader.ReadNextRecordBatchAsync(cancellationToken);
+            RecordBatch? batch = await recordBatchReader.ReadNextRecordBatchAsync(cancellationToken);
             if (batch is null) break;
             await results.Writer.WriteAsync(batch, cancellationToken);
         }
@@ -325,13 +327,13 @@ public sealed class Transaction(Table table, bool commitOnDispose = false) : IAs
         Channel<DataFileWriteResult> results,
         CancellationToken cancellationToken)
     {
-        await using var dataFile = await NewDataFile(cancellationToken);
-        using var arrowWriterProperties = ArrowWriterProperties.GetDefault();
-        using var parquetWriterPropertiesBuilder = new WriterPropertiesBuilder();
+        await using PathAndStream dataFile = await NewDataFile(cancellationToken);
+        using ArrowWriterProperties arrowWriterProperties = ArrowWriterProperties.GetDefault();
+        using WriterPropertiesBuilder parquetWriterPropertiesBuilder = new();
         parquetWriterPropertiesBuilder.Compression(Compression.Zstd);
         parquetWriterPropertiesBuilder.MaxRowGroupLength(256 * 1024);
-        var arrowSchema = ArrowSchema.FromSchema(schema);
-        using var arrowWriter = new FileWriter(
+        Apache.Arrow.Schema arrowSchema = ArrowSchema.FromSchema(schema);
+        using FileWriter arrowWriter = new(
             dataFile.Stream,
             arrowSchema,
             parquetWriterPropertiesBuilder.Build(),
@@ -340,7 +342,7 @@ public sealed class Transaction(Table table, bool commitOnDispose = false) : IAs
 
         long written = 0;
 
-        await foreach (var batch in batches.Reader.ReadAllAsync(cancellationToken))
+        await foreach (RecordBatch batch in batches.Reader.ReadAllAsync(cancellationToken))
         {
             // TODO for now have to clone due to arrow limitations
             arrowWriter.WriteBufferedRecordBatch(batch.Clone());
@@ -363,13 +365,14 @@ public sealed class Transaction(Table table, bool commitOnDispose = false) : IAs
         Channel<ManifestListEntry> results,
         CancellationToken cancellationToken = default)
     {
-        var snapshot = Table.Metadata!.SnapshotsById[snapshotId];
+        Snapshot snapshot = Table.Metadata!.SnapshotsById[snapshotId];
 
-        var manifestListFile = await OpenFile(snapshot.ManifestList, cancellationToken);
+        PathAndStream manifestListFile = await OpenFile(snapshot.ManifestList, cancellationToken);
 
-        using var manifestListAppender = ManifestListEntry.GetReader(manifestListFile.Stream);
+        using IFileReader<ManifestListEntry>
+            manifestListAppender = ManifestListEntry.GetReader(manifestListFile.Stream);
 
-        foreach (var entry in manifestListAppender.NextEntries)
+        foreach (ManifestListEntry entry in manifestListAppender.NextEntries)
             await results.Writer.WriteAsync(entry, cancellationToken);
 
         await manifestListFile.DisposeAsync();
@@ -384,23 +387,23 @@ public sealed class Transaction(Table table, bool commitOnDispose = false) : IAs
         CancellationToken cancellationToken = default)
     {
         var sequenceNumber = (long)Table.Metadata!.LastSequenceNumber! + 1;
-        var summary = new Summary { Operation = SummaryOperation.Overwrite };
+        Summary summary = new() { Operation = SummaryOperation.Overwrite };
 
-        var manifestListFile = await CreateManifestListFile(snapshotId, sequenceNumber, cancellationToken);
+        PathAndStream manifestListFile = await CreateManifestListFile(snapshotId, sequenceNumber, cancellationToken);
 
-        using var manifestListAppender = ManifestListEntry.GetAppender(
+        using IFileWriter<ManifestListEntry> manifestListAppender = ManifestListEntry.GetAppender(
             manifestListFile.Stream,
             snapshotId,
             null,
             sequenceNumber);
 
-        await foreach (var entry in newEntries.Reader.ReadAllAsync(cancellationToken))
+        await foreach (ManifestFileWriteResult entry in newEntries.Reader.ReadAllAsync(cancellationToken))
         {
             summary.AddedDataFiles += entry.AddedFileCount;
             summary.AddedRecords += entry.AddedRowsCount;
             summary.AddedFilesSize += entry.AddedFilesSize;
 
-            var manifestListEntry = new ManifestListEntry
+            ManifestListEntry manifestListEntry = new()
             {
                 ManifestPath = entry.Location.AbsoluteUri,
                 ManifestLength = entry.FileSize,
@@ -420,7 +423,7 @@ public sealed class Transaction(Table table, bool commitOnDispose = false) : IAs
             manifestListAppender.Flush();
         }
 
-        await foreach (var entry in existingEntries.Reader.ReadAllAsync(cancellationToken))
+        await foreach (ManifestListEntry entry in existingEntries.Reader.ReadAllAsync(cancellationToken))
         {
             manifestListAppender.Append(entry);
             manifestListAppender.Flush();
@@ -447,14 +450,14 @@ public sealed class Transaction(Table table, bool commitOnDispose = false) : IAs
         Channel<ManifestEntry> results,
         CancellationToken cancellationToken)
     {
-        var manifestFile = await OpenFile(manifestListEntry.ManifestPath, cancellationToken);
+        PathAndStream manifestFile = await OpenFile(manifestListEntry.ManifestPath, cancellationToken);
 
-        using var manifestReader = ManifestEntry.GetReader(manifestFile.Stream);
+        using IFileReader<ManifestEntry> manifestReader = ManifestEntry.GetReader(manifestFile.Stream);
 
-        foreach (var entry in manifestReader.NextEntries)
+        foreach (ManifestEntry entry in manifestReader.NextEntries)
         {
             // TODO only inherit if status = added
-            var inheritedEntry = entry with
+            ManifestEntry inheritedEntry = entry with
             {
                 FileSequenceNumber = entry.FileSequenceNumber ?? manifestListEntry.SequenceNumber,
                 SequenceNumber = entry.SequenceNumber ?? manifestListEntry.SequenceNumber,
@@ -475,9 +478,9 @@ public sealed class Transaction(Table table, bool commitOnDispose = false) : IAs
         Channel<ManifestFileWriteResult> results,
         CancellationToken cancellationToken)
     {
-        var manifestFile = await CreateManifestFile(cancellationToken);
+        PathAndStream manifestFile = await CreateManifestFile(cancellationToken);
 
-        using var manifestAppender = ManifestEntry.GetAppender(
+        using IFileWriter<ManifestEntry> manifestAppender = ManifestEntry.GetAppender(
             manifestFile.Stream,
             schema,
             partitionSpec,
@@ -487,12 +490,12 @@ public sealed class Transaction(Table table, bool commitOnDispose = false) : IAs
         long addedRowsCount = 0;
         var addedDataFilesCount = 0;
 
-        await foreach (var entry in dataFiles.Reader.ReadAllAsync(cancellationToken))
+        await foreach (DataFileWriteResult entry in dataFiles.Reader.ReadAllAsync(cancellationToken))
         {
             addedRowsCount += entry.RecordCount;
             addedDataFilesCount++;
             addedFilesSize += entry.FileSize;
-            var manifestEntry = new ManifestEntry
+            ManifestEntry manifestEntry = new()
             {
                 Status = Status.Added,
                 SnapshotId = snapshotId,
@@ -526,8 +529,8 @@ public sealed class Transaction(Table table, bool commitOnDispose = false) : IAs
 
     private async ValueTask<PathAndStream> NewDataFile(CancellationToken cancellationToken = default)
     {
-        var parquetFilePath = new Uri(Table.DataFolderUri, Utils.GetParquetFileName(0, 0, Guid.NewGuid()));
-        var parquetStream = await Table.ObjectStorage.Open(
+        Uri parquetFilePath = new(Table.DataFolderUri, Utils.GetParquetFileName(0, 0, Guid.NewGuid()));
+        Stream parquetStream = await Table.ObjectStorage.Open(
             parquetFilePath,
             FileMode.CreateNew,
             cancellationToken);
@@ -536,10 +539,10 @@ public sealed class Transaction(Table table, bool commitOnDispose = false) : IAs
 
     private async ValueTask<PathAndStream> CreateManifestFile(CancellationToken cancellationToken = default)
     {
-        var manifestFilePath = new Uri(
+        Uri manifestFilePath = new(
             Table.MetadataFolderUri,
             ManifestEntry.GetFileName(Guid.NewGuid(), 0));
-        var stream = await Table.ObjectStorage.Open(
+        Stream stream = await Table.ObjectStorage.Open(
             manifestFilePath,
             FileMode.CreateNew,
             cancellationToken);
@@ -551,10 +554,10 @@ public sealed class Transaction(Table table, bool commitOnDispose = false) : IAs
         long sequenceNumber,
         CancellationToken cancellationToken = default)
     {
-        var manifestListFilePath = new Uri(
+        Uri manifestListFilePath = new(
             Table.MetadataFolderUri,
             ManifestListEntry.GetFileName(snapshotId, sequenceNumber, Guid.NewGuid()));
-        var manifestListStream = await Table.ObjectStorage.Open(
+        Stream manifestListStream = await Table.ObjectStorage.Open(
             manifestListFilePath,
             FileMode.CreateNew,
             cancellationToken);
@@ -565,10 +568,10 @@ public sealed class Transaction(Table table, bool commitOnDispose = false) : IAs
         string path,
         CancellationToken cancellationToken = default)
     {
-        var success = Uri.TryCreate(path, UriKind.RelativeOrAbsolute, out var uri);
+        var success = Uri.TryCreate(path, UriKind.RelativeOrAbsolute, out Uri? uri);
         if (!success) throw new ArgumentException($"Invalid URI: {path}");
 
-        var manifestListStream = await Table.ObjectStorage.Open(
+        Stream manifestListStream = await Table.ObjectStorage.Open(
             uri!,
             FileMode.Open,
             cancellationToken);
@@ -611,7 +614,7 @@ public sealed class Transaction(Table table, bool commitOnDispose = false) : IAs
         if (_updates.Count == 0) return;
 
         // TODO retry (could also be handled in catalog)
-        var response = await Table.Catalog.UpdateTableAsync(
+        Table response = await Table.Catalog.UpdateTableAsync(
             Table.Identifier,
             _updates,
             _requirements,
@@ -633,7 +636,7 @@ public sealed class Transaction(Table table, bool commitOnDispose = false) : IAs
     {
         if (snapshotId is not null)
         {
-            if (Table.Metadata!.SnapshotsById.TryGetValue(snapshotId.Value, out var result))
+            if (Table.Metadata!.SnapshotsById.TryGetValue(snapshotId.Value, out Snapshot? result))
                 return result;
             else
                 throw new ArgumentOutOfRangeException(nameof(snapshotId));
@@ -642,7 +645,7 @@ public sealed class Transaction(Table table, bool commitOnDispose = false) : IAs
         {
             var currentSnapshotId = Table.Metadata!.CurrentSnapshotId ??
                                     throw new InvalidOperationException("Table doesn't have any snapshots");
-            if (Table.Metadata.SnapshotsById.TryGetValue(currentSnapshotId, out var result))
+            if (Table.Metadata.SnapshotsById.TryGetValue(currentSnapshotId, out Snapshot? result))
                 return result;
             else
                 throw new UnreachableException("Could not find the current snapshot");

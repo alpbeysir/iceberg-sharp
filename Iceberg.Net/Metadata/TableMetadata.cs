@@ -5,6 +5,7 @@ using System.Text.Json.Serialization;
 using System.Text.RegularExpressions;
 using Iceberg.Net.Rest;
 using Iceberg.Net.Rest.TableUpdate;
+using Iceberg.Net.Schemas;
 
 // ReSharper disable CollectionNeverUpdated.Global
 // ReSharper disable AutoPropertyCanBeMadeGetOnly.Global
@@ -24,7 +25,7 @@ public partial record TableMetadata
         }
     }
 
-    private Dictionary<int, Schemas.Schema> _schemasById
+    private Dictionary<int, Schema> _schemasById
     {
         get
         {
@@ -90,9 +91,9 @@ public partial record TableMetadata
 
     [JsonInclude]
     [JsonPropertyName("schemas")]
-    public List<Schemas.Schema> _schemas { get; set; } = [];
+    public List<Schema> _schemas { get; set; } = [];
 
-    public IReadOnlyList<Schemas.Schema> Schemas => _schemas;
+    public IReadOnlyList<Schema> Schemas => _schemas;
 
     [JsonInclude]
     [JsonPropertyName("partition-specs")]
@@ -149,20 +150,20 @@ public partial record TableMetadata
     public IReadOnlyList<PartitionStatisticsFile> PartitionStatistics => _partitionStatistics;
 
     public IReadOnlyDictionary<long, Snapshot> SnapshotsById => _snapshotsById;
-    public IReadOnlyDictionary<int, Schemas.Schema> SchemasById => _schemasById;
+    public IReadOnlyDictionary<int, Schema> SchemasById => _schemasById;
 
     [GeneratedRegex(@"^(\d+)-(.+)\.gz\.metadata\.json$")]
     private static partial Regex MetadataFileNameRegex();
 
     public static (int Version, Guid Guid) ParseMetadataLogFileName(string fileName)
     {
-        var match = MetadataFileNameRegex().Match(fileName);
+        Match match = MetadataFileNameRegex().Match(fileName);
 
         if (!match.Success)
             throw new FormatException($"Filename '{fileName}' is not a valid Iceberg metadata file name.");
 
         var version = int.Parse(match.Groups[1].Value);
-        var guid = Guid.Parse(match.Groups[2].Value);
+        Guid guid = Guid.Parse(match.Groups[2].Value);
 
         return (version, guid);
     }
@@ -174,14 +175,14 @@ public partial record TableMetadata
 
     public static void WriteToMetadataFile(Stream stream, TableMetadata tableMetadata)
     {
-        using var gzip = new GZipStream(stream, CompressionMode.Compress, true);
+        using GZipStream gzip = new(stream, CompressionMode.Compress, true);
         var json = JsonSerializer.SerializeToUtf8Bytes(tableMetadata, SourceGenerationContext.Default.TableMetadata);
         gzip.Write(json);
     }
 
     public void Apply(IEnumerable<ITableUpdate> updates)
     {
-        foreach (var update in updates)
+        foreach (ITableUpdate update in updates)
             switch (update)
             {
                 case AddEncryptionKeyTableUpdate addEncryptionKeyTableUpdate:
@@ -213,7 +214,7 @@ public partial record TableMetadata
                     _encryptionKeys.RemoveAll(key => key.KeyId == removeEncryptionKeyTableUpdate.KeyId);
                     break;
                 case RemovePartitionSpecsTableUpdate removePartitionSpecsTableUpdate:
-                    var specIds = removePartitionSpecsTableUpdate.SpecIds.ToImmutableHashSet();
+                    ImmutableHashSet<int> specIds = removePartitionSpecsTableUpdate.SpecIds.ToImmutableHashSet();
                     _partitionSpecs.RemoveAll(spec => spec.SpecId is not null && specIds.Contains((int)spec.SpecId!));
                     break;
                 case RemovePartitionStatisticsTableUpdate:
@@ -222,7 +223,7 @@ public partial record TableMetadata
                     removePropertiesTableUpdate.Removals.ForEach(removal => _properties.Remove(removal));
                     break;
                 case RemoveSchemasTableUpdate removeSchemasTableUpdate:
-                    var schemaIds = removeSchemasTableUpdate.SchemaIds.ToImmutableHashSet();
+                    ImmutableHashSet<int> schemaIds = removeSchemasTableUpdate.SchemaIds.ToImmutableHashSet();
                     _schemas.RemoveAll(schema =>
                         schema.SchemaId is not null && schemaIds.Contains((int)schema.SchemaId!));
                     foreach (var schemaId in schemaIds) _schemasById.Remove(schemaId);
@@ -232,7 +233,7 @@ public partial record TableMetadata
                     break;
                 case RemoveSnapshotsTableUpdate removeSnapshotsTableUpdate:
                     // TODO do we need to remove the refs?
-                    var snapshotIds = removeSnapshotsTableUpdate.SnapshotIds.ToImmutableHashSet();
+                    ImmutableHashSet<long> snapshotIds = removeSnapshotsTableUpdate.SnapshotIds.ToImmutableHashSet();
                     _snapshots.RemoveAll(snapshot => snapshotIds.Contains(snapshot.SnapshotId));
                     removeSnapshotsTableUpdate.SnapshotIds.ForEach(id => _snapshotsById.Remove(id));
                     break;
@@ -256,7 +257,8 @@ public partial record TableMetadata
                 case SetPartitionStatisticsTableUpdate:
                     throw new NotImplementedException();
                 case SetPropertiesTableUpdate setPropertiesTableUpdate:
-                    foreach (var kvp in setPropertiesTableUpdate.Updates) _properties.Add(kvp.Key, kvp.Value);
+                    foreach (KeyValuePair<string, string> kvp in setPropertiesTableUpdate.Updates)
+                        _properties.Add(kvp.Key, kvp.Value);
                     break;
                 case SetSnapshotRefTableUpdate setSnapshotRefTableUpdate:
                     CurrentSnapshotId = setSnapshotRefTableUpdate.SnapshotId;

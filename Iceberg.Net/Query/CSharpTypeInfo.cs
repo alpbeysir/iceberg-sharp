@@ -1,6 +1,7 @@
 ﻿using System.Collections.Frozen;
 using System.Diagnostics;
 using System.Diagnostics.CodeAnalysis;
+using System.Reflection;
 using Iceberg.Net.Misc;
 
 namespace Iceberg.Net.Query;
@@ -17,9 +18,9 @@ internal record CSharpTypeInfo(string Path, Type Type)
 {
     internal FrozenDictionary<string, CSharpTypeInfo> GetSubtypes()
     {
-        Utils.IsNullable(Type, out var unwrapped);
-        var genericArguments = unwrapped.GetGenericArguments();
-        var list = TypeKindFromType(unwrapped) switch
+        Utils.IsNullable(Type, out Type unwrapped);
+        Type[] genericArguments = unwrapped.GetGenericArguments();
+        IEnumerable<CSharpTypeInfo> list = TypeKindFromType(unwrapped) switch
         {
             CSharpTypeKind.List => [new CSharpTypeInfo($"{Path}.element", genericArguments[0])],
             CSharpTypeKind.Map =>
@@ -54,7 +55,7 @@ internal record CSharpTypeInfo(string Path, Type Type)
 
     private static IEnumerable<CSharpTypeInfo> DeconstructStruct(string prefix, Type type)
     {
-        var members = Utils.GetMembersByName(type);
+        Dictionary<string, MemberInfo> members = Utils.GetMembersByName(type);
         return members.Select(kvp => new CSharpTypeInfo($"{prefix}.{kvp.Key}", Utils.PropertyOrFieldType(kvp.Value)));
     }
 }

@@ -54,7 +54,7 @@ public class SummaryConverter : JsonConverter<Summary>
             throw new JsonException("Expected StartObject token.");
 
         // Using 'default!' because Operation is required and will be set in the loop
-        var summary = new Summary { Operation = default! };
+        Summary summary = new() { Operation = default! };
 
         while (reader.Read())
         {
@@ -68,7 +68,7 @@ public class SummaryConverter : JsonConverter<Summary>
                 switch (propertyName)
                 {
                     case "operation":
-                        if (Enum.TryParse<SummaryOperation>(reader.GetString(), true, out var op))
+                        if (Enum.TryParse(reader.GetString(), true, out SummaryOperation op))
                             summary = summary with { Operation = op };
                         break;
                     case "added-data-files": summary.AddedDataFiles = ReadLong(ref reader); break;

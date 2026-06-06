@@ -28,13 +28,13 @@ public static class CSharpSchema
             structType,
             _ =>
             {
-                var typeBuilder = ModuleBuilder.DefineType(
+                TypeBuilder typeBuilder = ModuleBuilder.DefineType(
                     $"{typeName}_{Guid.NewGuid():N}",
                     TypeAttributes.Public | TypeAttributes.Class | TypeAttributes.BeforeFieldInit);
 
-                foreach (var field in structType.Fields)
+                foreach (StructField field in structType.Fields)
                 {
-                    var fieldType = FromIcebergType(field.FieldType, field.Name, field.Required);
+                    Type fieldType = FromIcebergType(field.FieldType, field.Name, field.Required);
 
                     if (!field.Required && fieldType.IsValueType && Nullable.GetUnderlyingType(fieldType) == null)
                         fieldType = typeof(Nullable<>).MakeGenericType(fieldType);
@@ -49,7 +49,7 @@ public static class CSharpSchema
     internal static Type FromIcebergType(IIcebergType icebergType, string path, bool required)
     {
         if (icebergType is PrimitiveType primitiveType) icebergType = PrimitiveType.Parse(primitiveType.Name);
-        var initialType = icebergType switch
+        Type initialType = icebergType switch
         {
             PrimitiveType.Boolean => typeof(bool),
             PrimitiveType.Int => typeof(int),
@@ -90,7 +90,7 @@ public static class CSharpSchema
         int? schemaId,
         Func<string, int> fieldIdProvider)
     {
-        var structType = ToIcebergStruct(type, fieldIdProvider);
+        StructType structType = ToIcebergStruct(type, fieldIdProvider);
         return new Schema(structType.Fields, schemaId);
     }
 
@@ -100,17 +100,17 @@ public static class CSharpSchema
             Func<string, int> fieldIdProvider,
             string pathPrefix = "")
     {
-        var members = type.GetMembers(BindingFlags.Public | BindingFlags.Instance)
+        List<MemberInfo> members = type.GetMembers(BindingFlags.Public | BindingFlags.Instance)
             .Where(m => m is PropertyInfo or FieldInfo).ToList();
 
-        var infos = from member in members
+        IEnumerable<(Type type, string name, string path, int id, MemberInfo memberInfo)> infos = from member in members
             let memberType = Utils.PropertyOrFieldType(member)
             let memberName = member.Name
             let fullPath = string.IsNullOrEmpty(pathPrefix) ? memberName : $"{pathPrefix}.{memberName}"
             let fieldId = fieldIdProvider(fullPath)
             select (type: memberType, name: memberName, path: fullPath, id: fieldId, memberInfo: member);
 
-        var fields = from info in infos
+        IEnumerable<StructField> fields = from info in infos
             let nullabilityInfo = info.memberInfo switch
             {
                 PropertyInfo p => NullabilityInfoContext.Create(p),
@@ -150,10 +150,10 @@ public static class CSharpSchema
 
         if (type.ImplementsInterface(typeof(IReadOnlyDictionary<,>)))
         {
-            var genericArguments = type.GetGenericArguments();
-            var keyType = genericArguments[0];
-            var valueType = genericArguments[1];
-            var maybeUnderlyingType = Nullable.GetUnderlyingType(valueType);
+            Type[] genericArguments = type.GetGenericArguments();
+            Type keyType = genericArguments[0];
+            Type valueType = genericArguments[1];
+            Type? maybeUnderlyingType = Nullable.GetUnderlyingType(valueType);
             var valueRequired = maybeUnderlyingType == null;
             var keyFieldId = fieldIdProvider($"{currentPath}.key");
             var valueFieldId = fieldIdProvider($"{currentPath}.value");
@@ -167,11 +167,11 @@ public static class CSharpSchema
 
         if (type.ImplementsInterface(typeof(IReadOnlyList<>)))
         {
-            var elementType = type.IsArray ? type.GetElementType() : type.GetGenericArguments().FirstOrDefault();
+            Type? elementType = type.IsArray ? type.GetElementType() : type.GetGenericArguments().FirstOrDefault();
             if (elementType != null)
             {
                 var elementId = fieldIdProvider($"{currentPath}.element");
-                var maybeUnderlyingType = Nullable.GetUnderlyingType(elementType);
+                Type? maybeUnderlyingType = Nullable.GetUnderlyingType(elementType);
                 var required = maybeUnderlyingType == null;
                 return new ListType(
                     elementId,
@@ -185,11 +185,11 @@ public static class CSharpSchema
 
         if (IsEnumerableType(type) && type != typeof(string))
         {
-            var elementType = type.IsArray ? type.GetElementType() : type.GetGenericArguments().FirstOrDefault();
+            Type? elementType = type.IsArray ? type.GetElementType() : type.GetGenericArguments().FirstOrDefault();
             if (elementType != null)
             {
                 var elementId = fieldIdProvider($"{currentPath}.element");
-                var maybeUnderlyingType = Nullable.GetUnderlyingType(elementType);
+                Type? maybeUnderlyingType = Nullable.GetUnderlyingType(elementType);
                 var required = maybeUnderlyingType == null;
                 return new ListType(
                     elementId,

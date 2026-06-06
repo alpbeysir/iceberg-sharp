@@ -26,12 +26,12 @@ public class IcebergTypeComparer : IEqualityComparer<IIcebergType>
 
     public int GetHashCode(IIcebergType obj)
     {
-        var hc = new HashCode();
+        HashCode hc = new();
         hc.Add(obj.GetType());
         switch (obj)
         {
             case StructType s:
-                foreach (var f in s.Fields) hc.Add(f, new StructFieldComparer());
+                foreach (StructField f in s.Fields) hc.Add(f, new StructFieldComparer());
                 break;
             case ListType l:
                 hc.Add(l.ElementId);

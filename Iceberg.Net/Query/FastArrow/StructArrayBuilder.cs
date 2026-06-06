@@ -1,4 +1,3 @@
-using System.Buffers;
 using Apache.Arrow;
 using Apache.Arrow.Memory;
 using Apache.Arrow.Types;
@@ -28,7 +27,7 @@ public class StructArrayBuilder : IArrowArrayBuilder<StructArray, StructArrayBui
     public StructArrayBuilder SetFieldArray(int index, IArrowArray array)
     {
         // For now we need to copy to prevent ownership issues - will fix later
-        var copy = ArrowArrayFactory.BuildArray(array.Data.Clone(Allocator));
+        IArrowArray? copy = ArrowArrayFactory.BuildArray(array.Data.Clone(Allocator));
         if (_fieldBuilders[index] != null)
             throw new InvalidOperationException(
                 $"Field {index} already has a builder; cannot alias.");
@@ -44,7 +43,7 @@ public class StructArrayBuilder : IArrowArrayBuilder<StructArray, StructArrayBui
 
     public StructArray Build(MemoryAllocator? allocator = null)
     {
-        var arrays = new IArrowArray[FieldCount];
+        IArrowArray[] arrays = new IArrowArray[FieldCount];
         for (var i = 0; i < FieldCount; i++)
         {
             arrays[i] = _fieldArrays[i]
@@ -73,7 +72,7 @@ public class StructArrayBuilder : IArrowArrayBuilder<StructArray, StructArrayBui
 
     public StructArrayBuilder Reserve(int capacity)
     {
-        foreach (var b in _fieldBuilders)
+        foreach (IArrowArrayBuilder<IArrowArray>? b in _fieldBuilders)
             if (b != null)
                 ((dynamic)b).Reserve(capacity);
         return this;
@@ -81,7 +80,7 @@ public class StructArrayBuilder : IArrowArrayBuilder<StructArray, StructArrayBui
 
     public StructArrayBuilder Resize(int length)
     {
-        foreach (var b in _fieldBuilders)
+        foreach (IArrowArrayBuilder<IArrowArray>? b in _fieldBuilders)
             if (b != null)
                 ((dynamic)b).Resize(length);
         return this;
@@ -102,7 +101,7 @@ public class StructArrayBuilder : IArrowArrayBuilder<StructArray, StructArrayBui
 
     public StructArrayBuilder AppendNull()
     {
-        foreach (var b in _fieldBuilders)
+        foreach (IArrowArrayBuilder<IArrowArray>? b in _fieldBuilders)
             if (b != null)
                 ((dynamic)b).AppendNull();
         return this;

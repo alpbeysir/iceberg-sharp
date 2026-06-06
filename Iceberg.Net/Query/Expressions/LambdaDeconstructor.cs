@@ -15,16 +15,16 @@ public record ColumnExpressions(
     {
         StringBuilder s = new();
 
-        foreach (var (name, param) in Inputs)
+        foreach ((var name, FrozenDictionary<string, ParameterExpression> param) in Inputs)
         {
             s.Append($"{name}: ");
-            foreach (var input in param)
+            foreach (KeyValuePair<string, ParameterExpression> input in param)
                 s.Append($"[{input.Key}, {input.Value.Type.PrettyPrint()}] ");
         }
 
         s.Append("-> ");
 
-        foreach (var name in Outputs)
+        foreach (KeyValuePair<string, Expression> name in Outputs)
             s.Append($"[{name.Key}, {name.Value.Type.PrettyPrint()}] ");
 
         return s.ToString();
@@ -44,16 +44,17 @@ public class LambdaDeconstructor : ExpressionVisitor
         _sourceParameters = sourceParameters;
         _splittableTypes = splittableTypes;
         _inputParameters = new Dictionary<string, Dictionary<string, ParameterExpression>>(sourceParameters.Count);
-        foreach (var t in sourceParameters)
+        foreach (ParameterExpression t in sourceParameters)
             _inputParameters[t.Name!] = new Dictionary<string, ParameterExpression>();
     }
 
     public static ColumnExpressions Deconstruct(LambdaExpression lambda, HashSet<Type> splittableTypes)
     {
-        var instance = new LambdaDeconstructor(lambda.Parameters, splittableTypes);
+        LambdaDeconstructor instance = new(lambda.Parameters, splittableTypes);
         instance.DeconstructOutput(lambda.Body, "");
 
-        var dict = instance._inputParameters.ToFrozenDictionary(
+        FrozenDictionary<string, FrozenDictionary<string, ParameterExpression>> dict =
+            instance._inputParameters.ToFrozenDictionary(
             pair => pair.Key,
             pair => pair.Value.ToFrozenDictionary());
 
@@ -67,7 +68,7 @@ public class LambdaDeconstructor : ExpressionVisitor
         switch (expression)
         {
             case MemberInitExpression init:
-                foreach (var binding in init.Bindings.OfType<MemberAssignment>())
+                foreach (MemberAssignment binding in init.Bindings.OfType<MemberAssignment>())
                     DeconstructOutput(binding.Expression, CombinePath(path, binding.Member.Name));
                 break;
 
@@ -85,7 +86,7 @@ public class LambdaDeconstructor : ExpressionVisitor
                 {
                     // Now that we know it's a leaf for the OUTPUT, 
                     // we Visit it to create/retrieve the INPUT parameter.
-                    var rewrittenLeaf = Visit(expression);
+                    Expression rewrittenLeaf = Visit(expression);
                     var finalKey = string.IsNullOrEmpty(path) ? Root : path;
                     _assignments.Add(finalKey, rewrittenLeaf);
                 }
@@ -96,26 +97,26 @@ public class LambdaDeconstructor : ExpressionVisitor
 
     private void ExpandStruct(Expression node, string path)
     {
-        var members = node.Type.GetMembers(BindingFlags.Public | BindingFlags.Instance)
+        IEnumerable<MemberInfo> members = node.Type.GetMembers(BindingFlags.Public | BindingFlags.Instance)
             .Where(m => m is FieldInfo or PropertyInfo);
 
-        foreach (var member in members)
+        foreach (MemberInfo member in members)
         {
-            var memberAccess = Expression.MakeMemberAccess(node, member);
+            MemberExpression memberAccess = Expression.MakeMemberAccess(node, member);
             DeconstructOutput(memberAccess, CombinePath(path, member.Name));
         }
     }
 
     protected override Expression VisitMember(MemberExpression node)
     {
-        var maybeParam = _sourceParameters.FirstOrDefault(param => IsFromParameter(node, param));
+        ParameterExpression? maybeParam = _sourceParameters.FirstOrDefault(param => IsFromParameter(node, param));
 
         if (maybeParam is not null)
         {
             var path = GetMemberPath(node);
-            var paramDict = _inputParameters[maybeParam.Name!];
+            Dictionary<string, ParameterExpression> paramDict = _inputParameters[maybeParam.Name!];
 
-            if (!paramDict.TryGetValue(path, out var flatParam))
+            if (!paramDict.TryGetValue(path, out ParameterExpression? flatParam))
             {
                 flatParam = Expression.Parameter(node.Type, $"{path}");
                 paramDict.Add(path, flatParam);
@@ -132,8 +133,8 @@ public class LambdaDeconstructor : ExpressionVisitor
         var index = _sourceParameters.IndexOf(node);
         if (index != -1)
         {
-            var paramDict = _inputParameters[node.Name!];
-            if (!paramDict.TryGetValue(Root, out var flatParam))
+            Dictionary<string, ParameterExpression> paramDict = _inputParameters[node.Name!];
+            if (!paramDict.TryGetValue(Root, out ParameterExpression? flatParam))
             {
                 flatParam = Expression.Parameter(node.Type, $"{node.Name!}");
                 paramDict.Add(Root, flatParam);
@@ -147,8 +148,8 @@ public class LambdaDeconstructor : ExpressionVisitor
 
     private static string GetMemberPath(MemberExpression node)
     {
-        var parts = new List<string>();
-        var current = node;
+        List<string> parts = new();
+        MemberExpression? current = node;
         while (current != null)
         {
             parts.Add(current.Member.Name);
@@ -174,7 +175,7 @@ public class LambdaDeconstructor : ExpressionVisitor
 
     private static bool IsFromParameter(Expression node, ParameterExpression target)
     {
-        var current = node;
+        Expression? current = node;
         while (current is MemberExpression member) current = member.Expression;
         return current == target;
     }

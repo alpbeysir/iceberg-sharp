@@ -25,7 +25,7 @@ public static class Utils
         {
             case Namespace ns:
                 Console.WriteLine($"{ns.Identifier.GetLastIdentifier()}".PadLeft(indent, '-'));
-                foreach (var child in ns.Children.ToBlockingEnumerable()) PrintTree(child, indent + 4);
+                foreach (INode child in ns.Children.ToBlockingEnumerable()) PrintTree(child, indent + 4);
                 break;
             case Table table:
                 Console.WriteLine($"{table.Identifier.GetLastIdentifier()}".PadLeft(indent, '-'));
@@ -78,7 +78,7 @@ public static class Utils
             return false;
         }
 
-        var maybe = Nullable.GetUnderlyingType(type);
+        Type? maybe = Nullable.GetUnderlyingType(type);
         unwrapped = maybe ?? type;
         return maybe is not null;
     }
@@ -98,7 +98,7 @@ public static class Utils
     {
         var pos = stream.Position;
         stream.Seek(0, SeekOrigin.Begin);
-        using var file = new FileStream(path, FileMode.Create);
+        using FileStream file = new(path, FileMode.Create);
         stream.CopyTo(file);
         stream.Seek(pos, SeekOrigin.Begin);
     }
@@ -122,7 +122,7 @@ public static class Utils
 
     public static long GenerateSnapshotId()
     {
-        var uuid = Guid.NewGuid();
+        Guid uuid = Guid.NewGuid();
         var bytes = uuid.ToByteArray();
         var mostSignificantBits = BitConverter.ToInt64(bytes, 0);
         var leastSignificantBits = BitConverter.ToInt64(bytes, 8);
@@ -144,8 +144,8 @@ public static class Utils
     {
         if (array.Length <= edgeItems * 2) return $"[{string.Join(", ", array)}]";
 
-        var head = array.Take(edgeItems);
-        var tail = array.Skip(array.Length - edgeItems);
+        IEnumerable<T> head = array.Take(edgeItems);
+        IEnumerable<T> tail = array.Skip(array.Length - edgeItems);
 
         return $"[{string.Join(", ", head)}, ..., {string.Join(", ", tail)}]";
     }
@@ -157,8 +157,8 @@ public static class Utils
         Expression increment,
         Expression loopContent)
     {
-        var initAssign = Expression.Assign(loopVar, initValue);
-        var breakLabel = Expression.Label("LoopBreak");
+        BinaryExpression initAssign = Expression.Assign(loopVar, initValue);
+        LabelTarget breakLabel = Expression.Label("LoopBreak");
 
         return Expression.Block(
             [loopVar],
@@ -194,7 +194,7 @@ public static class Utils
         {
             visitor(node);
             if (node is GroupNode groupNode)
-                foreach (var child in groupNode.Fields)
+                foreach (Node child in groupNode.Fields)
                 {
                     Visit(child, visitor);
                     child.Dispose();
@@ -219,11 +219,11 @@ public static class Utils
                 case PrimitiveType primitiveType:
                     break;
                 case Schema schema:
-                    foreach (var field in schema.Fields)
+                    foreach (StructField field in schema.Fields)
                         Visit(field.FieldType, visitor, repetition, field.Id, field.Required);
                     break;
                 case StructType structType:
-                    foreach (var field in structType.Fields)
+                    foreach (StructField field in structType.Fields)
                         Visit(field.FieldType, visitor, repetition, field.Id, field.Required);
                     break;
                 default:

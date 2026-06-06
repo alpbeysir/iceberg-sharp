@@ -73,7 +73,7 @@ public class ListArrayBuilder : IArrowArrayBuilder<ListArray, ListArrayBuilder>
     {
         ValueOffsetsBufferBuilder.Append(ValueBuilder.Length);
 
-        var validityBuffer = NullCount > 0
+        ArrowBuffer validityBuffer = NullCount > 0
             ? ValidityBufferBuilder.Build(allocator)
             : ArrowBuffer.Empty;
 

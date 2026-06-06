@@ -5,10 +5,10 @@ using System.Reflection;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using Apache.Arrow;
-using Iceberg.Net.Misc;
-using Iceberg.Net.Query.Expressions;
 using Apache.Arrow.Arrays;
 using Apache.Arrow.Types;
+using Iceberg.Net.Misc;
+using Iceberg.Net.Query.Expressions;
 using Array = System.Array;
 
 namespace Iceberg.Net.Query.Arrow;
@@ -28,14 +28,14 @@ public static class ArrowReader
             DynamicallyAccessedMemberTypes.NonPublicFields | DynamicallyAccessedMemberTypes.PublicProperties)]
         T>(IArrowArray array)
     {
-        var targetType = typeof(T);
+        Type targetType = typeof(T);
 
         // Scalar Mode
         if (IsScalarType(targetType))
         {
             if (array.Length == 0) yield break;
 
-            var accessor = CreateAccessor(array, targetType);
+            Func<int, object?> accessor = CreateAccessor(array, targetType);
             for (var i = 0; i < array.Length; i++)
             {
                 var val = accessor(i);
@@ -50,7 +50,7 @@ public static class ArrowReader
         {
             if (array.Length == 0) yield break;
 
-            var accessor = CreateAccessor(array, targetType);
+            Func<int, object?> accessor = CreateAccessor(array, targetType);
             for (var i = 0; i < array.Length; i++)
             {
                 var val = accessor(i);
@@ -65,7 +65,7 @@ public static class ArrowReader
             throw new ArgumentException(
                 $"Object mapping requires a StructArray, got {array.GetType().Name}");
 
-        foreach (var item in ReadStruct<T>(structArray))
+        foreach (T item in ReadStruct<T>(structArray))
             yield return item;
     }
 
@@ -74,7 +74,7 @@ public static class ArrowReader
             DynamicallyAccessedMemberTypes.NonPublicFields | DynamicallyAccessedMemberTypes.PublicProperties)]
         T>(StructArray structArray)
     {
-        var targetType = typeof(T);
+        Type targetType = typeof(T);
         var rowCount = structArray.Length;
         var isAnonymous = targetType.IsAnonymousType();
 
@@ -85,12 +85,12 @@ public static class ArrowReader
             members = targetType.GetProperties(BindingFlags.Public | BindingFlags.Instance)
                 .Where(p => p.CanWrite).ToArray<MemberInfo>();
 
-        var structType = (StructType)structArray.Data.DataType;
-        var setters = new Action<T, int>[members.Length];
+        StructType? structType = (StructType)structArray.Data.DataType;
+        Action<T, int>[] setters = new Action<T, int>[members.Length];
 
         for (var i = 0; i < members.Length; i++)
         {
-            var member = members[i];
+            MemberInfo member = members[i];
             var memberName = isAnonymous ? ExtractCleanFieldName(member.Name) : member.Name;
 
             var fieldIdx = -1;
@@ -106,7 +106,7 @@ public static class ArrowReader
             setters[i] = FastAccessorBuilder.BuildRowAssigner<T>(structArray.Fields[fieldIdx], member);
         }
 
-        var batchItems = new T[rowCount];
+        T[] batchItems = new T[rowCount];
 
         for (var i = 0; i < rowCount; i++)
             if (isAnonymous)
@@ -118,12 +118,12 @@ public static class ArrowReader
 
         for (var p = 0; p < setters.Length; p++)
         {
-            var setter = setters[p];
+            Action<T, int>? setter = setters[p];
             if (setter == null) continue;
             for (var i = 0; i < rowCount; i++) setter(batchItems[i], i);
         }
 
-        foreach (var item in batchItems) yield return item;
+        foreach (T item in batchItems) yield return item;
     }
 
     // Helper to handle anonymous field naming: "<PropName>i__Field" -> "PropName"
@@ -139,7 +139,7 @@ public static class ArrowReader
     {
         if (targetType == typeof(object)) targetType = ArrowTypeResolver.GetNetTypeFromArrowType(array.Data.DataType);
 
-        var underlyingType = Nullable.GetUnderlyingType(targetType) ?? targetType;
+        Type underlyingType = Nullable.GetUnderlyingType(targetType) ?? targetType;
         return CreateCoreAccessor(array, underlyingType);
     }
 
@@ -253,33 +253,33 @@ public static class ArrowReader
     {
         if (type == typeof(Dictionary<string, object>) || type == typeof(object))
         {
-            var fieldAccessors = new Dictionary<string, Func<int, object?>>();
-            var fields = ((StructType)structArray.Data.DataType).Fields;
+            Dictionary<string, Func<int, object?>> fieldAccessors = new();
+            IReadOnlyList<Field>? fields = ((StructType)structArray.Data.DataType).Fields;
 
             for (var i = 0; i < fields.Count; i++)
             {
                 var fieldName = fields[i].Name;
-                var childArray = structArray.Fields[i];
+                IArrowArray? childArray = structArray.Fields[i];
                 fieldAccessors[fieldName] = CreateAccessor(childArray, typeof(object));
             }
 
             return idx =>
             {
                 if (structArray.IsNull(idx)) return null;
-                var dict = new Dictionary<string, object?>(fieldAccessors.Count);
-                foreach (var kv in fieldAccessors) dict[kv.Key] = kv.Value(idx);
+                Dictionary<string, object?> dict = new(fieldAccessors.Count);
+                foreach (KeyValuePair<string, Func<int, object?>> kv in fieldAccessors) dict[kv.Key] = kv.Value(idx);
                 return dict;
             };
         }
 
         var isAnon = type.IsAnonymousType();
-        var structType = (StructType)structArray.Data.DataType;
-        var setters = new List<Action<object, int>>();
+        StructType? structType = (StructType)structArray.Data.DataType;
+        List<Action<object, int>> setters = new();
 
         if (isAnon)
         {
-            var fields = type.GetFields(BindingFlags.Instance | BindingFlags.NonPublic);
-            foreach (var field in fields)
+            FieldInfo[] fields = type.GetFields(BindingFlags.Instance | BindingFlags.NonPublic);
+            foreach (FieldInfo field in fields)
             {
                 var memberName = ExtractCleanFieldName(field.Name);
                 var fieldIndex = -1;
@@ -292,8 +292,8 @@ public static class ArrowReader
 
                 if (fieldIndex == -1) continue;
 
-                var childArray = structArray.Fields[fieldIndex];
-                var childGetter = CreateAccessor(childArray, field.FieldType);
+                IArrowArray? childArray = structArray.Fields[fieldIndex];
+                Func<int, object?> childGetter = CreateAccessor(childArray, field.FieldType);
 
                 setters.Add((obj, rowIdx) =>
                 {
@@ -304,10 +304,10 @@ public static class ArrowReader
         }
         else
         {
-            var props = type.GetProperties(BindingFlags.Public | BindingFlags.Instance)
+            PropertyInfo[] props = type.GetProperties(BindingFlags.Public | BindingFlags.Instance)
                 .Where(p => p.CanWrite).ToArray();
 
-            foreach (var prop in props)
+            foreach (PropertyInfo prop in props)
             {
                 var fieldIndex = -1;
                 for (var k = 0; k < structType.Fields.Count; k++)
@@ -319,8 +319,8 @@ public static class ArrowReader
 
                 if (fieldIndex == -1) continue;
 
-                var childArray = structArray.Fields[fieldIndex];
-                var childGetter = CreateAccessor(childArray, prop.PropertyType);
+                IArrowArray? childArray = structArray.Fields[fieldIndex];
+                Func<int, object?> childGetter = CreateAccessor(childArray, prop.PropertyType);
 
                 setters.Add((obj, rowIdx) =>
                 {
@@ -336,7 +336,7 @@ public static class ArrowReader
             var instance = isAnon
                 ? RuntimeHelpers.GetUninitializedObject(type)
                 : Activator.CreateInstance(type)!;
-            foreach (var setter in setters) setter(instance, idx);
+            foreach (Action<object, int> setter in setters) setter(instance, idx);
             return instance;
         };
     }
@@ -347,7 +347,7 @@ public static class ArrowReader
     private static Func<int, object?> CreateListAccessor(IArrowArray array, Type type)
     {
         // Determine Element Type
-        var elementType = typeof(object);
+        Type elementType = typeof(object);
         if (type.IsGenericType) elementType = type.GetGenericArguments()[0];
         else if (type.IsArray) elementType = type.GetElementType()!;
 
@@ -370,14 +370,14 @@ public static class ArrowReader
         }
         else
         {
-            var fixedArr = (FixedSizeListArray)array;
+            FixedSizeListArray fixedArr = (FixedSizeListArray)array;
             valuesArray = fixedArr.Values;
             var width = ((FixedSizeListType)fixedArr.Data.DataType).ListSize;
             getOffset = i => (long)(i + array.Offset) * width; // Correct Offset logic
             isNull = fixedArr.IsNull;
         }
 
-        var childGetter = CreateAccessor(valuesArray, elementType);
+        Func<int, object?> childGetter = CreateAccessor(valuesArray, elementType);
 
         return idx =>
         {
@@ -388,8 +388,8 @@ public static class ArrowReader
             var count = (int)(end - start);
 
             // Create List<Element>
-            var listType = typeof(List<>).MakeGenericType(elementType);
-            var list = (IList)Activator.CreateInstance(listType, count)!;
+            Type listType = typeof(List<>).MakeGenericType(elementType);
+            IList list = (IList)Activator.CreateInstance(listType, count)!;
 
             for (var k = 0; k < count; k++)
             {
@@ -399,7 +399,7 @@ public static class ArrowReader
 
             if (type.IsArray)
             {
-                var arr = Array.CreateInstance(elementType, list.Count);
+                Array arr = Array.CreateInstance(elementType, list.Count);
                 list.CopyTo(arr, 0);
                 return arr;
             }
@@ -411,7 +411,7 @@ public static class ArrowReader
     // --- Helper: Check whether is list type ---
     private static bool IsListType(Type t)
     {
-        var underlying = Nullable.GetUnderlyingType(t) ?? t;
+        Type underlying = Nullable.GetUnderlyingType(t) ?? t;
         if (underlying == typeof(string))
             return false;
         if (underlying.ImplementsInterface(typeof(IReadOnlyDictionary<,>))
@@ -428,7 +428,7 @@ public static class ArrowReader
     // --- Helper: Check whether is scalartype ---
     private static bool IsScalarType(Type t)
     {
-        var underlying = Nullable.GetUnderlyingType(t) ?? t;
+        Type underlying = Nullable.GetUnderlyingType(t) ?? t;
 
         return underlying.IsPrimitive
                || underlying == typeof(string)
@@ -454,7 +454,7 @@ public static class ArrowReader
     /// </summary>
     public static T? ReadItem<T>(IArrowArray array, int index)
     {
-        var accessor = CreateAccessor(array, typeof(T));
+        Func<int, object?> accessor = CreateAccessor(array, typeof(T));
         var val = accessor(index);
         return val == null ? default : (T)val;
     }
@@ -465,12 +465,12 @@ public static class ArrowReader
     private static Func<int, object?> CreateDictionaryAccessor(DictionaryArray array, Type targetType)
     {
         // Get Indices
-        var indices = array.Indices;
+        IArrowArray? indices = array.Indices;
         // Get Dictionary
-        var dictionary = array.Dictionary;
+        IArrowArray? dictionary = array.Dictionary;
 
         // Build Value Accessor
-        var dictAccessor = CreateAccessor(dictionary, targetType);
+        Func<int, object?> dictAccessor = CreateAccessor(dictionary, targetType);
 
         // Build Indices Accessor
 
@@ -602,13 +602,13 @@ public static class ArrowReader
     public static T[] ReadColumn<T>(IArrowArray array)
     {
         // Memcpy
-        var fastArray = PrimitiveArrayReader<T>.Read(array);
+        T[]? fastArray = PrimitiveArrayReader<T>.Read(array);
         if (fastArray != null) return fastArray;
 
         // Accessor
         var len = array.Length;
-        var accessor = CreateAccessor(array, typeof(T));
-        var result = new T[len];
+        Func<int, object?> accessor = CreateAccessor(array, typeof(T));
+        T[] result = new T[len];
 
         for (var i = 0; i < len; i++)
         {
@@ -625,7 +625,7 @@ public static class ArrowReader
 
     private static T[]? ReadStructInternal<T>(IArrowArray array) where T : struct
     {
-        if (TryGetSpan<T>(array, out var span)) return span.ToArray();
+        if (TryGetSpan(array, out ReadOnlySpan<T> span)) return span.ToArray();
         return null;
     }
 
@@ -637,7 +637,7 @@ public static class ArrowReader
         {
             if (typeof(T).IsValueType && Nullable.GetUnderlyingType(typeof(T)) == null)
             {
-                var method = typeof(ArrowReader)
+                MethodInfo method = typeof(ArrowReader)
                     .GetMethod(nameof(ReadStructInternal), BindingFlags.NonPublic | BindingFlags.Static)!
                     .MakeGenericMethod(typeof(T));
 
@@ -660,7 +660,7 @@ internal static class FastAccessorBuilder
     public static Action<TEntity, int> BuildRowAssigner<TEntity>(IArrowArray array, MemberInfo prop)
     {
         // Get real type
-        var propType = prop switch
+        Type propType = prop switch
         {
             PropertyInfo p => p.PropertyType,
             FieldInfo f => f.FieldType,
@@ -668,7 +668,7 @@ internal static class FastAccessorBuilder
         };
 
         // Dynamically call BuildRowAssignerInternal<TEntity, TProp>
-        var method = typeof(FastAccessorBuilder)
+        MethodInfo method = typeof(FastAccessorBuilder)
             .GetMethod(nameof(BuildRowAssignerInternal), BindingFlags.NonPublic | BindingFlags.Static)!
             .MakeGenericMethod(typeof(TEntity), propType);
 
@@ -680,24 +680,24 @@ internal static class FastAccessorBuilder
     /// </summary>
     private static Action<TEntity, int> BuildRowAssignerInternal<TEntity, TProp>(IArrowArray array, MemberInfo prop)
     {
-        var entityParam = Expression.Parameter(typeof(TEntity), "entity");
-        var rowIdxParam = Expression.Parameter(typeof(int), "rowIdx");
+        ParameterExpression entityParam = Expression.Parameter(typeof(TEntity), "entity");
+        ParameterExpression rowIdxParam = Expression.Parameter(typeof(int), "rowIdx");
 
 // Get Strong Type Getter
-        var getter = CreateStrongGetter<TProp>(array);
-        var getterConst = Expression.Constant(getter, typeof(Func<int, TProp>));
+        Func<int, TProp> getter = CreateStrongGetter<TProp>(array);
+        ConstantExpression getterConst = Expression.Constant(getter, typeof(Func<int, TProp>));
 
 // getter.Invoke(rowIdx)
-        var valueExp = Expression.Invoke(getterConst, rowIdxParam);
+        InvocationExpression valueExp = Expression.Invoke(getterConst, rowIdxParam);
 
 // Check if we are dealing with a ReadOnly field (common in Anonymous Types)
         if (prop is FieldInfo { IsInitOnly: true } field)
         {
             // HACK: Use field.SetValue(entity, value)
             // We must cast both arguments to 'object' to match the MethodInfo signature
-            var setValueMethod = typeof(FieldInfo).GetMethod("SetValue", [typeof(object), typeof(object)])!;
+            MethodInfo setValueMethod = typeof(FieldInfo).GetMethod("SetValue", [typeof(object), typeof(object)])!;
 
-            var reflectionAssign = Expression.Call(
+            MethodCallExpression reflectionAssign = Expression.Call(
                 Expression.Constant(field),
                 setValueMethod,
                 Expression.Convert(entityParam, typeof(object)),
@@ -708,7 +708,7 @@ internal static class FastAccessorBuilder
         }
 
 // Standard Path: entity.Property or entity.Field
-        var propExp = prop switch
+        MemberExpression propExp = prop switch
         {
             PropertyInfo p => Expression.Property(entityParam, p),
             FieldInfo f => Expression.Field(entityParam, f),
@@ -716,7 +716,7 @@ internal static class FastAccessorBuilder
         };
 
 // entity.Property = getter.Invoke(rowIdx)
-        var assignExp = Expression.Assign(propExp, valueExp);
+        BinaryExpression assignExp = Expression.Assign(propExp, valueExp);
 
         return Expression.Lambda<Action<TEntity, int>>(assignExp, entityParam, rowIdxParam).Compile();
     }
@@ -726,8 +726,8 @@ internal static class FastAccessorBuilder
     /// </summary>
     private static Func<int, TProp> CreateStrongGetter<TProp>(IArrowArray array)
     {
-        var type = typeof(TProp);
-        var underlyingType = Nullable.GetUnderlyingType(type) ?? type;
+        Type type = typeof(TProp);
+        Type underlyingType = Nullable.GetUnderlyingType(type) ?? type;
 
         var isNullable = Nullable.GetUnderlyingType(type) != null || !type.IsValueType;
 
@@ -855,7 +855,7 @@ internal static class FastAccessorBuilder
         // Struct/Dict/F# Options
         // =========================================================
         // Use old reader
-        var oldAccessor = ArrowReader.CreateAccessor(array, type);
+        Func<int, object?> oldAccessor = ArrowReader.CreateAccessor(array, type);
         return idx =>
         {
             var val = oldAccessor(idx);

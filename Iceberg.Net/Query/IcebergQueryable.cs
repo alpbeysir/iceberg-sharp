@@ -32,19 +32,19 @@ public class IcebergQueryProvider<TRow>(Transaction transaction) : IQueryProvide
 
         // var steps = QueryStepVisitor.ConstructSteps(expression, [typeof(TResult), typeof(TRow)]);
 
-        var sourceQueryable = transaction.ReadRows<TRow>().AsQueryable();
-        var rewritten = ExpressionReplacer<TRow>.Replace(expression, sourceQueryable);
+        IQueryable<TRow> sourceQueryable = transaction.ReadRows<TRow>().AsQueryable();
+        Expression rewritten = ExpressionReplacer<TRow>.Replace(expression, sourceQueryable);
         return sourceQueryable.Provider.Execute<TResult>(rewritten);
     }
 
     private static Expression Optimize(Expression expression)
     {
-        var queryTree = new QueryableToQueryTreeConverter().Convert(expression);
-        var coalescingOptimizer = new CoalescingOptimizer();
-        var letOptimizer = new LetOptimizer();
+        QueryTree? queryTree = new QueryableToQueryTreeConverter().Convert(expression);
+        CoalescingOptimizer coalescingOptimizer = new();
+        LetOptimizer letOptimizer = new();
 
-        var total = coalescingOptimizer.FixedPoint().Then(letOptimizer).FixedPoint();
-        var tree = total.Optimize(queryTree).Reduce();
+        IOptimizer? total = coalescingOptimizer.FixedPoint().Then(letOptimizer).FixedPoint();
+        Expression? tree = total.Optimize(queryTree).Reduce();
         return expression;
     }
 }
@@ -54,8 +54,8 @@ public class IcebergQueryable<T> : IOrderedQueryable<T>
     public IcebergQueryable(IQueryProvider provider, Expression? maybeExpression)
     {
         Provider = provider ?? throw new ArgumentNullException(nameof(provider));
-        var expression = maybeExpression ?? Expression.Constant(this);
-        var type = expression.Type;
+        Expression expression = maybeExpression ?? Expression.Constant(this);
+        Type type = expression.Type;
 
         if (!typeof(IQueryable<T>).IsAssignableFrom(type) &&
             !typeof(IEnumerable<T>).IsAssignableFrom(type))
@@ -71,7 +71,7 @@ public class IcebergQueryable<T> : IOrderedQueryable<T>
 
     public IEnumerator<T> GetEnumerator()
     {
-        var result = Provider.Execute<IEnumerable<T>>(Expression);
+        IEnumerable<T> result = Provider.Execute<IEnumerable<T>>(Expression);
         return result.GetEnumerator();
     }
 

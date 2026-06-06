@@ -67,8 +67,8 @@ public class IcebergTypeConverter : JsonConverter<IIcebergType>
     {
         if (reader.TokenType == JsonTokenType.String) return new PrimitiveType(reader.GetString()!);
 
-        using var doc = JsonDocument.ParseValue(ref reader);
-        var root = doc.RootElement;
+        using JsonDocument doc = JsonDocument.ParseValue(ref reader);
+        JsonElement root = doc.RootElement;
         var typeKind = root.GetProperty("type").GetString();
 
         return typeKind switch

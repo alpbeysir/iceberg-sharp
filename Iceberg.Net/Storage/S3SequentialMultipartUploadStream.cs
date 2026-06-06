@@ -59,20 +59,21 @@ public sealed class S3SequentialMultipartUploadStream : Stream
         AmazonS3Uri s3Uri,
         CancellationToken cancellationToken = default)
     {
-        var request = new InitiateMultipartUploadRequest
+        InitiateMultipartUploadRequest request = new()
         {
             BucketName = s3Uri.Bucket,
             ExpectedBucketOwner = null,
             Key = s3Uri.Key
         };
-        var response = await client.InitiateMultipartUploadAsync(request, cancellationToken);
+        InitiateMultipartUploadResponse? response =
+            await client.InitiateMultipartUploadAsync(request, cancellationToken);
         return new S3SequentialMultipartUploadStream(client, s3Uri, response.UploadId);
     }
 
     private void InitiatePartUpload(IMemoryOwner<byte> buf, int count, bool last)
     {
-        var stream = StreamFromUnmanagedMemory(buf, count);
-        var request = new UploadPartRequest
+        UnmanagedMemoryStream stream = StreamFromUnmanagedMemory(buf, count);
+        UploadPartRequest request = new()
         {
             InputStream = stream,
             BucketName = _s3Uri.Bucket,
@@ -83,7 +84,7 @@ public sealed class S3SequentialMultipartUploadStream : Stream
             IsLastPart = last
             // StreamTransferProgress = null
         };
-        var task = _client.UploadPartAsync(request);
+        Task<UploadPartResponse>? task = _client.UploadPartAsync(request);
         _uploadTasks.Add(task);
         _ = task.ContinueWith(_ =>
         {
@@ -95,8 +96,8 @@ public sealed class S3SequentialMultipartUploadStream : Stream
 
     private static unsafe UnmanagedMemoryStream StreamFromUnmanagedMemory(IMemoryOwner<byte> buf, int count)
     {
-        var span = buf.Memory.Span;
-        var stream = new UnmanagedMemoryStream(
+        Span<byte> span = buf.Memory.Span;
+        UnmanagedMemoryStream stream = new(
             (byte*)Unsafe.AsPointer(ref MemoryMarshal.GetReference(span)),
             count);
         return stream;
@@ -118,7 +119,7 @@ public sealed class S3SequentialMultipartUploadStream : Stream
             InitiatePartUpload(_buffer, _bufferPosition, true);
             await FlushAsync();
 
-            var request = new CompleteMultipartUploadRequest
+            CompleteMultipartUploadRequest request = new()
             {
                 BucketName = _s3Uri.Bucket,
                 ChecksumType = null,
@@ -134,8 +135,8 @@ public sealed class S3SequentialMultipartUploadStream : Stream
         else
         {
             // minimum size never reached, do single part upload
-            var stream = StreamFromUnmanagedMemory(_buffer, _bufferPosition);
-            var request = new PutObjectRequest
+            UnmanagedMemoryStream stream = StreamFromUnmanagedMemory(_buffer, _bufferPosition);
+            PutObjectRequest request = new()
             {
                 BucketName = _s3Uri.Bucket,
                 Key = _s3Uri.Key,
@@ -178,8 +179,8 @@ public sealed class S3SequentialMultipartUploadStream : Stream
             }
 
             var copySize = Math.Min(span.Length, _buffer.Memory.Length - _bufferPosition);
-            var bufferSlice = _buffer.Memory.Span.Slice(_bufferPosition, copySize);
-            var sourceSlice = span[..copySize];
+            Span<byte> bufferSlice = _buffer.Memory.Span.Slice(_bufferPosition, copySize);
+            ReadOnlySpan<byte> sourceSlice = span[..copySize];
             sourceSlice.CopyTo(bufferSlice);
             span = span[copySize..];
             _bufferPosition += copySize;
@@ -189,7 +190,7 @@ public sealed class S3SequentialMultipartUploadStream : Stream
 
     public override void Write(byte[] buffer, int offset, int count)
     {
-        var slice = buffer.AsSpan(offset, count);
+        Span<byte> slice = buffer.AsSpan(offset, count);
         Write(slice);
     }
 

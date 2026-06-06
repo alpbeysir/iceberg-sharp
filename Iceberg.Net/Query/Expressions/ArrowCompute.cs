@@ -51,11 +51,11 @@ public static class ArrowCompute
             ExpressionType.Equal => (n1, n2) => FromBoolMask<T>(n1 == n2),
             _ => throw new ArgumentOutOfRangeException(nameof(expressionType), expressionType, null)
         };
-        var zip = l.AsVectorizable().Zip(
+        ZipVectorizable<T, T> zip = l.AsVectorizable().Zip(
             r,
             vectorSelector,
             selector);
-        var result = ArenaAllocate<T>(ctx.Arena, l.Length);
+        Span<T> result = ArenaAllocate<T>(ctx.Arena, l.Length);
         zip.CopyTo(result);
         return result;
     }
@@ -96,7 +96,7 @@ public static class ArrowCompute
         where TResultBuilder : IArrowArrayBuilder<IArrowArray>
         where TElementArray : class, IArrowArray
     {
-        var asListBuilder = builder as ListArrayBuilder;
+        ListArrayBuilder? asListBuilder = builder as ListArrayBuilder;
         for (var i = 0; i < l.Length; i++)
         {
             asListBuilder?.Append();
@@ -118,7 +118,7 @@ public static class ArrowCompute
     {
         builder.Reserve(l.Length);
         builder.ValueBuilder.Reserve(l.Values.Length);
-        var values = (TElementArray)l.Values;
+        TElementArray? values = (TElementArray)l.Values;
         op(ctx, values, builder);
         builder.InitializeFromList(l);
         return builder;
@@ -161,11 +161,11 @@ public static class ArrowCompute
             ExpressionType.And or ExpressionType.AndAlso => (n1, n2) => (byte)(n1 & n2),
             _ => throw new ArgumentOutOfRangeException(nameof(expressionType), expressionType, null)
         };
-        var zip = l.AsVectorizable().Zip(
+        ZipVectorizable<byte, byte> zip = l.AsVectorizable().Zip(
             r,
             vectorSelector,
             selector);
-        var result = ArenaAllocate<byte>(ctx.Arena, l.Length);
+        Span<byte> result = ArenaAllocate<byte>(ctx.Arena, l.Length);
         zip.CopyTo(result);
         return result;
     }
@@ -175,7 +175,7 @@ public static class ArrowCompute
     {
         // If you need a SIMD-style mask (all bits set for true), 
         // we subtract 1 from 0 (results in -1, or all bits set in two's complement).
-        var val = value ? T.One : T.Zero;
+        T val = value ? T.One : T.Zero;
 
         // This creates -1 for true (0xFF...) and 0 for false (0x00...)
         return T.Zero - val;
@@ -192,7 +192,7 @@ public static class ArrowCompute
         where T : struct, INumber<T>
         where TResult : struct, INumber<TResult>
     {
-        var result = ArenaAllocate<TResult>(ctx.Arena, buffer.Length);
+        Span<TResult> result = ArenaAllocate<TResult>(ctx.Arena, buffer.Length);
         for (var i = 0; i < buffer.Length; i++) result[i] = TResult.CreateChecked(buffer[i]);
 
         return result;
@@ -356,8 +356,8 @@ public static class ArrowCompute
     public static ReadOnlySpan<byte> BitmapFromMask<T>(ExecutionContext ctx, ReadOnlySpan<T> mask)
         where T : struct, INumber<T>
     {
-        var source = mask;
-        var destination = ArenaAllocate<byte>(ctx.Arena, mask.Length);
+        ReadOnlySpan<T> source = mask;
+        Span<byte> destination = ArenaAllocate<byte>(ctx.Arena, mask.Length);
 
         var vectorSize = Vector<T>.Count;
 
@@ -368,7 +368,7 @@ public static class ArrowCompute
             if (destination.Length < bytesNeeded)
                 throw new ArgumentException("Destination span is too small.");
 
-            var vec = new Vector<T>(source[i..(i + vectorSize)]);
+            Vector<T> vec = new(source[i..(i + vectorSize)]);
 
             for (var j = 0; j < vectorSize; j++)
                 // In SIMD masks, 'True' means all bits set.

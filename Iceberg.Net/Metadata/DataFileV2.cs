@@ -33,7 +33,7 @@ public readonly record struct DataFile
 
     public static DataFile Read(Decoder decoder, Func<Decoder, GenericRecord> partitionSpecReader)
     {
-        var file = new DataFile
+        DataFile file = new()
         {
             Content = (DataFileContent)decoder.ReadInt(),
             FilePath = decoder.ReadString(),

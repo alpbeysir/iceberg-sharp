@@ -1,5 +1,6 @@
 ﻿using System.Linq.CompilerServices;
 using System.Linq.Expressions;
+using System.Reflection;
 using Iceberg.Net.Query.Execution;
 
 namespace Iceberg.Net.Query.Expressions;
@@ -37,26 +38,26 @@ internal class QueryStepVisitor : CustomExpressionVisitor<IQueryStep?>
 
     protected override IQueryStep? VisitMethodCall(MethodCallExpression node)
     {
-        var methodInfo = node.Method;
-        var queryable = node.Arguments[0];
+        MethodInfo methodInfo = node.Method;
+        Expression queryable = node.Arguments[0];
 
         Console.WriteLine(methodInfo.Name);
 
-        foreach (var arg in node.Arguments)
+        foreach (Expression arg in node.Arguments)
             if (arg is UnaryExpression { NodeType: ExpressionType.Quote } unary)
             {
-                var lambda = unary.Unquote();
+                LambdaExpression? lambda = unary.Unquote();
                 Console.WriteLine(lambda.ToString());
             }
 
         // LambdaDeconstructor.Deconstruct(arg as LambdaExpression, _splittableTypes);
-        var expr = Visit(queryable);
+        IQueryStep? expr = Visit(queryable);
         return expr;
     }
 
     protected override IQueryStep? VisitLambda(LambdaExpression node)
     {
-        var transform = _bufferTransformVisitor.Visit(node);
+        Expression? transform = _bufferTransformVisitor.Visit(node);
         throw new NotImplementedException();
     }
 

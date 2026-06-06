@@ -100,11 +100,11 @@ public sealed partial class RestCatalogClient(HttpClient httpClient)
         string? warehouse = null,
         CancellationToken cancellationToken = default)
     {
-        using var request = new HttpRequestMessage();
+        using HttpRequestMessage request = new();
         request.Method = new HttpMethod("GET");
         request.Headers.Accept.Add(MediaTypeWithQualityHeaderValue.Parse("application/json"));
 
-        var urlBuilder = new StringBuilder();
+        StringBuilder urlBuilder = new();
         if (!string.IsNullOrEmpty(_baseUrl)) urlBuilder.Append(_baseUrl);
         // Operation Path: "config"
         urlBuilder.Append("config");
@@ -122,14 +122,14 @@ public sealed partial class RestCatalogClient(HttpClient httpClient)
 
         PrepareRequest(httpClient, request, url);
 
-        using var response = await httpClient
+        using HttpResponseMessage response = await httpClient
             .SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken)
             .ConfigureAwait(false);
-        var headers = new Dictionary<string, IEnumerable<string>>();
-        foreach (var item in response.Headers)
+        Dictionary<string, IEnumerable<string>> headers = new();
+        foreach (KeyValuePair<string, IEnumerable<string>> item in response.Headers)
             headers[item.Key] = item.Value;
         if (response.Content != null && response.Content.Headers != null)
-            foreach (var item in response.Content.Headers)
+            foreach (KeyValuePair<string, IEnumerable<string>> item in response.Content.Headers)
                 headers[item.Key] = item.Value;
 
         ProcessResponse(httpClient, response);
@@ -137,7 +137,7 @@ public sealed partial class RestCatalogClient(HttpClient httpClient)
         var status = (int)response.StatusCode;
         if (status == 200)
         {
-            var objectResponse =
+            ObjectResponseResult<CatalogConfig> objectResponse =
                 await ReadObjectResponseAsync<CatalogConfig>(response, headers, cancellationToken)
                     .ConfigureAwait(false);
             if (objectResponse.Object == null)
@@ -258,16 +258,17 @@ public sealed partial class RestCatalogClient(HttpClient httpClient)
     {
         ArgumentNullException.ThrowIfNull(body);
 
-        using var request = new HttpRequestMessage();
+        using HttpRequestMessage request = new();
         var json = JsonSerializer.SerializeToUtf8Bytes(body, JsonSerializerOptions);
-        var dictionary = JsonSerializer.Deserialize<Dictionary<string, string>>(json, JsonSerializerOptions);
-        var content = new FormUrlEncodedContent(dictionary ?? []);
+        Dictionary<string, string>? dictionary =
+            JsonSerializer.Deserialize<Dictionary<string, string>>(json, JsonSerializerOptions);
+        FormUrlEncodedContent content = new(dictionary ?? []);
         content.Headers.ContentType = MediaTypeHeaderValue.Parse("application/x-www-form-urlencoded");
         request.Content = content;
         request.Method = new HttpMethod("POST");
         request.Headers.Accept.Add(MediaTypeWithQualityHeaderValue.Parse("application/json"));
 
-        var urlBuilder = new StringBuilder();
+        StringBuilder urlBuilder = new();
         if (!string.IsNullOrEmpty(_baseUrl)) urlBuilder.Append(_baseUrl);
         // Operation Path: "oauth/tokens"
         urlBuilder.Append("oauth/tokens");
@@ -279,14 +280,14 @@ public sealed partial class RestCatalogClient(HttpClient httpClient)
 
         PrepareRequest(httpClient, request, url);
 
-        using var response = await httpClient
+        using HttpResponseMessage response = await httpClient
             .SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken)
             .ConfigureAwait(false);
-        var headers = new Dictionary<string, IEnumerable<string>>();
-        foreach (var item in response.Headers)
+        Dictionary<string, IEnumerable<string>> headers = new();
+        foreach (KeyValuePair<string, IEnumerable<string>> item in response.Headers)
             headers[item.Key] = item.Value;
         if (response.Content != null && response.Content.Headers != null)
-            foreach (var item in response.Content.Headers)
+            foreach (KeyValuePair<string, IEnumerable<string>> item in response.Content.Headers)
                 headers[item.Key] = item.Value;
 
         ProcessResponse(httpClient, response);
@@ -294,7 +295,7 @@ public sealed partial class RestCatalogClient(HttpClient httpClient)
         var status = (int)response.StatusCode;
         if (status == 200)
         {
-            var objectResponse =
+            ObjectResponseResult<OAuthTokenResponse> objectResponse =
                 await ReadObjectResponseAsync<OAuthTokenResponse>(response, headers, cancellationToken)
                     .ConfigureAwait(false);
             if (objectResponse.Object == null)
@@ -361,11 +362,11 @@ public sealed partial class RestCatalogClient(HttpClient httpClient)
         string? parent = null,
         CancellationToken cancellationToken = default)
     {
-        using var request = new HttpRequestMessage();
+        using HttpRequestMessage request = new();
         request.Method = new HttpMethod("GET");
         request.Headers.Accept.Add(MediaTypeWithQualityHeaderValue.Parse("application/json"));
 
-        var urlBuilder = new StringBuilder();
+        StringBuilder urlBuilder = new();
         if (!string.IsNullOrEmpty(_baseUrl)) urlBuilder.Append(_baseUrl);
         // Operation Path: "namespaces"
         urlBuilder.Append("namespaces");
@@ -391,14 +392,14 @@ public sealed partial class RestCatalogClient(HttpClient httpClient)
 
         PrepareRequest(httpClient, request, url);
 
-        using var response = await httpClient
+        using HttpResponseMessage response = await httpClient
             .SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken)
             .ConfigureAwait(false);
-        var headers = new Dictionary<string, IEnumerable<string>>();
-        foreach (var item in response.Headers)
+        Dictionary<string, IEnumerable<string>> headers = new();
+        foreach (KeyValuePair<string, IEnumerable<string>> item in response.Headers)
             headers[item.Key] = item.Value;
         if (response.Content != null && response.Content.Headers != null)
-            foreach (var item in response.Content.Headers)
+            foreach (KeyValuePair<string, IEnumerable<string>> item in response.Content.Headers)
                 headers[item.Key] = item.Value;
 
         ProcessResponse(httpClient, response);
@@ -406,7 +407,7 @@ public sealed partial class RestCatalogClient(HttpClient httpClient)
         var status = (int)response.StatusCode;
         if (status == 200)
         {
-            var objectResponse =
+            ObjectResponseResult<ListNamespacesResponse> objectResponse =
                 await ReadObjectResponseAsync<ListNamespacesResponse>(
                     response,
                     headers,
@@ -532,19 +533,19 @@ public sealed partial class RestCatalogClient(HttpClient httpClient)
     {
         ArgumentNullException.ThrowIfNull(body);
 
-        using var request = new HttpRequestMessage();
+        using HttpRequestMessage request = new();
         if (idempotencyKey != null)
             request.Headers.TryAddWithoutValidation(
                 "Idempotency-Key",
                 ConvertToString(idempotencyKey, CultureInfo.InvariantCulture));
         var json = JsonSerializer.SerializeToUtf8Bytes(body, JsonSerializerOptions);
-        var content = new ByteArrayContent(json);
+        ByteArrayContent content = new(json);
         content.Headers.ContentType = MediaTypeHeaderValue.Parse("application/json");
         request.Content = content;
         request.Method = new HttpMethod("POST");
         request.Headers.Accept.Add(MediaTypeWithQualityHeaderValue.Parse("application/json"));
 
-        var urlBuilder = new StringBuilder();
+        StringBuilder urlBuilder = new();
         if (!string.IsNullOrEmpty(_baseUrl)) urlBuilder.Append(_baseUrl);
         // Operation Path: "namespaces"
         urlBuilder.Append("namespaces");
@@ -556,14 +557,14 @@ public sealed partial class RestCatalogClient(HttpClient httpClient)
 
         PrepareRequest(httpClient, request, url);
 
-        using var response = await httpClient
+        using HttpResponseMessage response = await httpClient
             .SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken)
             .ConfigureAwait(false);
-        var headers = new Dictionary<string, IEnumerable<string>>();
-        foreach (var item in response.Headers)
+        Dictionary<string, IEnumerable<string>> headers = new();
+        foreach (KeyValuePair<string, IEnumerable<string>> item in response.Headers)
             headers[item.Key] = item.Value;
         if (response.Content != null && response.Content.Headers != null)
-            foreach (var item in response.Content.Headers)
+            foreach (KeyValuePair<string, IEnumerable<string>> item in response.Content.Headers)
                 headers[item.Key] = item.Value;
 
         ProcessResponse(httpClient, response);
@@ -571,7 +572,7 @@ public sealed partial class RestCatalogClient(HttpClient httpClient)
         var status = (int)response.StatusCode;
         if (status == 200)
         {
-            var objectResponse =
+            ObjectResponseResult<CreateNamespaceResponse> objectResponse =
                 await ReadObjectResponseAsync<CreateNamespaceResponse>(
                     response,
                     headers,
@@ -689,11 +690,11 @@ public sealed partial class RestCatalogClient(HttpClient httpClient)
     {
         ArgumentNullException.ThrowIfNull(@namespace);
 
-        using var request = new HttpRequestMessage();
+        using HttpRequestMessage request = new();
         request.Method = new HttpMethod("GET");
         request.Headers.Accept.Add(MediaTypeWithQualityHeaderValue.Parse("application/json"));
 
-        var urlBuilder = new StringBuilder();
+        StringBuilder urlBuilder = new();
         if (!string.IsNullOrEmpty(_baseUrl)) urlBuilder.Append(_baseUrl);
         // Operation Path: "namespaces/{namespace}"
         urlBuilder.Append("namespaces/");
@@ -706,14 +707,14 @@ public sealed partial class RestCatalogClient(HttpClient httpClient)
 
         PrepareRequest(httpClient, request, url);
 
-        using var response = await httpClient
+        using HttpResponseMessage response = await httpClient
             .SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken)
             .ConfigureAwait(false);
-        var headers = new Dictionary<string, IEnumerable<string>>();
-        foreach (var item in response.Headers)
+        Dictionary<string, IEnumerable<string>> headers = new();
+        foreach (KeyValuePair<string, IEnumerable<string>> item in response.Headers)
             headers[item.Key] = item.Value;
         if (response.Content != null && response.Content.Headers != null)
-            foreach (var item in response.Content.Headers)
+            foreach (KeyValuePair<string, IEnumerable<string>> item in response.Content.Headers)
                 headers[item.Key] = item.Value;
 
         ProcessResponse(httpClient, response);
@@ -721,7 +722,7 @@ public sealed partial class RestCatalogClient(HttpClient httpClient)
         var status = (int)response.StatusCode;
         if (status == 200)
         {
-            var objectResponse =
+            ObjectResponseResult<GetNamespaceResponse> objectResponse =
                 await ReadObjectResponseAsync<GetNamespaceResponse>(response, headers, cancellationToken)
                     .ConfigureAwait(false);
             if (objectResponse.Object == null)
@@ -824,10 +825,10 @@ public sealed partial class RestCatalogClient(HttpClient httpClient)
     {
         ArgumentNullException.ThrowIfNull(@namespace);
 
-        using var request = new HttpRequestMessage();
+        using HttpRequestMessage request = new();
         request.Method = new HttpMethod("HEAD");
 
-        var urlBuilder = new StringBuilder();
+        StringBuilder urlBuilder = new();
         if (!string.IsNullOrEmpty(_baseUrl)) urlBuilder.Append(_baseUrl);
         // Operation Path: "namespaces/{namespace}"
         urlBuilder.Append("namespaces/");
@@ -840,14 +841,14 @@ public sealed partial class RestCatalogClient(HttpClient httpClient)
 
         PrepareRequest(httpClient, request, url);
 
-        using var response = await httpClient
+        using HttpResponseMessage response = await httpClient
             .SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken)
             .ConfigureAwait(false);
-        var headers = new Dictionary<string, IEnumerable<string>>();
-        foreach (var item in response.Headers)
+        Dictionary<string, IEnumerable<string>> headers = new();
+        foreach (KeyValuePair<string, IEnumerable<string>> item in response.Headers)
             headers[item.Key] = item.Value;
         if (response.Content != null && response.Content.Headers != null)
-            foreach (var item in response.Content.Headers)
+            foreach (KeyValuePair<string, IEnumerable<string>> item in response.Content.Headers)
                 headers[item.Key] = item.Value;
 
         ProcessResponse(httpClient, response);
@@ -976,14 +977,14 @@ public sealed partial class RestCatalogClient(HttpClient httpClient)
     {
         ArgumentNullException.ThrowIfNull(@namespace);
 
-        using var request = new HttpRequestMessage();
+        using HttpRequestMessage request = new();
         if (idempotencyKey != null)
             request.Headers.TryAddWithoutValidation(
                 "Idempotency-Key",
                 ConvertToString(idempotencyKey, CultureInfo.InvariantCulture));
         request.Method = new HttpMethod("DELETE");
 
-        var urlBuilder = new StringBuilder();
+        StringBuilder urlBuilder = new();
         if (!string.IsNullOrEmpty(_baseUrl)) urlBuilder.Append(_baseUrl);
         // Operation Path: "namespaces/{namespace}"
         urlBuilder.Append("namespaces/");
@@ -996,14 +997,14 @@ public sealed partial class RestCatalogClient(HttpClient httpClient)
 
         PrepareRequest(httpClient, request, url);
 
-        using var response = await httpClient
+        using HttpResponseMessage response = await httpClient
             .SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken)
             .ConfigureAwait(false);
-        var headers = new Dictionary<string, IEnumerable<string>>();
-        foreach (var item in response.Headers)
+        Dictionary<string, IEnumerable<string>> headers = new();
+        foreach (KeyValuePair<string, IEnumerable<string>> item in response.Headers)
             headers[item.Key] = item.Value;
         if (response.Content != null && response.Content.Headers != null)
-            foreach (var item in response.Content.Headers)
+            foreach (KeyValuePair<string, IEnumerable<string>> item in response.Content.Headers)
                 headers[item.Key] = item.Value;
 
         ProcessResponse(httpClient, response);
@@ -1150,19 +1151,19 @@ public sealed partial class RestCatalogClient(HttpClient httpClient)
 
         ArgumentNullException.ThrowIfNull(body);
 
-        using var request = new HttpRequestMessage();
+        using HttpRequestMessage request = new();
         if (idempotencyKey != null)
             request.Headers.TryAddWithoutValidation(
                 "Idempotency-Key",
                 ConvertToString(idempotencyKey, CultureInfo.InvariantCulture));
         var json = JsonSerializer.SerializeToUtf8Bytes(body, JsonSerializerOptions);
-        var content = new ByteArrayContent(json);
+        ByteArrayContent content = new(json);
         content.Headers.ContentType = MediaTypeHeaderValue.Parse("application/json");
         request.Content = content;
         request.Method = new HttpMethod("POST");
         request.Headers.Accept.Add(MediaTypeWithQualityHeaderValue.Parse("application/json"));
 
-        var urlBuilder = new StringBuilder();
+        StringBuilder urlBuilder = new();
         if (!string.IsNullOrEmpty(_baseUrl)) urlBuilder.Append(_baseUrl);
         // Operation Path: "namespaces/{namespace}/properties"
         urlBuilder.Append("namespaces/");
@@ -1176,14 +1177,14 @@ public sealed partial class RestCatalogClient(HttpClient httpClient)
 
         PrepareRequest(httpClient, request, url);
 
-        using var response = await httpClient
+        using HttpResponseMessage response = await httpClient
             .SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken)
             .ConfigureAwait(false);
-        var headers = new Dictionary<string, IEnumerable<string>>();
-        foreach (var item in response.Headers)
+        Dictionary<string, IEnumerable<string>> headers = new();
+        foreach (KeyValuePair<string, IEnumerable<string>> item in response.Headers)
             headers[item.Key] = item.Value;
         if (response.Content != null && response.Content.Headers != null)
-            foreach (var item in response.Content.Headers)
+            foreach (KeyValuePair<string, IEnumerable<string>> item in response.Content.Headers)
                 headers[item.Key] = item.Value;
 
         ProcessResponse(httpClient, response);
@@ -1191,7 +1192,7 @@ public sealed partial class RestCatalogClient(HttpClient httpClient)
         var status = (int)response.StatusCode;
         if (status == 200)
         {
-            var objectResponse =
+            ObjectResponseResult<UpdateNamespacePropertiesResponse> objectResponse =
                 await ReadObjectResponseAsync<UpdateNamespacePropertiesResponse>(
                     response,
                     headers,
@@ -1321,11 +1322,11 @@ public sealed partial class RestCatalogClient(HttpClient httpClient)
     {
         ArgumentNullException.ThrowIfNull(@namespace);
 
-        using var request = new HttpRequestMessage();
+        using HttpRequestMessage request = new();
         request.Method = new HttpMethod("GET");
         request.Headers.Accept.Add(MediaTypeWithQualityHeaderValue.Parse("application/json"));
 
-        var urlBuilder = new StringBuilder();
+        StringBuilder urlBuilder = new();
         if (!string.IsNullOrEmpty(_baseUrl)) urlBuilder.Append(_baseUrl);
         // Operation Path: "namespaces/{namespace}/tables"
         urlBuilder.Append("namespaces/");
@@ -1349,14 +1350,14 @@ public sealed partial class RestCatalogClient(HttpClient httpClient)
 
         PrepareRequest(httpClient, request, url);
 
-        using var response = await httpClient
+        using HttpResponseMessage response = await httpClient
             .SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken)
             .ConfigureAwait(false);
-        var headers = new Dictionary<string, IEnumerable<string>>();
-        foreach (var item in response.Headers)
+        Dictionary<string, IEnumerable<string>> headers = new();
+        foreach (KeyValuePair<string, IEnumerable<string>> item in response.Headers)
             headers[item.Key] = item.Value;
         if (response.Content != null && response.Content.Headers != null)
-            foreach (var item in response.Content.Headers)
+            foreach (KeyValuePair<string, IEnumerable<string>> item in response.Content.Headers)
                 headers[item.Key] = item.Value;
 
         ProcessResponse(httpClient, response);
@@ -1364,7 +1365,7 @@ public sealed partial class RestCatalogClient(HttpClient httpClient)
         var status = (int)response.StatusCode;
         if (status == 200)
         {
-            var objectResponse =
+            ObjectResponseResult<ListTablesResponse> objectResponse =
                 await ReadObjectResponseAsync<ListTablesResponse>(response, headers, cancellationToken)
                     .ConfigureAwait(false);
             if (objectResponse.Object == null)
@@ -1512,7 +1513,7 @@ public sealed partial class RestCatalogClient(HttpClient httpClient)
 
         ArgumentNullException.ThrowIfNull(body);
 
-        using var request = new HttpRequestMessage();
+        using HttpRequestMessage request = new();
         if (xIcebergAccessDelegation != null)
             request.Headers.TryAddWithoutValidation(
                 "X-Iceberg-Access-Delegation",
@@ -1524,13 +1525,13 @@ public sealed partial class RestCatalogClient(HttpClient httpClient)
                 ConvertToString(idempotencyKey, CultureInfo.InvariantCulture));
         var json = JsonSerializer.SerializeToUtf8Bytes(body, JsonSerializerOptions);
         var aaa = JsonSerializer.Serialize(body, JsonSerializerOptions);
-        var content = new ByteArrayContent(json);
+        ByteArrayContent content = new(json);
         content.Headers.ContentType = MediaTypeHeaderValue.Parse("application/json");
         request.Content = content;
         request.Method = new HttpMethod("POST");
         request.Headers.Accept.Add(MediaTypeWithQualityHeaderValue.Parse("application/json"));
 
-        var urlBuilder = new StringBuilder();
+        StringBuilder urlBuilder = new();
         if (!string.IsNullOrEmpty(_baseUrl)) urlBuilder.Append(_baseUrl);
         // Operation Path: "namespaces/{namespace}/tables"
         urlBuilder.Append("namespaces/");
@@ -1544,14 +1545,14 @@ public sealed partial class RestCatalogClient(HttpClient httpClient)
 
         PrepareRequest(httpClient, request, url);
 
-        using var response = await httpClient
+        using HttpResponseMessage response = await httpClient
             .SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken)
             .ConfigureAwait(false);
-        var headers = new Dictionary<string, IEnumerable<string>>();
-        foreach (var item in response.Headers)
+        Dictionary<string, IEnumerable<string>> headers = new();
+        foreach (KeyValuePair<string, IEnumerable<string>> item in response.Headers)
             headers[item.Key] = item.Value;
         if (response.Content != null && response.Content.Headers != null)
-            foreach (var item in response.Content.Headers)
+            foreach (KeyValuePair<string, IEnumerable<string>> item in response.Content.Headers)
                 headers[item.Key] = item.Value;
 
         ProcessResponse(httpClient, response);
@@ -1559,7 +1560,7 @@ public sealed partial class RestCatalogClient(HttpClient httpClient)
         var status = (int)response.StatusCode;
         if (status == 200)
         {
-            var objectResponse =
+            ObjectResponseResult<LoadTableResult> objectResponse =
                 await ReadObjectResponseAsync<LoadTableResult>(response, headers, cancellationToken)
                     .ConfigureAwait(false);
             if (objectResponse.Object == null)
@@ -1727,19 +1728,19 @@ public sealed partial class RestCatalogClient(HttpClient httpClient)
 
         ArgumentNullException.ThrowIfNull(table);
 
-        using var request = new HttpRequestMessage();
+        using HttpRequestMessage request = new();
         if (idempotencyKey != null)
             request.Headers.TryAddWithoutValidation(
                 "Idempotency-Key",
                 ConvertToString(idempotencyKey, CultureInfo.InvariantCulture));
         var json = JsonSerializer.SerializeToUtf8Bytes(body, JsonSerializerOptions);
-        var content = new ByteArrayContent(json);
+        ByteArrayContent content = new(json);
         content.Headers.ContentType = MediaTypeHeaderValue.Parse("application/json");
         request.Content = content;
         request.Method = new HttpMethod("POST");
         request.Headers.Accept.Add(MediaTypeWithQualityHeaderValue.Parse("application/json"));
 
-        var urlBuilder = new StringBuilder();
+        StringBuilder urlBuilder = new();
         if (!string.IsNullOrEmpty(_baseUrl)) urlBuilder.Append(_baseUrl);
         // Operation Path: "namespaces/{namespace}/tables/{table}/plan"
         urlBuilder.Append("namespaces/");
@@ -1755,14 +1756,14 @@ public sealed partial class RestCatalogClient(HttpClient httpClient)
 
         PrepareRequest(httpClient, request, url);
 
-        using var response = await httpClient
+        using HttpResponseMessage response = await httpClient
             .SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken)
             .ConfigureAwait(false);
-        var headers = new Dictionary<string, IEnumerable<string>>();
-        foreach (var item in response.Headers)
+        Dictionary<string, IEnumerable<string>> headers = new();
+        foreach (KeyValuePair<string, IEnumerable<string>> item in response.Headers)
             headers[item.Key] = item.Value;
         if (response.Content != null && response.Content.Headers != null)
-            foreach (var item in response.Content.Headers)
+            foreach (KeyValuePair<string, IEnumerable<string>> item in response.Content.Headers)
                 headers[item.Key] = item.Value;
 
         ProcessResponse(httpClient, response);
@@ -1770,7 +1771,7 @@ public sealed partial class RestCatalogClient(HttpClient httpClient)
         var status = (int)response.StatusCode;
         if (status == 200)
         {
-            var objectResponse =
+            ObjectResponseResult<CompletedPlanningWithIdResult> objectResponse =
                 await ReadObjectResponseAsync<CompletedPlanningWithIdResult>(
                     response,
                     headers,
@@ -1906,11 +1907,11 @@ public sealed partial class RestCatalogClient(HttpClient httpClient)
 
         ArgumentNullException.ThrowIfNull(planId);
 
-        using var request = new HttpRequestMessage();
+        using HttpRequestMessage request = new();
         request.Method = new HttpMethod("GET");
         request.Headers.Accept.Add(MediaTypeWithQualityHeaderValue.Parse("application/json"));
 
-        var urlBuilder = new StringBuilder();
+        StringBuilder urlBuilder = new();
         if (!string.IsNullOrEmpty(_baseUrl)) urlBuilder.Append(_baseUrl);
         // Operation Path: "namespaces/{namespace}/tables/{table}/plan/{plan-id}"
         urlBuilder.Append("namespaces/");
@@ -1927,14 +1928,14 @@ public sealed partial class RestCatalogClient(HttpClient httpClient)
 
         PrepareRequest(httpClient, request, url);
 
-        using var response = await httpClient
+        using HttpResponseMessage response = await httpClient
             .SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken)
             .ConfigureAwait(false);
-        var headers = new Dictionary<string, IEnumerable<string>>();
-        foreach (var item in response.Headers)
+        Dictionary<string, IEnumerable<string>> headers = new();
+        foreach (KeyValuePair<string, IEnumerable<string>> item in response.Headers)
             headers[item.Key] = item.Value;
         if (response.Content != null && response.Content.Headers != null)
-            foreach (var item in response.Content.Headers)
+            foreach (KeyValuePair<string, IEnumerable<string>> item in response.Content.Headers)
                 headers[item.Key] = item.Value;
 
         ProcessResponse(httpClient, response);
@@ -1942,7 +1943,7 @@ public sealed partial class RestCatalogClient(HttpClient httpClient)
         var status = (int)response.StatusCode;
         if (status == 200)
         {
-            var objectResponse =
+            ObjectResponseResult<CompletedPlanningResult> objectResponse =
                 await ReadObjectResponseAsync<CompletedPlanningResult>(
                     response,
                     headers,
@@ -2087,14 +2088,14 @@ public sealed partial class RestCatalogClient(HttpClient httpClient)
 
         ArgumentNullException.ThrowIfNull(planId);
 
-        using var request = new HttpRequestMessage();
+        using HttpRequestMessage request = new();
         if (idempotencyKey != null)
             request.Headers.TryAddWithoutValidation(
                 "Idempotency-Key",
                 ConvertToString(idempotencyKey, CultureInfo.InvariantCulture));
         request.Method = new HttpMethod("DELETE");
 
-        var urlBuilder = new StringBuilder();
+        StringBuilder urlBuilder = new();
         if (!string.IsNullOrEmpty(_baseUrl)) urlBuilder.Append(_baseUrl);
         // Operation Path: "namespaces/{namespace}/tables/{table}/plan/{plan-id}"
         urlBuilder.Append("namespaces/");
@@ -2111,14 +2112,14 @@ public sealed partial class RestCatalogClient(HttpClient httpClient)
 
         PrepareRequest(httpClient, request, url);
 
-        using var response = await httpClient
+        using HttpResponseMessage response = await httpClient
             .SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken)
             .ConfigureAwait(false);
-        var headers = new Dictionary<string, IEnumerable<string>>();
-        foreach (var item in response.Headers)
+        Dictionary<string, IEnumerable<string>> headers = new();
+        foreach (KeyValuePair<string, IEnumerable<string>> item in response.Headers)
             headers[item.Key] = item.Value;
         if (response.Content != null && response.Content.Headers != null)
-            foreach (var item in response.Content.Headers)
+            foreach (KeyValuePair<string, IEnumerable<string>> item in response.Content.Headers)
                 headers[item.Key] = item.Value;
 
         ProcessResponse(httpClient, response);
@@ -2255,19 +2256,19 @@ public sealed partial class RestCatalogClient(HttpClient httpClient)
 
         ArgumentNullException.ThrowIfNull(table);
 
-        using var request = new HttpRequestMessage();
+        using HttpRequestMessage request = new();
         if (idempotencyKey != null)
             request.Headers.TryAddWithoutValidation(
                 "Idempotency-Key",
                 ConvertToString(idempotencyKey, CultureInfo.InvariantCulture));
         var json = JsonSerializer.SerializeToUtf8Bytes(body, JsonSerializerOptions);
-        var content = new ByteArrayContent(json);
+        ByteArrayContent content = new(json);
         content.Headers.ContentType = MediaTypeHeaderValue.Parse("application/json");
         request.Content = content;
         request.Method = new HttpMethod("POST");
         request.Headers.Accept.Add(MediaTypeWithQualityHeaderValue.Parse("application/json"));
 
-        var urlBuilder = new StringBuilder();
+        StringBuilder urlBuilder = new();
         if (!string.IsNullOrEmpty(_baseUrl)) urlBuilder.Append(_baseUrl);
         // Operation Path: "namespaces/{namespace}/tables/{table}/tasks"
         urlBuilder.Append("namespaces/");
@@ -2283,14 +2284,14 @@ public sealed partial class RestCatalogClient(HttpClient httpClient)
 
         PrepareRequest(httpClient, request, url);
 
-        using var response = await httpClient
+        using HttpResponseMessage response = await httpClient
             .SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken)
             .ConfigureAwait(false);
-        var headers = new Dictionary<string, IEnumerable<string>>();
-        foreach (var item in response.Headers)
+        Dictionary<string, IEnumerable<string>> headers = new();
+        foreach (KeyValuePair<string, IEnumerable<string>> item in response.Headers)
             headers[item.Key] = item.Value;
         if (response.Content != null && response.Content.Headers != null)
-            foreach (var item in response.Content.Headers)
+            foreach (KeyValuePair<string, IEnumerable<string>> item in response.Content.Headers)
                 headers[item.Key] = item.Value;
 
         ProcessResponse(httpClient, response);
@@ -2298,7 +2299,7 @@ public sealed partial class RestCatalogClient(HttpClient httpClient)
         var status = (int)response.StatusCode;
         if (status == 200)
         {
-            var objectResponse =
+            ObjectResponseResult<FetchScanTasksResult> objectResponse =
                 await ReadObjectResponseAsync<FetchScanTasksResult>(response, headers, cancellationToken)
                     .ConfigureAwait(false);
             if (objectResponse.Object == null)
@@ -2427,19 +2428,19 @@ public sealed partial class RestCatalogClient(HttpClient httpClient)
 
         ArgumentNullException.ThrowIfNull(body);
 
-        using var request = new HttpRequestMessage();
+        using HttpRequestMessage request = new();
         if (idempotencyKey != null)
             request.Headers.TryAddWithoutValidation(
                 "Idempotency-Key",
                 ConvertToString(idempotencyKey, CultureInfo.InvariantCulture));
         var json = JsonSerializer.SerializeToUtf8Bytes(body, JsonSerializerOptions);
-        var content = new ByteArrayContent(json);
+        ByteArrayContent content = new(json);
         content.Headers.ContentType = MediaTypeHeaderValue.Parse("application/json");
         request.Content = content;
         request.Method = new HttpMethod("POST");
         request.Headers.Accept.Add(MediaTypeWithQualityHeaderValue.Parse("application/json"));
 
-        var urlBuilder = new StringBuilder();
+        StringBuilder urlBuilder = new();
         if (!string.IsNullOrEmpty(_baseUrl)) urlBuilder.Append(_baseUrl);
         // Operation Path: "namespaces/{namespace}/register"
         urlBuilder.Append("namespaces/");
@@ -2453,14 +2454,14 @@ public sealed partial class RestCatalogClient(HttpClient httpClient)
 
         PrepareRequest(httpClient, request, url);
 
-        using var response = await httpClient
+        using HttpResponseMessage response = await httpClient
             .SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken)
             .ConfigureAwait(false);
-        var headers = new Dictionary<string, IEnumerable<string>>();
-        foreach (var item in response.Headers)
+        Dictionary<string, IEnumerable<string>> headers = new();
+        foreach (KeyValuePair<string, IEnumerable<string>> item in response.Headers)
             headers[item.Key] = item.Value;
         if (response.Content != null && response.Content.Headers != null)
-            foreach (var item in response.Content.Headers)
+            foreach (KeyValuePair<string, IEnumerable<string>> item in response.Content.Headers)
                 headers[item.Key] = item.Value;
 
         ProcessResponse(httpClient, response);
@@ -2468,7 +2469,7 @@ public sealed partial class RestCatalogClient(HttpClient httpClient)
         var status = (int)response.StatusCode;
         if (status == 200)
         {
-            var objectResponse =
+            ObjectResponseResult<LoadTableResult> objectResponse =
                 await ReadObjectResponseAsync<LoadTableResult>(response, headers, cancellationToken)
                     .ConfigureAwait(false);
             if (objectResponse.Object == null)
@@ -2619,7 +2620,7 @@ public sealed partial class RestCatalogClient(HttpClient httpClient)
 
         ArgumentNullException.ThrowIfNull(table);
 
-        using var request = new HttpRequestMessage();
+        using HttpRequestMessage request = new();
         if (xIcebergAccessDelegation != null)
             request.Headers.TryAddWithoutValidation(
                 "X-Iceberg-Access-Delegation",
@@ -2632,7 +2633,7 @@ public sealed partial class RestCatalogClient(HttpClient httpClient)
         request.Method = new HttpMethod("GET");
         request.Headers.Accept.Add(MediaTypeWithQualityHeaderValue.Parse("application/json"));
 
-        var urlBuilder = new StringBuilder();
+        StringBuilder urlBuilder = new();
         if (!string.IsNullOrEmpty(_baseUrl)) urlBuilder.Append(_baseUrl);
         // Operation Path: "namespaces/{namespace}/tables/{table}"
         urlBuilder.Append("namespaces/");
@@ -2653,14 +2654,14 @@ public sealed partial class RestCatalogClient(HttpClient httpClient)
 
         PrepareRequest(httpClient, request, url);
 
-        using var response = await httpClient
+        using HttpResponseMessage response = await httpClient
             .SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken)
             .ConfigureAwait(false);
-        var headers = new Dictionary<string, IEnumerable<string>>();
-        foreach (var item in response.Headers)
+        Dictionary<string, IEnumerable<string>> headers = new();
+        foreach (KeyValuePair<string, IEnumerable<string>> item in response.Headers)
             headers[item.Key] = item.Value;
         if (response.Content != null && response.Content.Headers != null)
-            foreach (var item in response.Content.Headers)
+            foreach (KeyValuePair<string, IEnumerable<string>> item in response.Content.Headers)
                 headers[item.Key] = item.Value;
 
         ProcessResponse(httpClient, response);
@@ -2668,7 +2669,7 @@ public sealed partial class RestCatalogClient(HttpClient httpClient)
         var status = (int)response.StatusCode;
         if (status == 200)
         {
-            var objectResponse =
+            ObjectResponseResult<LoadTableResult> objectResponse =
                 await ReadObjectResponseAsync<LoadTableResult>(response, headers, cancellationToken)
                     .ConfigureAwait(false);
             if (objectResponse.Object == null)
@@ -2832,20 +2833,20 @@ public sealed partial class RestCatalogClient(HttpClient httpClient)
 
         ArgumentNullException.ThrowIfNull(body);
 
-        using var request = new HttpRequestMessage();
+        using HttpRequestMessage request = new();
         if (idempotencyKey != null)
             request.Headers.TryAddWithoutValidation(
                 "Idempotency-Key",
                 ConvertToString(idempotencyKey, CultureInfo.InvariantCulture));
         var txt = JsonSerializer.Serialize(body, JsonSerializerOptions);
         var json = JsonSerializer.SerializeToUtf8Bytes(body, JsonSerializerOptions);
-        var content = new ByteArrayContent(json);
+        ByteArrayContent content = new(json);
         content.Headers.ContentType = MediaTypeHeaderValue.Parse("application/json");
         request.Content = content;
         request.Method = new HttpMethod("POST");
         request.Headers.Accept.Add(MediaTypeWithQualityHeaderValue.Parse("application/json"));
 
-        var urlBuilder = new StringBuilder();
+        StringBuilder urlBuilder = new();
         if (!string.IsNullOrEmpty(_baseUrl)) urlBuilder.Append(_baseUrl);
         // Operation Path: "namespaces/{namespace}/tables/{table}"
         urlBuilder.Append("namespaces/");
@@ -2860,14 +2861,14 @@ public sealed partial class RestCatalogClient(HttpClient httpClient)
 
         PrepareRequest(httpClient, request, url);
 
-        using var response = await httpClient
+        using HttpResponseMessage response = await httpClient
             .SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken)
             .ConfigureAwait(false);
-        var headers = new Dictionary<string, IEnumerable<string>>();
-        foreach (var item in response.Headers)
+        Dictionary<string, IEnumerable<string>> headers = new();
+        foreach (KeyValuePair<string, IEnumerable<string>> item in response.Headers)
             headers[item.Key] = item.Value;
         if (response.Content != null && response.Content.Headers != null)
-            foreach (var item in response.Content.Headers)
+            foreach (KeyValuePair<string, IEnumerable<string>> item in response.Content.Headers)
                 headers[item.Key] = item.Value;
 
         ProcessResponse(httpClient, response);
@@ -2875,7 +2876,7 @@ public sealed partial class RestCatalogClient(HttpClient httpClient)
         var status = (int)response.StatusCode;
         if (status == 200)
         {
-            var objectResponse =
+            ObjectResponseResult<CommitTableResponse> objectResponse =
                 await ReadObjectResponseAsync<CommitTableResponse>(response, headers, cancellationToken)
                     .ConfigureAwait(false);
             if (objectResponse.Object == null)
@@ -3039,14 +3040,14 @@ public sealed partial class RestCatalogClient(HttpClient httpClient)
 
         ArgumentNullException.ThrowIfNull(table);
 
-        using var request = new HttpRequestMessage();
+        using HttpRequestMessage request = new();
         if (idempotencyKey != null)
             request.Headers.TryAddWithoutValidation(
                 "Idempotency-Key",
                 ConvertToString(idempotencyKey, CultureInfo.InvariantCulture));
         request.Method = new HttpMethod("DELETE");
 
-        var urlBuilder = new StringBuilder();
+        StringBuilder urlBuilder = new();
         if (!string.IsNullOrEmpty(_baseUrl)) urlBuilder.Append(_baseUrl);
         // Operation Path: "namespaces/{namespace}/tables/{table}"
         urlBuilder.Append("namespaces/");
@@ -3067,14 +3068,14 @@ public sealed partial class RestCatalogClient(HttpClient httpClient)
 
         PrepareRequest(httpClient, request, url);
 
-        using var response = await httpClient
+        using HttpResponseMessage response = await httpClient
             .SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken)
             .ConfigureAwait(false);
-        var headers = new Dictionary<string, IEnumerable<string>>();
-        foreach (var item in response.Headers)
+        Dictionary<string, IEnumerable<string>> headers = new();
+        foreach (KeyValuePair<string, IEnumerable<string>> item in response.Headers)
             headers[item.Key] = item.Value;
         if (response.Content != null && response.Content.Headers != null)
-            foreach (var item in response.Content.Headers)
+            foreach (KeyValuePair<string, IEnumerable<string>> item in response.Content.Headers)
                 headers[item.Key] = item.Value;
 
         ProcessResponse(httpClient, response);
@@ -3189,10 +3190,10 @@ public sealed partial class RestCatalogClient(HttpClient httpClient)
 
         ArgumentNullException.ThrowIfNull(table);
 
-        using var request = new HttpRequestMessage();
+        using HttpRequestMessage request = new();
         request.Method = new HttpMethod("HEAD");
 
-        var urlBuilder = new StringBuilder();
+        StringBuilder urlBuilder = new();
         if (!string.IsNullOrEmpty(_baseUrl)) urlBuilder.Append(_baseUrl);
         // Operation Path: "namespaces/{namespace}/tables/{table}"
         urlBuilder.Append("namespaces/");
@@ -3207,14 +3208,14 @@ public sealed partial class RestCatalogClient(HttpClient httpClient)
 
         PrepareRequest(httpClient, request, url);
 
-        using var response = await httpClient
+        using HttpResponseMessage response = await httpClient
             .SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken)
             .ConfigureAwait(false);
-        var headers = new Dictionary<string, IEnumerable<string>>();
-        foreach (var item in response.Headers)
+        Dictionary<string, IEnumerable<string>> headers = new();
+        foreach (KeyValuePair<string, IEnumerable<string>> item in response.Headers)
             headers[item.Key] = item.Value;
         if (response.Content != null && response.Content.Headers != null)
-            foreach (var item in response.Content.Headers)
+            foreach (KeyValuePair<string, IEnumerable<string>> item in response.Content.Headers)
                 headers[item.Key] = item.Value;
 
         ProcessResponse(httpClient, response);
@@ -3331,11 +3332,11 @@ public sealed partial class RestCatalogClient(HttpClient httpClient)
 
         ArgumentNullException.ThrowIfNull(table);
 
-        using var request = new HttpRequestMessage();
+        using HttpRequestMessage request = new();
         request.Method = new HttpMethod("GET");
         request.Headers.Accept.Add(MediaTypeWithQualityHeaderValue.Parse("application/json"));
 
-        var urlBuilder = new StringBuilder();
+        StringBuilder urlBuilder = new();
         if (!string.IsNullOrEmpty(_baseUrl)) urlBuilder.Append(_baseUrl);
         // Operation Path: "namespaces/{namespace}/tables/{table}/credentials"
         urlBuilder.Append("namespaces/");
@@ -3357,14 +3358,14 @@ public sealed partial class RestCatalogClient(HttpClient httpClient)
 
         PrepareRequest(httpClient, request, url);
 
-        using var response = await httpClient
+        using HttpResponseMessage response = await httpClient
             .SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken)
             .ConfigureAwait(false);
-        var headers = new Dictionary<string, IEnumerable<string>>();
-        foreach (var item in response.Headers)
+        Dictionary<string, IEnumerable<string>> headers = new();
+        foreach (KeyValuePair<string, IEnumerable<string>> item in response.Headers)
             headers[item.Key] = item.Value;
         if (response.Content != null && response.Content.Headers != null)
-            foreach (var item in response.Content.Headers)
+            foreach (KeyValuePair<string, IEnumerable<string>> item in response.Content.Headers)
                 headers[item.Key] = item.Value;
 
         ProcessResponse(httpClient, response);
@@ -3372,7 +3373,7 @@ public sealed partial class RestCatalogClient(HttpClient httpClient)
         var status = (int)response.StatusCode;
         if (status == 200)
         {
-            var objectResponse =
+            ObjectResponseResult<LoadCredentialsResponse> objectResponse =
                 await ReadObjectResponseAsync<LoadCredentialsResponse>(
                     response,
                     headers,
@@ -3495,18 +3496,18 @@ public sealed partial class RestCatalogClient(HttpClient httpClient)
     {
         ArgumentNullException.ThrowIfNull(body);
 
-        using var request = new HttpRequestMessage();
+        using HttpRequestMessage request = new();
         if (idempotencyKey != null)
             request.Headers.TryAddWithoutValidation(
                 "Idempotency-Key",
                 ConvertToString(idempotencyKey, CultureInfo.InvariantCulture));
         var json = JsonSerializer.SerializeToUtf8Bytes(body, JsonSerializerOptions);
-        var content = new ByteArrayContent(json);
+        ByteArrayContent content = new(json);
         content.Headers.ContentType = MediaTypeHeaderValue.Parse("application/json");
         request.Content = content;
         request.Method = new HttpMethod("POST");
 
-        var urlBuilder = new StringBuilder();
+        StringBuilder urlBuilder = new();
         if (!string.IsNullOrEmpty(_baseUrl)) urlBuilder.Append(_baseUrl);
         // Operation Path: "tables/rename"
         urlBuilder.Append("tables/rename");
@@ -3518,14 +3519,14 @@ public sealed partial class RestCatalogClient(HttpClient httpClient)
 
         PrepareRequest(httpClient, request, url);
 
-        using var response = await httpClient
+        using HttpResponseMessage response = await httpClient
             .SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken)
             .ConfigureAwait(false);
-        var headers = new Dictionary<string, IEnumerable<string>>();
-        foreach (var item in response.Headers)
+        Dictionary<string, IEnumerable<string>> headers = new();
+        foreach (KeyValuePair<string, IEnumerable<string>> item in response.Headers)
             headers[item.Key] = item.Value;
         if (response.Content != null && response.Content.Headers != null)
-            foreach (var item in response.Content.Headers)
+            foreach (KeyValuePair<string, IEnumerable<string>> item in response.Content.Headers)
                 headers[item.Key] = item.Value;
 
         ProcessResponse(httpClient, response);
@@ -3659,14 +3660,14 @@ public sealed partial class RestCatalogClient(HttpClient httpClient)
 
         ArgumentNullException.ThrowIfNull(body);
 
-        using var request = new HttpRequestMessage();
+        using HttpRequestMessage request = new();
         var json = JsonSerializer.SerializeToUtf8Bytes(body, JsonSerializerOptions);
-        var content = new ByteArrayContent(json);
+        ByteArrayContent content = new(json);
         content.Headers.ContentType = MediaTypeHeaderValue.Parse("application/json");
         request.Content = content;
         request.Method = new HttpMethod("POST");
 
-        var urlBuilder = new StringBuilder();
+        StringBuilder urlBuilder = new();
         if (!string.IsNullOrEmpty(_baseUrl)) urlBuilder.Append(_baseUrl);
         // Operation Path: "namespaces/{namespace}/tables/{table}/metrics"
         urlBuilder.Append("namespaces/");
@@ -3682,14 +3683,14 @@ public sealed partial class RestCatalogClient(HttpClient httpClient)
 
         PrepareRequest(httpClient, request, url);
 
-        using var response = await httpClient
+        using HttpResponseMessage response = await httpClient
             .SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken)
             .ConfigureAwait(false);
-        var headers = new Dictionary<string, IEnumerable<string>>();
-        foreach (var item in response.Headers)
+        Dictionary<string, IEnumerable<string>> headers = new();
+        foreach (KeyValuePair<string, IEnumerable<string>> item in response.Headers)
             headers[item.Key] = item.Value;
         if (response.Content != null && response.Content.Headers != null)
-            foreach (var item in response.Content.Headers)
+            foreach (KeyValuePair<string, IEnumerable<string>> item in response.Content.Headers)
                 headers[item.Key] = item.Value;
 
         ProcessResponse(httpClient, response);
@@ -3821,18 +3822,18 @@ public sealed partial class RestCatalogClient(HttpClient httpClient)
     {
         ArgumentNullException.ThrowIfNull(body);
 
-        using var request = new HttpRequestMessage();
+        using HttpRequestMessage request = new();
         if (idempotencyKey != null)
             request.Headers.TryAddWithoutValidation(
                 "Idempotency-Key",
                 ConvertToString(idempotencyKey, CultureInfo.InvariantCulture));
         var json = JsonSerializer.SerializeToUtf8Bytes(body, JsonSerializerOptions);
-        var content = new ByteArrayContent(json);
+        ByteArrayContent content = new(json);
         content.Headers.ContentType = MediaTypeHeaderValue.Parse("application/json");
         request.Content = content;
         request.Method = new HttpMethod("POST");
 
-        var urlBuilder = new StringBuilder();
+        StringBuilder urlBuilder = new();
         if (!string.IsNullOrEmpty(_baseUrl)) urlBuilder.Append(_baseUrl);
         // Operation Path: "transactions/commit"
         urlBuilder.Append("transactions/commit");
@@ -3844,14 +3845,14 @@ public sealed partial class RestCatalogClient(HttpClient httpClient)
 
         PrepareRequest(httpClient, request, url);
 
-        using var response = await httpClient
+        using HttpResponseMessage response = await httpClient
             .SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken)
             .ConfigureAwait(false);
-        var headers = new Dictionary<string, IEnumerable<string>>();
-        foreach (var item in response.Headers)
+        Dictionary<string, IEnumerable<string>> headers = new();
+        foreach (KeyValuePair<string, IEnumerable<string>> item in response.Headers)
             headers[item.Key] = item.Value;
         if (response.Content != null && response.Content.Headers != null)
-            foreach (var item in response.Content.Headers)
+            foreach (KeyValuePair<string, IEnumerable<string>> item in response.Content.Headers)
                 headers[item.Key] = item.Value;
 
         ProcessResponse(httpClient, response);
@@ -4005,11 +4006,11 @@ public sealed partial class RestCatalogClient(HttpClient httpClient)
     {
         ArgumentNullException.ThrowIfNull(@namespace);
 
-        using var request = new HttpRequestMessage();
+        using HttpRequestMessage request = new();
         request.Method = new HttpMethod("GET");
         request.Headers.Accept.Add(MediaTypeWithQualityHeaderValue.Parse("application/json"));
 
-        var urlBuilder = new StringBuilder();
+        StringBuilder urlBuilder = new();
         if (!string.IsNullOrEmpty(_baseUrl)) urlBuilder.Append(_baseUrl);
         // Operation Path: "namespaces/{namespace}/views"
         urlBuilder.Append("namespaces/");
@@ -4033,14 +4034,14 @@ public sealed partial class RestCatalogClient(HttpClient httpClient)
 
         PrepareRequest(httpClient, request, url);
 
-        using var response = await httpClient
+        using HttpResponseMessage response = await httpClient
             .SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken)
             .ConfigureAwait(false);
-        var headers = new Dictionary<string, IEnumerable<string>>();
-        foreach (var item in response.Headers)
+        Dictionary<string, IEnumerable<string>> headers = new();
+        foreach (KeyValuePair<string, IEnumerable<string>> item in response.Headers)
             headers[item.Key] = item.Value;
         if (response.Content != null && response.Content.Headers != null)
-            foreach (var item in response.Content.Headers)
+            foreach (KeyValuePair<string, IEnumerable<string>> item in response.Content.Headers)
                 headers[item.Key] = item.Value;
 
         ProcessResponse(httpClient, response);
@@ -4048,7 +4049,7 @@ public sealed partial class RestCatalogClient(HttpClient httpClient)
         var status = (int)response.StatusCode;
         if (status == 200)
         {
-            var objectResponse =
+            ObjectResponseResult<ListTablesResponse> objectResponse =
                 await ReadObjectResponseAsync<ListTablesResponse>(response, headers, cancellationToken)
                     .ConfigureAwait(false);
             if (objectResponse.Object == null)
@@ -4156,15 +4157,15 @@ public sealed partial class RestCatalogClient(HttpClient httpClient)
 
         ArgumentNullException.ThrowIfNull(body);
 
-        using var request = new HttpRequestMessage();
+        using HttpRequestMessage request = new();
         var json = JsonSerializer.SerializeToUtf8Bytes(body, JsonSerializerOptions);
-        var content = new ByteArrayContent(json);
+        ByteArrayContent content = new(json);
         content.Headers.ContentType = MediaTypeHeaderValue.Parse("application/json");
         request.Content = content;
         request.Method = new HttpMethod("POST");
         request.Headers.Accept.Add(MediaTypeWithQualityHeaderValue.Parse("application/json"));
 
-        var urlBuilder = new StringBuilder();
+        StringBuilder urlBuilder = new();
         if (!string.IsNullOrEmpty(_baseUrl)) urlBuilder.Append(_baseUrl);
         // Operation Path: "namespaces/{namespace}/views"
         urlBuilder.Append("namespaces/");
@@ -4178,14 +4179,14 @@ public sealed partial class RestCatalogClient(HttpClient httpClient)
 
         PrepareRequest(httpClient, request, url);
 
-        using var response = await httpClient
+        using HttpResponseMessage response = await httpClient
             .SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken)
             .ConfigureAwait(false);
-        var headers = new Dictionary<string, IEnumerable<string>>();
-        foreach (var item in response.Headers)
+        Dictionary<string, IEnumerable<string>> headers = new();
+        foreach (KeyValuePair<string, IEnumerable<string>> item in response.Headers)
             headers[item.Key] = item.Value;
         if (response.Content != null && response.Content.Headers != null)
-            foreach (var item in response.Content.Headers)
+            foreach (KeyValuePair<string, IEnumerable<string>> item in response.Content.Headers)
                 headers[item.Key] = item.Value;
 
         ProcessResponse(httpClient, response);
@@ -4193,7 +4194,7 @@ public sealed partial class RestCatalogClient(HttpClient httpClient)
         var status = (int)response.StatusCode;
         if (status == 200)
         {
-            var objectResponse =
+            ObjectResponseResult<LoadViewResult> objectResponse =
                 await ReadObjectResponseAsync<LoadViewResult>(response, headers, cancellationToken)
                     .ConfigureAwait(false);
             if (objectResponse.Object == null)
@@ -4320,11 +4321,11 @@ public sealed partial class RestCatalogClient(HttpClient httpClient)
 
         ArgumentNullException.ThrowIfNull(view);
 
-        using var request = new HttpRequestMessage();
+        using HttpRequestMessage request = new();
         request.Method = new HttpMethod("GET");
         request.Headers.Accept.Add(MediaTypeWithQualityHeaderValue.Parse("application/json"));
 
-        var urlBuilder = new StringBuilder();
+        StringBuilder urlBuilder = new();
         if (!string.IsNullOrEmpty(_baseUrl)) urlBuilder.Append(_baseUrl);
         // Operation Path: "namespaces/{namespace}/views/{view}"
         urlBuilder.Append("namespaces/");
@@ -4339,14 +4340,14 @@ public sealed partial class RestCatalogClient(HttpClient httpClient)
 
         PrepareRequest(httpClient, request, url);
 
-        using var response = await httpClient
+        using HttpResponseMessage response = await httpClient
             .SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken)
             .ConfigureAwait(false);
-        var headers = new Dictionary<string, IEnumerable<string>>();
-        foreach (var item in response.Headers)
+        Dictionary<string, IEnumerable<string>> headers = new();
+        foreach (KeyValuePair<string, IEnumerable<string>> item in response.Headers)
             headers[item.Key] = item.Value;
         if (response.Content != null && response.Content.Headers != null)
-            foreach (var item in response.Content.Headers)
+            foreach (KeyValuePair<string, IEnumerable<string>> item in response.Content.Headers)
                 headers[item.Key] = item.Value;
 
         ProcessResponse(httpClient, response);
@@ -4354,7 +4355,7 @@ public sealed partial class RestCatalogClient(HttpClient httpClient)
         var status = (int)response.StatusCode;
         if (status == 200)
         {
-            var objectResponse =
+            ObjectResponseResult<LoadViewResult> objectResponse =
                 await ReadObjectResponseAsync<LoadViewResult>(response, headers, cancellationToken)
                     .ConfigureAwait(false);
             if (objectResponse.Object == null)
@@ -4487,19 +4488,19 @@ public sealed partial class RestCatalogClient(HttpClient httpClient)
 
         ArgumentNullException.ThrowIfNull(body);
 
-        using var request = new HttpRequestMessage();
+        using HttpRequestMessage request = new();
         if (idempotencyKey != null)
             request.Headers.TryAddWithoutValidation(
                 "Idempotency-Key",
                 ConvertToString(idempotencyKey, CultureInfo.InvariantCulture));
         var json = JsonSerializer.SerializeToUtf8Bytes(body, JsonSerializerOptions);
-        var content = new ByteArrayContent(json);
+        ByteArrayContent content = new(json);
         content.Headers.ContentType = MediaTypeHeaderValue.Parse("application/json");
         request.Content = content;
         request.Method = new HttpMethod("POST");
         request.Headers.Accept.Add(MediaTypeWithQualityHeaderValue.Parse("application/json"));
 
-        var urlBuilder = new StringBuilder();
+        StringBuilder urlBuilder = new();
         if (!string.IsNullOrEmpty(_baseUrl)) urlBuilder.Append(_baseUrl);
         // Operation Path: "namespaces/{namespace}/views/{view}"
         urlBuilder.Append("namespaces/");
@@ -4514,14 +4515,14 @@ public sealed partial class RestCatalogClient(HttpClient httpClient)
 
         PrepareRequest(httpClient, request, url);
 
-        using var response = await httpClient
+        using HttpResponseMessage response = await httpClient
             .SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken)
             .ConfigureAwait(false);
-        var headers = new Dictionary<string, IEnumerable<string>>();
-        foreach (var item in response.Headers)
+        Dictionary<string, IEnumerable<string>> headers = new();
+        foreach (KeyValuePair<string, IEnumerable<string>> item in response.Headers)
             headers[item.Key] = item.Value;
         if (response.Content != null && response.Content.Headers != null)
-            foreach (var item in response.Content.Headers)
+            foreach (KeyValuePair<string, IEnumerable<string>> item in response.Content.Headers)
                 headers[item.Key] = item.Value;
 
         ProcessResponse(httpClient, response);
@@ -4529,7 +4530,7 @@ public sealed partial class RestCatalogClient(HttpClient httpClient)
         var status = (int)response.StatusCode;
         if (status == 200)
         {
-            var objectResponse =
+            ObjectResponseResult<LoadViewResult> objectResponse =
                 await ReadObjectResponseAsync<LoadViewResult>(response, headers, cancellationToken)
                     .ConfigureAwait(false);
             if (objectResponse.Object == null)
@@ -4691,14 +4692,14 @@ public sealed partial class RestCatalogClient(HttpClient httpClient)
 
         ArgumentNullException.ThrowIfNull(view);
 
-        using var request = new HttpRequestMessage();
+        using HttpRequestMessage request = new();
         if (idempotencyKey != null)
             request.Headers.TryAddWithoutValidation(
                 "Idempotency-Key",
                 ConvertToString(idempotencyKey, CultureInfo.InvariantCulture));
         request.Method = new HttpMethod("DELETE");
 
-        var urlBuilder = new StringBuilder();
+        StringBuilder urlBuilder = new();
         if (!string.IsNullOrEmpty(_baseUrl)) urlBuilder.Append(_baseUrl);
         // Operation Path: "namespaces/{namespace}/views/{view}"
         urlBuilder.Append("namespaces/");
@@ -4713,14 +4714,14 @@ public sealed partial class RestCatalogClient(HttpClient httpClient)
 
         PrepareRequest(httpClient, request, url);
 
-        using var response = await httpClient
+        using HttpResponseMessage response = await httpClient
             .SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken)
             .ConfigureAwait(false);
-        var headers = new Dictionary<string, IEnumerable<string>>();
-        foreach (var item in response.Headers)
+        Dictionary<string, IEnumerable<string>> headers = new();
+        foreach (KeyValuePair<string, IEnumerable<string>> item in response.Headers)
             headers[item.Key] = item.Value;
         if (response.Content != null && response.Content.Headers != null)
-            foreach (var item in response.Content.Headers)
+            foreach (KeyValuePair<string, IEnumerable<string>> item in response.Content.Headers)
                 headers[item.Key] = item.Value;
 
         ProcessResponse(httpClient, response);
@@ -4835,10 +4836,10 @@ public sealed partial class RestCatalogClient(HttpClient httpClient)
 
         ArgumentNullException.ThrowIfNull(view);
 
-        using var request = new HttpRequestMessage();
+        using HttpRequestMessage request = new();
         request.Method = new HttpMethod("HEAD");
 
-        var urlBuilder = new StringBuilder();
+        StringBuilder urlBuilder = new();
         if (!string.IsNullOrEmpty(_baseUrl)) urlBuilder.Append(_baseUrl);
         // Operation Path: "namespaces/{namespace}/views/{view}"
         urlBuilder.Append("namespaces/");
@@ -4853,15 +4854,15 @@ public sealed partial class RestCatalogClient(HttpClient httpClient)
 
         PrepareRequest(httpClient, request, url);
 
-        using var response = await httpClient
+        using HttpResponseMessage response = await httpClient
             .SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken)
             .ConfigureAwait(false);
 
-        var headers = new Dictionary<string, IEnumerable<string>>();
-        foreach (var item in response.Headers)
+        Dictionary<string, IEnumerable<string>> headers = new();
+        foreach (KeyValuePair<string, IEnumerable<string>> item in response.Headers)
             headers[item.Key] = item.Value;
         if (response.Content != null && response.Content.Headers != null)
-            foreach (var item in response.Content.Headers)
+            foreach (KeyValuePair<string, IEnumerable<string>> item in response.Content.Headers)
                 headers[item.Key] = item.Value;
 
         ProcessResponse(httpClient, response);
@@ -4973,18 +4974,18 @@ public sealed partial class RestCatalogClient(HttpClient httpClient)
     {
         ArgumentNullException.ThrowIfNull(body);
 
-        using var request = new HttpRequestMessage();
+        using HttpRequestMessage request = new();
         if (idempotencyKey != null)
             request.Headers.TryAddWithoutValidation(
                 "Idempotency-Key",
                 ConvertToString(idempotencyKey, CultureInfo.InvariantCulture));
         var json = JsonSerializer.SerializeToUtf8Bytes(body, JsonSerializerOptions);
-        var content = new ByteArrayContent(json);
+        ByteArrayContent content = new(json);
         content.Headers.ContentType = MediaTypeHeaderValue.Parse("application/json");
         request.Content = content;
         request.Method = new HttpMethod("POST");
 
-        var urlBuilder = new StringBuilder();
+        StringBuilder urlBuilder = new();
         if (!string.IsNullOrEmpty(_baseUrl)) urlBuilder.Append(_baseUrl);
         // Operation Path: "views/rename"
         urlBuilder.Append("views/rename");
@@ -4996,14 +4997,14 @@ public sealed partial class RestCatalogClient(HttpClient httpClient)
 
         PrepareRequest(httpClient, request, url);
 
-        using var response = await httpClient
+        using HttpResponseMessage response = await httpClient
             .SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken)
             .ConfigureAwait(false);
-        var headers = new Dictionary<string, IEnumerable<string>>();
-        foreach (var item in response.Headers)
+        Dictionary<string, IEnumerable<string>> headers = new();
+        foreach (KeyValuePair<string, IEnumerable<string>> item in response.Headers)
             headers[item.Key] = item.Value;
         if (response.Content != null && response.Content.Headers != null)
-            foreach (var item in response.Content.Headers)
+            foreach (KeyValuePair<string, IEnumerable<string>> item in response.Content.Headers)
                 headers[item.Key] = item.Value;
 
         ProcessResponse(httpClient, response);
@@ -5119,7 +5120,7 @@ public sealed partial class RestCatalogClient(HttpClient httpClient)
             var responseText = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
             try
             {
-                var typedBody = JsonSerializer.Deserialize<T>(responseText, JsonSerializerOptions);
+                T? typedBody = JsonSerializer.Deserialize<T>(responseText, JsonSerializerOptions);
                 return new ObjectResponseResult<T>(typedBody, responseText);
             }
             catch (JsonException exception)
@@ -5131,9 +5132,9 @@ public sealed partial class RestCatalogClient(HttpClient httpClient)
 
         try
         {
-            await using var responseStream =
+            await using Stream responseStream =
                 await response.Content.ReadAsStreamAsync(cancellationToken).ConfigureAwait(false);
-            var typedBody = await JsonSerializer
+            T? typedBody = await JsonSerializer
                 .DeserializeAsync<T>(responseStream, JsonSerializerOptions, cancellationToken)
                 .ConfigureAwait(false);
             return new ObjectResponseResult<T>(typedBody, string.Empty);
@@ -5152,7 +5153,7 @@ public sealed partial class RestCatalogClient(HttpClient httpClient)
         string message,
         CancellationToken cancellationToken)
     {
-        var objectResponse =
+        ObjectResponseResult<T> objectResponse =
             await ReadObjectResponseAsync<T>(response, headers, cancellationToken)
                 .ConfigureAwait(false);
         if (objectResponse.Object == null)
@@ -5180,7 +5181,7 @@ public sealed partial class RestCatalogClient(HttpClient httpClient)
             var name = Enum.GetName(value.GetType(), value);
             if (name != null)
             {
-                var field = value.GetType().GetTypeInfo().GetDeclaredField(name);
+                FieldInfo? field = value.GetType().GetTypeInfo().GetDeclaredField(name);
                 if (field != null)
                     if (field.GetCustomAttribute<JsonStringEnumMemberNameAttribute>() is { } attribute)
                         return attribute.Name ?? name;
@@ -5204,7 +5205,7 @@ public sealed partial class RestCatalogClient(HttpClient httpClient)
         }
         else if (value.GetType().IsArray)
         {
-            var valueArray = (Array)value;
+            Array valueArray = (Array)value;
             var valueTextArray = new string[valueArray.Length];
             for (var i = 0; i < valueArray.Length; i++)
                 valueTextArray[i] = ConvertToString(valueArray.GetValue(i), cultureInfo);

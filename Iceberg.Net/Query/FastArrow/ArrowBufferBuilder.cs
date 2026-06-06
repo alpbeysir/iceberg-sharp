@@ -1,4 +1,5 @@
-﻿using System.Runtime.CompilerServices;
+﻿using System.Buffers;
+using System.Runtime.CompilerServices;
 using Apache.Arrow;
 using Apache.Arrow.Memory;
 
@@ -103,7 +104,7 @@ public class ArrowBufferBuilder<T> where T : struct
     /// <returns>Returns the builder (for fluent-style composition).</returns>
     public ArrowBufferBuilder<T> AppendRange(IEnumerable<T> values)
     {
-        foreach (var v in values)
+        foreach (T v in values)
             Append(v);
 
         return this;
@@ -176,8 +177,8 @@ public class ArrowBufferBuilder<T> where T : struct
         var currentBytesLength = Length * _size;
         var bufferLength = checked((int)BitUtility.RoundUpToMultiplePowerOfTwo(currentBytesLength, byteSize));
 
-        var memoryAllocator = allocator ?? MemoryAllocator.Default.Value;
-        var memoryOwner = memoryAllocator.Allocate(bufferLength);
+        MemoryAllocator? memoryAllocator = allocator ?? MemoryAllocator.Default.Value;
+        IMemoryOwner<byte>? memoryOwner = memoryAllocator.Allocate(bufferLength);
         Memory[..currentBytesLength].CopyTo(memoryOwner.Memory);
 
         return new ArrowBuffer(memoryOwner.Memory);
@@ -204,7 +205,7 @@ public class ArrowBufferBuilder<T> where T : struct
     {
         if (numBytes != 0)
         {
-            var memory = Allocator is not null
+            Memory<byte> memory = Allocator is not null
                 ? Allocator.Allocate(numBytes).Memory
                 : new Memory<byte>(new byte[numBytes]);
             Memory.CopyTo(memory);

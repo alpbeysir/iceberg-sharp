@@ -14,18 +14,18 @@ public static class ArrowTypeResolver
     // =================================================================================
     public static Schema GetSchemaFromDataReader(IDataReader reader)
     {
-        var fields = new List<Field>();
+        List<Field> fields = new();
 
         for (var i = 0; i < reader.FieldCount; i++)
         {
             var name = reader.GetName(i);
-            var netType = reader.GetFieldType(i);
+            Type netType = reader.GetFieldType(i);
 
             // 1. Resolve Arrow Type 
-            var arrowType = GetArrowTypeFromNetType(netType);
+            IArrowType arrowType = GetArrowTypeFromNetType(netType);
 
             // 2. Create Field
-            var field = new Field(name, arrowType, true);
+            Field field = new(name, arrowType, true);
 
             // 3. Add 
             fields.Add(field);
@@ -48,7 +48,7 @@ public static class ArrowTypeResolver
     {
         // Handle Nullable<T> and F# Option
 
-        var coreType = Nullable.GetUnderlyingType(type) ?? type;
+        Type coreType = Nullable.GetUnderlyingType(type) ?? type;
 
         // 1. Primitives
         if (coreType == typeof(sbyte)) return Int8Type.Default;
@@ -86,10 +86,10 @@ public static class ArrowTypeResolver
         // List / Array
         if (typeof(IEnumerable).IsAssignableFrom(coreType) && coreType != typeof(string))
         {
-            var elementType = GetEnumerableElementType(coreType);
+            Type? elementType = GetEnumerableElementType(coreType);
             if (elementType != null)
             {
-                var innerField = ResolveField("item", elementType);
+                Field innerField = ResolveField("item", elementType);
                 return new LargeListType(innerField);
             }
         }
@@ -97,11 +97,11 @@ public static class ArrowTypeResolver
         // Struct / Class (Reflection for UserMeta, etc.)
         if (coreType is { IsPrimitive: false, IsEnum: false } && coreType != typeof(object))
         {
-            var members = GetReadableMembers(coreType);
+            MemberInfo[] members = GetReadableMembers(coreType);
             if (members.Length > 0)
             {
                 // Recursively resolve members
-                var fields = members.Select(m => ResolveField(m.Name, GetMemberType(m))).ToList();
+                List<Field> fields = members.Select(m => ResolveField(m.Name, GetMemberType(m))).ToList();
                 return new StructType(fields);
             }
         }
@@ -122,7 +122,7 @@ public static class ArrowTypeResolver
     {
         var isNullable = !type.IsValueType || Nullable.GetUnderlyingType(type) != null;
 
-        var arrowType = GetArrowTypeFromNetType(type);
+        IArrowType arrowType = GetArrowTypeFromNetType(type);
 
         return new Field(name, arrowType, isNullable);
     }
@@ -132,14 +132,14 @@ public static class ArrowTypeResolver
             DynamicallyAccessedMemberTypes.PublicProperties | DynamicallyAccessedMemberTypes.PublicFields)]
         Type type)
     {
-        var flags = BindingFlags.Public | BindingFlags.Instance;
+        BindingFlags flags = BindingFlags.Public | BindingFlags.Instance;
 
-        var properties = type.GetProperties(flags)
+        IEnumerable<MemberInfo> properties = type.GetProperties(flags)
             .Where(p => p.GetIndexParameters().Length == 0)
             .Where(p => p.PropertyType is { IsInterface: false, IsAbstract: false })
             .Cast<MemberInfo>();
 
-        var fields = type.GetFields(flags)
+        IEnumerable<MemberInfo> fields = type.GetFields(flags)
             .Where(f => f.FieldType is { IsInterface: false, IsAbstract: false })
             .Cast<MemberInfo>();
 
@@ -167,7 +167,7 @@ public static class ArrowTypeResolver
         if (type.IsArray) return type.GetElementType();
         if (type.IsGenericType && type.GetGenericTypeDefinition() == typeof(IEnumerable<>))
             return type.GetGenericArguments()[0];
-        var ienum = type.GetInterfaces()
+        Type? ienum = type.GetInterfaces()
             .FirstOrDefault(i => i.IsGenericType && i.GetGenericTypeDefinition() == typeof(IEnumerable<>));
         return ienum?.GetGenericArguments()[0];
     }

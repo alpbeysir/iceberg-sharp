@@ -7,7 +7,7 @@ public class ArrowSchema
 {
     public static Apache.Arrow.Schema FromSchema(Schema schema)
     {
-        var fields = schema.Fields.Select(field => new Field(
+        IEnumerable<Field> fields = schema.Fields.Select(field => new Field(
             field.Name,
             FromIcebergType(field.FieldType),
             !field.Required,
@@ -46,7 +46,7 @@ public class ArrowSchema
 
     private static Apache.Arrow.Types.StructType FromStructType(StructType structType)
     {
-        var fields =
+        IEnumerable<Field> fields =
             structType.Fields.Select(field => new Field(
                 field.Name,
                 FromIcebergType(field.FieldType),

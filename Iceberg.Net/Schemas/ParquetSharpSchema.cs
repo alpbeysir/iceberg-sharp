@@ -18,8 +18,9 @@ public static class ParquetSharpSchema
             return true;
         });
 
-        var fieldIdMappingBuilder = ImmutableDictionary.CreateBuilder<int, FieldIdMappingValue>();
-        using var schemaRoot = parquetSchema.SchemaRoot;
+        ImmutableDictionary<int, FieldIdMappingValue>.Builder fieldIdMappingBuilder =
+            ImmutableDictionary.CreateBuilder<int, FieldIdMappingValue>();
+        using Node schemaRoot = parquetSchema.SchemaRoot;
         schemaRoot.Visit(node =>
         {
             if (node is PrimitiveNode primitiveNode && primitiveNode.FieldId != -1)
@@ -34,11 +35,11 @@ public static class ParquetSharpSchema
 
     public static GroupNode FromSchema(Schema schema)
     {
-        var nodes = new Node[schema.Fields.Count];
+        Node[] nodes = new Node[schema.Fields.Count];
         for (var i = 0; i < schema.Fields.Count; i++)
         {
-            var field = schema.Fields[i];
-            var node = FromType(
+            StructField field = schema.Fields[i];
+            Node node = FromType(
                 field.Name,
                 field.FieldType,
                 field.Required ? Repetition.Required : Repetition.Optional,

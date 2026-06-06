@@ -81,7 +81,7 @@ internal static class ArrowArrayBuilderFactory
             case ArrowTypeId.Decimal256:
                 return new Decimal256Array.Builder(dataType as Decimal256Type);
             case ArrowTypeId.Interval:
-                var intervalType = (IntervalType)dataType;
+                IntervalType intervalType = (IntervalType)dataType;
                 return intervalType.Unit switch
                 {
                     IntervalUnit.YearMonth => new YearMonthIntervalArray.Builder(),

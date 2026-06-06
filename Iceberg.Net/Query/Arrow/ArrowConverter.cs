@@ -24,9 +24,9 @@ public static class ArrowConverter
     /// </summary>
     public static RecordBatch GetEmptyBatch<T>()
     {
-        var schema = SchemaCache<T>.Default;
+        Schema schema = SchemaCache<T>.Default;
 
-        var emptyStruct = StructBuilderHelper.BuildStructArray(Enumerable.Empty<T>());
+        StructArray emptyStruct = StructBuilderHelper.BuildStructArray(Enumerable.Empty<T>());
 
         return new RecordBatch(schema, emptyStruct.Fields, 0);
     }
@@ -39,13 +39,13 @@ public static class ArrowConverter
         if (colValue == null) return null;
 
         // Get Element type
-        var elemType = ArrowTypeResolver.GetEnumerableElementType(colValue.GetType());
+        Type? elemType = ArrowTypeResolver.GetEnumerableElementType(colValue.GetType());
 
         if (elemType == null)
             return null;
 
         // Build Generic Method
-        var buildMethod = _buildMethodDef.MakeGenericMethod(elemType);
+        MethodInfo buildMethod = _buildMethodDef.MakeGenericMethod(elemType);
 
         try
         {
@@ -63,15 +63,15 @@ public static class ArrowConverter
     /// </summary>
     public static IArrowArray Build<T>(IEnumerable<T> data)
     {
-        var type = typeof(T);
+        Type type = typeof(T);
 
         // =====================================================================
         // 1. Array Interception (Must comes First!)
         // =====================================================================
         if (type.IsArray)
         {
-            var elemType = type.GetElementType()!;
-            var method = typeof(ArrowConverter)
+            Type elemType = type.GetElementType()!;
+            MethodInfo method = typeof(ArrowConverter)
                 .GetMethod(nameof(BuildListArray), BindingFlags.Public | BindingFlags.Static)!
                 .MakeGenericMethod(elemType);
             return (IArrowArray)method.Invoke(null, [data])!;
@@ -82,15 +82,15 @@ public static class ArrowConverter
         // =====================================================================
         if (type.IsGenericType && type.GetGenericTypeDefinition() == typeof(List<>))
         {
-            var elemType = type.GetGenericArguments()[0];
-            var method = typeof(ArrowConverter)
+            Type elemType = type.GetGenericArguments()[0];
+            MethodInfo method = typeof(ArrowConverter)
                 .GetMethod(nameof(BuildListArray), BindingFlags.Public | BindingFlags.Static)!
                 .MakeGenericMethod(elemType);
             return (IArrowArray)method.Invoke(null, [data])!;
         }
 
-        var underlyingType = Nullable.GetUnderlyingType(type) ?? type;
-        var checkType = underlyingType ?? type;
+        Type? underlyingType = Nullable.GetUnderlyingType(type) ?? type;
+        Type checkType = underlyingType ?? type;
 
         // 4. Primitives & String
         if (checkType == typeof(int)) return BuildInt32(data.Cast<int?>());
@@ -115,10 +115,10 @@ public static class ArrowConverter
         if (checkType == typeof(Guid)) return BuildGuid(data.Cast<Guid?>());
         if (checkType == typeof(byte[])) return BuildBinary(data.Cast<byte[]?>());
         if (checkType == typeof(Half)) return BuildFloat16(data.Cast<Half?>());
-        var elementType = ArrowTypeResolver.GetEnumerableElementType(type);
+        Type? elementType = ArrowTypeResolver.GetEnumerableElementType(type);
         if (elementType != null)
         {
-            var method = typeof(ArrowConverter)
+            MethodInfo method = typeof(ArrowConverter)
                 .GetMethod(nameof(BuildListArray), BindingFlags.Public | BindingFlags.Static)!
                 .MakeGenericMethod(elementType);
 
@@ -131,25 +131,25 @@ public static class ArrowConverter
             // [SMART RECOVERY] Handle Object[] that actually contains Structs
             if (checkType == typeof(object))
             {
-                var dataList = data as IList<T> ?? data.ToList();
-                var firstItem = dataList.FirstOrDefault(x => x != null);
+                IList<T> dataList = data as IList<T> ?? data.ToList();
+                T? firstItem = dataList.FirstOrDefault(x => x != null);
 
                 if (firstItem != null)
                 {
-                    var runtimeType = firstItem.GetType();
+                    Type runtimeType = firstItem.GetType();
                     // If runtime type is complex (Anonymous/Class) and NOT string
                     if (runtimeType.IsClass && runtimeType != typeof(string))
                         try
                         {
                             // Try to recover via StructBuilder
-                            var method = typeof(StructBuilderHelper)
+                            MethodInfo method = typeof(StructBuilderHelper)
                                 .GetMethod(
                                     nameof(StructBuilderHelper.BuildStructArray),
                                     BindingFlags.Public | BindingFlags.Static)!
                                 .MakeGenericMethod(runtimeType);
 
                             // We need to Cast<RuntimeType>
-                            var castMethod = typeof(Enumerable).GetMethod(
+                            MethodInfo castMethod = typeof(Enumerable).GetMethod(
                                     nameof(Enumerable.Cast),
                                     BindingFlags.Public | BindingFlags.Static)!
                                 .MakeGenericMethod(runtimeType);
@@ -164,8 +164,8 @@ public static class ArrowConverter
                 }
 
                 // Default Object fallback: ToString
-                var stringBuilder = new StringViewArray.Builder();
-                foreach (var item in data)
+                StringViewArray.Builder stringBuilder = new();
+                foreach (T item in data)
                     if (item == null) stringBuilder.AppendNull();
                     else stringBuilder.Append(item.ToString());
                 return stringBuilder.Build();
@@ -197,17 +197,17 @@ public static class ArrowConverter
     {
         // Recursion Logic: Flatten -> Build<U>
         // This handles List<Struct>, List<List<int>>, etc.
-        var flattenedData = new List<U>();
+        List<U> flattenedData = new();
 
-        var offsetsBuilder = new Int32Array.Builder();
-        var validityBuilder = new BooleanArrayBuilder();
+        Int32Array.Builder offsetsBuilder = new();
+        BooleanArrayBuilder validityBuilder = new();
 
         var currentOffset = 0;
         offsetsBuilder.Append(0);
 
         var nullCount = 0;
 
-        foreach (var subList in data)
+        foreach (IEnumerable<U>? subList in data)
             if (subList == null)
             {
                 validityBuilder.Append(false);
@@ -219,7 +219,7 @@ public static class ArrowConverter
                 validityBuilder.Append(true);
 
                 var count = 0;
-                foreach (var item in subList)
+                foreach (U item in subList)
                 {
                     flattenedData.Add(item);
                     count++;
@@ -230,12 +230,12 @@ public static class ArrowConverter
             }
 
         // Recursive Call!
-        var valuesArray = Build(flattenedData);
+        IArrowArray valuesArray = Build(flattenedData);
 
-        var offsetsArray = offsetsBuilder.Build();
-        var validityArray = validityBuilder.Build();
+        Int32Array? offsetsArray = offsetsBuilder.Build();
+        BooleanArray validityArray = validityBuilder.Build();
 
-        var listType = new ListType(valuesArray.Data.DataType);
+        ListType listType = new(valuesArray.Data.DataType);
 
         return new ListArray(
             listType,
@@ -249,8 +249,8 @@ public static class ArrowConverter
 
     private static HalfFloatArray BuildFloat16(IEnumerable<Half?> data)
     {
-        var b = new HalfFloatArray.Builder();
-        foreach (var v in data)
+        HalfFloatArray.Builder b = new();
+        foreach (Half? v in data)
             if (v.HasValue) b.Append(v.Value);
             else b.AppendNull();
         return b.Build();
@@ -258,7 +258,7 @@ public static class ArrowConverter
 
     private static FloatArray BuildFloat32(IEnumerable<float?> data)
     {
-        var b = new FloatArray.Builder();
+        FloatArray.Builder b = new();
         foreach (var v in data)
             if (v.HasValue) b.Append(v.Value);
             else b.AppendNull();
@@ -267,8 +267,8 @@ public static class ArrowConverter
 
     private static Decimal128Array BuildDecimal(IEnumerable<decimal?> data)
     {
-        var type = new Decimal128Type(38, 18);
-        var b = new Decimal128Array.Builder(type);
+        Decimal128Type type = new(38, 18);
+        Decimal128Array.Builder b = new(type);
         foreach (var v in data)
             if (v.HasValue) b.Append(v.Value);
             else b.AppendNull();
@@ -277,7 +277,7 @@ public static class ArrowConverter
 
     private static Int8Array BuildInt8(IEnumerable<sbyte?> data)
     {
-        var b = new Int8Array.Builder();
+        Int8Array.Builder b = new();
         foreach (var v in data)
             if (v.HasValue) b.Append(v.Value);
             else b.AppendNull();
@@ -286,7 +286,7 @@ public static class ArrowConverter
 
     private static UInt8Array BuildUInt8(IEnumerable<byte?> data)
     {
-        var b = new UInt8Array.Builder();
+        UInt8Array.Builder b = new();
         foreach (var v in data)
             if (v.HasValue) b.Append(v.Value);
             else b.AppendNull();
@@ -295,7 +295,7 @@ public static class ArrowConverter
 
     private static Int16Array BuildInt16(IEnumerable<short?> data)
     {
-        var b = new Int16Array.Builder();
+        Int16Array.Builder b = new();
         foreach (var v in data)
             if (v.HasValue) b.Append(v.Value);
             else b.AppendNull();
@@ -304,7 +304,7 @@ public static class ArrowConverter
 
     private static UInt16Array BuildUInt16(IEnumerable<ushort?> data)
     {
-        var b = new UInt16Array.Builder();
+        UInt16Array.Builder b = new();
         foreach (var v in data)
             if (v.HasValue) b.Append(v.Value);
             else b.AppendNull();
@@ -313,7 +313,7 @@ public static class ArrowConverter
 
     private static Int32Array BuildInt32(IEnumerable<int?> data)
     {
-        var b = new Int32Array.Builder();
+        Int32Array.Builder b = new();
         foreach (var v in data)
             if (v.HasValue) b.Append(v.Value);
             else b.AppendNull();
@@ -322,7 +322,7 @@ public static class ArrowConverter
 
     private static Int64Array BuildInt64(IEnumerable<long?> data)
     {
-        var b = new Int64Array.Builder();
+        Int64Array.Builder b = new();
         foreach (var v in data)
             if (v.HasValue) b.Append(v.Value);
             else b.AppendNull();
@@ -331,7 +331,7 @@ public static class ArrowConverter
 
     private static UInt32Array BuildUInt32(IEnumerable<uint?> data)
     {
-        var b = new UInt32Array.Builder();
+        UInt32Array.Builder b = new();
         foreach (var v in data)
             if (v.HasValue) b.Append(v.Value);
             else b.AppendNull();
@@ -340,7 +340,7 @@ public static class ArrowConverter
 
     private static UInt64Array BuildUInt64(IEnumerable<ulong?> data)
     {
-        var b = new UInt64Array.Builder();
+        UInt64Array.Builder b = new();
         foreach (var v in data)
             if (v.HasValue) b.Append(v.Value);
             else b.AppendNull();
@@ -349,7 +349,7 @@ public static class ArrowConverter
 
     private static DoubleArray BuildDouble(IEnumerable<double?> data)
     {
-        var b = new DoubleArray.Builder();
+        DoubleArray.Builder b = new();
         foreach (var v in data)
             if (v.HasValue) b.Append(v.Value);
             else b.AppendNull();
@@ -358,7 +358,7 @@ public static class ArrowConverter
 
     private static BooleanArray BuildBoolean(IEnumerable<bool?> data)
     {
-        var b = new BooleanArray.Builder();
+        BooleanArray.Builder b = new();
         foreach (var v in data)
             if (v.HasValue) b.Append(v.Value);
             else b.AppendNull();
@@ -367,7 +367,7 @@ public static class ArrowConverter
 
     private static StringViewArray BuildString(IEnumerable<string?> data)
     {
-        var b = new StringViewArray.Builder();
+        StringViewArray.Builder b = new();
         foreach (var v in data) b.Append(v);
         return b.Build();
     }
@@ -375,8 +375,8 @@ public static class ArrowConverter
     // DateOnly -> Date32 (Days since epoch)
     private static Date32Array BuildDate32(IEnumerable<DateOnly?> data)
     {
-        var b = new Date32Array.Builder();
-        foreach (var v in data)
+        Date32Array.Builder b = new();
+        foreach (DateOnly? v in data)
             if (v.HasValue) b.Append(v.Value.ToDateTime(TimeOnly.MinValue));
             else b.AppendNull();
         return b.Build();
@@ -385,9 +385,9 @@ public static class ArrowConverter
     // TimeOnly -> Time64 (Nanoseconds)
     private static Time64Array BuildTime64(IEnumerable<TimeOnly?> data)
     {
-        var b = new Time64Array.Builder(TimeUnit.Nanosecond);
+        Time64Array.Builder b = new(TimeUnit.Nanosecond);
 
-        foreach (var v in data)
+        foreach (TimeOnly? v in data)
             if (v.HasValue)
                 b.Append(v.Value.Ticks * 100L);
             else
@@ -399,14 +399,14 @@ public static class ArrowConverter
     // DateTime -> Timestamp (Microsecond)
     private static TimestampArray BuildTimestamp(IEnumerable<DateTime?> data)
     {
-        var b = new TimestampArray.Builder(TimeUnit.Microsecond);
+        TimestampArray.Builder b = new(TimeUnit.Microsecond);
 
-        foreach (var v in data)
+        foreach (DateTime? v in data)
             if (v.HasValue)
             {
-                var dt = v.Value;
+                DateTime dt = v.Value;
 
-                var dto = new DateTimeOffset(dt.Ticks, TimeSpan.Zero);
+                DateTimeOffset dto = new(dt.Ticks, TimeSpan.Zero);
 
                 // Ticks (100ns) -> Microsecond (1000ns)
                 b.Append(dto);
@@ -421,9 +421,9 @@ public static class ArrowConverter
 
     private static TimestampArray BuildDateTimeOffset(IEnumerable<DateTimeOffset?> data)
     {
-        var b = new TimestampArray.Builder(TimeUnit.Microsecond);
+        TimestampArray.Builder b = new(TimeUnit.Microsecond);
 
-        foreach (var v in data)
+        foreach (DateTimeOffset? v in data)
             if (v.HasValue)
                 b.Append(v.Value);
             else
@@ -434,9 +434,9 @@ public static class ArrowConverter
 
     private static DurationArray BuildDuration(IEnumerable<TimeSpan?> data)
     {
-        var b = new DurationArray.Builder(DurationType.Microsecond);
+        DurationArray.Builder b = new(DurationType.Microsecond);
 
-        foreach (var v in data)
+        foreach (TimeSpan? v in data)
             if (v.HasValue)
                 // Ticks (100ns) -> Microseconds (1000ns)
                 b.Append(v.Value.Ticks / 10L);
@@ -448,9 +448,9 @@ public static class ArrowConverter
 
     private static BinaryViewArray BuildGuid(IEnumerable<Guid?> data)
     {
-        var b = new BinaryViewArray.Builder();
+        BinaryViewArray.Builder b = new();
         Span<byte> guidBytes = stackalloc byte[16];
-        foreach (var v in data)
+        foreach (Guid? v in data)
             if (v.HasValue)
             {
                 v.Value.TryWriteBytes(guidBytes);
@@ -466,7 +466,7 @@ public static class ArrowConverter
 
     private static BinaryViewArray BuildBinary(IEnumerable<byte[]?> data)
     {
-        var b = new BinaryViewArray.Builder();
+        BinaryViewArray.Builder b = new();
         foreach (var v in data)
             if (v != null) b.Append(v);
             else b.AppendNull();
@@ -475,22 +475,22 @@ public static class ArrowConverter
 
     public static Schema GetSchemaFromType<T>()
     {
-        var type = typeof(T);
-        var members = type.GetProperties(BindingFlags.Public | BindingFlags.Instance);
-        var fields = new List<Field>();
+        Type type = typeof(T);
+        PropertyInfo[] members = type.GetProperties(BindingFlags.Public | BindingFlags.Instance);
+        List<Field> fields = new();
 
-        foreach (var member in members)
+        foreach (PropertyInfo member in members)
         {
-            var memberType = member.PropertyType;
+            Type memberType = member.PropertyType;
             var dummyInstance = CreateDummyInstance(memberType);
 
-            var wrapper = Array.CreateInstance(memberType, 1);
+            Array wrapper = Array.CreateInstance(memberType, 1);
             if (dummyInstance != null) wrapper.SetValue(dummyInstance, 0);
 
-            var dummyArr = BuildSingleColumn(wrapper);
+            IArrowArray? dummyArr = BuildSingleColumn(wrapper);
             if (dummyArr == null) continue;
 
-            var field = new Field(member.Name, dummyArr.Data.DataType, true);
+            Field field = new(member.Name, dummyArr.Data.DataType, true);
             fields.Add(field);
         }
 
@@ -534,17 +534,17 @@ public static class ArrowConverter
     /// </summary>
     public static IEnumerable<RecordBatch> ToArrowBatches<T>(IEnumerable<T> data, int batchSize)
     {
-        var dummyStruct = StructBuilderHelper.BuildStructArray(Enumerable.Empty<T>());
+        StructArray dummyStruct = StructBuilderHelper.BuildStructArray(Enumerable.Empty<T>());
 
-        var structType = (StructType)dummyStruct.Data.DataType;
-        var schema = new Schema(structType.Fields, null);
+        StructType? structType = (StructType)dummyStruct.Data.DataType;
+        Schema schema = new(structType.Fields, null);
 
         var hasYielded = false;
 
-        foreach (var chunk in data.Chunk(batchSize))
+        foreach (T[] chunk in data.Chunk(batchSize))
         {
             hasYielded = true;
-            var structArray = StructBuilderHelper.BuildStructArray(chunk);
+            StructArray structArray = StructBuilderHelper.BuildStructArray(chunk);
 
             yield return new RecordBatch(schema, structArray.Fields, chunk.Length);
         }
@@ -564,35 +564,35 @@ public static class ArrowConverter
         // =================================================================
         public static StructArray BuildStructArray<T>(IEnumerable<T> data)
         {
-            var dataList = data as IList<T> ?? data.ToList();
+            IList<T> dataList = data as IList<T> ?? data.ToList();
             var length = dataList.Count;
-            var type = typeof(T);
+            Type type = typeof(T);
 
             // Direct Reflection to ensure exact names and internal props
-            var properties = type.GetProperties(BindingFlags.Public | BindingFlags.Instance);
+            PropertyInfo[] properties = type.GetProperties(BindingFlags.Public | BindingFlags.Instance);
 
-            var fields = new List<Field>();
-            var childrenArrays = new List<IArrowArray>();
+            List<Field> fields = new();
+            List<IArrowArray> childrenArrays = new();
 
-            foreach (var prop in properties)
+            foreach (PropertyInfo prop in properties)
             {
-                var memberType = prop.PropertyType;
-                var getter = CompileGetter<T>(prop);
+                Type memberType = prop.PropertyType;
+                Func<T, object?> getter = CompileGetter<T>(prop);
 
                 // Recursively build column
-                var childArray = ProjectAndBuild(dataList, memberType, getter);
+                IArrowArray childArray = ProjectAndBuild(dataList, memberType, getter);
 
                 // [FIX] Use prop.Name directly (Case Sensitive)
-                var finalField = new Field(prop.Name, childArray.Data.DataType, true);
+                Field finalField = new(prop.Name, childArray.Data.DataType, true);
 
                 fields.Add(finalField);
                 childrenArrays.Add(childArray);
             }
 
             // Build Validity Bitmap
-            var validityBuilder = new ArrowBuffer.BitmapBuilder();
+            ArrowBuffer.BitmapBuilder validityBuilder = new();
             var nullCount = 0;
-            foreach (var item in dataList)
+            foreach (T item in dataList)
                 if (item == null)
                 {
                     validityBuilder.Append(false);
@@ -604,9 +604,9 @@ public static class ArrowConverter
                 }
 
             // [FIX] Removed .ValueBuffer
-            var validityBuffer = validityBuilder.Build();
+            ArrowBuffer validityBuffer = validityBuilder.Build();
 
-            var structType = new StructType(fields);
+            StructType structType = new(fields);
 
             return new StructArray(
                 structType,
@@ -626,10 +626,10 @@ public static class ArrowConverter
             Type propType,
             Func<TParent, object?> getter)
         {
-            var cleanType = Nullable.GetUnderlyingType(propType) ?? propType;
-            var targetType = cleanType.IsValueType ? typeof(Nullable<>).MakeGenericType(cleanType) : cleanType;
+            Type cleanType = Nullable.GetUnderlyingType(propType) ?? propType;
+            Type targetType = cleanType.IsValueType ? typeof(Nullable<>).MakeGenericType(cleanType) : cleanType;
 
-            var method = typeof(StructBuilderHelper)
+            MethodInfo method = typeof(StructBuilderHelper)
                 .GetMethod(nameof(BuildColumn), BindingFlags.NonPublic | BindingFlags.Static)!
                 .MakeGenericMethod(typeof(TParent), targetType);
 
@@ -638,8 +638,8 @@ public static class ArrowConverter
 
         private static IArrowArray BuildColumn<TParent, TProp>(IList<TParent> data, Func<TParent, object?> getter)
         {
-            var columnData = new List<TProp>(data.Count);
-            foreach (var item in data)
+            List<TProp> columnData = new(data.Count);
+            foreach (TParent item in data)
             {
                 if (item == null)
                 {
@@ -661,9 +661,9 @@ public static class ArrowConverter
         // =================================================================
         private static Func<T, object?> CompileGetter<T>(PropertyInfo prop)
         {
-            var instanceParam = Expression.Parameter(typeof(T), "item");
-            var memberAccess = Expression.Property(instanceParam, prop);
-            var convertToObject = Expression.Convert(memberAccess, typeof(object));
+            ParameterExpression instanceParam = Expression.Parameter(typeof(T), "item");
+            MemberExpression memberAccess = Expression.Property(instanceParam, prop);
+            UnaryExpression convertToObject = Expression.Convert(memberAccess, typeof(object));
             return Expression.Lambda<Func<T, object?>>(convertToObject, instanceParam).Compile();
         }
     }

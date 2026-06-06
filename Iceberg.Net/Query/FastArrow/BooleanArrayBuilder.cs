@@ -36,7 +36,7 @@ public class BooleanArrayBuilder(MemoryAllocator? allocator = null)
     public BooleanArrayBuilder AppendMask<TMask>(ReadOnlySpan<TMask> mask)
         where TMask : unmanaged, INumber<TMask>
     {
-        foreach (var value in mask) Append(value != TMask.Zero);
+        foreach (TMask value in mask) Append(value != TMask.Zero);
         return this;
     }
 
@@ -53,7 +53,7 @@ public class BooleanArrayBuilder(MemoryAllocator? allocator = null)
 
     public BooleanArray Build(MemoryAllocator? allocator = null)
     {
-        var validityBuffer = NullCount > 0
+        ArrowBuffer validityBuffer = NullCount > 0
             ? ValidityBuffer.Build(allocator)
             : ArrowBuffer.Empty;
 

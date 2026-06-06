@@ -78,7 +78,10 @@ public sealed class S3SeekableReadStream : Stream
         AmazonS3Uri s3Uri,
         CancellationToken cancellationToken = default)
     {
-        var response = await client.GetObjectMetadataAsync(s3Uri.Bucket, s3Uri.Key, cancellationToken);
+        GetObjectMetadataResponse? response = await client.GetObjectMetadataAsync(
+            s3Uri.Bucket,
+            s3Uri.Key,
+            cancellationToken);
 
         const int chunkSize = 16 * 1024 * 1024;
         const int maxSegments = 8;
@@ -98,7 +101,7 @@ public sealed class S3SeekableReadStream : Stream
 
         while (totalRead < bytesToRead)
         {
-            var segment = GetSegment(Position);
+            StreamSegment? segment = GetSegment(Position);
 
             if (segment == null)
             {
@@ -142,34 +145,34 @@ public sealed class S3SeekableReadStream : Stream
     private async Task<StreamSegment> DownloadSegmentAsync(long pos)
     {
         // Check if another thread/prefetcher filled it while we waited
-        var existing = GetSegment(pos);
+        StreamSegment? existing = GetSegment(pos);
         if (existing != null) return existing;
 
         var start = pos / _segmentSize * _segmentSize;
         var end = Math.Min(start + _segmentSize, Length);
 
-        var request = new GetObjectRequest
+        GetObjectRequest request = new()
         {
             BucketName = _s3Uri.Bucket,
             Key = _s3Uri.Key,
             ByteRange = new ByteRange(start, end - 1)
         };
 
-        using var response = await _client.GetObjectAsync(request);
-        var owner = _allocator.Allocate((int)response.ContentLength);
+        using GetObjectResponse? response = await _client.GetObjectAsync(request);
+        IMemoryOwner<byte>? owner = _allocator.Allocate((int)response.ContentLength);
 
         downloaded += (int)response.ContentLength;
 
         await response.ResponseStream.ReadExactlyAsync(owner.Memory[..(int)response.ContentLength]);
 
-        var newSegment = new StreamSegment(start, end, owner);
+        StreamSegment newSegment = new(start, end, owner);
 
         lock (_cache)
         {
             if (_cache.Count >= _maxSegments)
             {
                 evict++;
-                var lru = _cache.OrderBy(s => s.LastAccess).First();
+                StreamSegment lru = _cache.OrderBy(s => s.LastAccess).First();
                 _cache.Remove(lru);
                 lru.Dispose();
             }
@@ -220,7 +223,7 @@ public sealed class S3SeekableReadStream : Stream
             _cts.Cancel();
             lock (_cache)
             {
-                foreach (var s in _cache) s.Dispose();
+                foreach (StreamSegment s in _cache) s.Dispose();
                 _cache.Clear();
             }
         }

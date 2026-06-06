@@ -30,7 +30,7 @@ public partial record PrimitiveType(string Name) : IIcebergType
 
     private static Decimal ParseDecimal(string name)
     {
-        var match = DecimalRegex().Match(name);
+        Match match = DecimalRegex().Match(name);
         return match.Success
             ? new Decimal(int.Parse(match.Groups[1].Value), int.Parse(match.Groups[2].Value))
             : throw new ArgumentException($"Invalid decimal: {name}");
@@ -38,7 +38,7 @@ public partial record PrimitiveType(string Name) : IIcebergType
 
     private static Fixed ParseFixed(string name)
     {
-        var match = FixedRegex().Match(name);
+        Match match = FixedRegex().Match(name);
         return match.Success
             ? new Fixed(int.Parse(match.Groups[1].Value))
             : throw new ArgumentException($"Invalid fixed: {name}");

@@ -16,17 +16,17 @@ public static class ArrowFfiBridge
     public static RecordBatch BuildRecordBatch<T>(IEnumerable<T> data)
     {
         // Use ArrowConverter to build StructArray
-        var arrowArray = ArrowConverter.Build(data);
+        IArrowArray arrowArray = ArrowConverter.Build(data);
 
         if (arrowArray is not StructArray structArray)
             throw new ArgumentException(
                 $"Type {typeof(T).Name} did not result in a StructArray. Is it a primitive type? DataFrame.ofRecords expects objects/records.");
 
         // Unbox StructArray as RecordBatch
-        var structType = (StructType)structArray.Data.DataType;
+        StructType? structType = (StructType)structArray.Data.DataType;
 
         // Build Schema
-        var schema = new Schema(structType.Fields, null); // null for metadata
+        Schema schema = new(structType.Fields, null); // null for metadata
 
         // Build RecordBatch
         return new RecordBatch(schema, structArray.Fields, structArray.Length);
@@ -45,9 +45,9 @@ public static class ArrowStreamingExtensions
         int batchSize = 100_000)
     {
         // Prepare buffer
-        var buffer = new List<T>(batchSize);
+        List<T> buffer = new(batchSize);
 
-        foreach (var item in source)
+        foreach (T item in source)
         {
             buffer.Add(item);
 

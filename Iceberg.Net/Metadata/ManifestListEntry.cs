@@ -1,4 +1,5 @@
 ﻿using System.Collections.Immutable;
+using Avro;
 using Avro.File;
 using Avro.Generic;
 using Avro.IO;
@@ -21,7 +22,7 @@ public readonly record struct ManifestListEntry
     private const string MetadataSequenceNumberKey = "sequence-number";
     private const string MetadataFormatVersionKey = "format-version";
 
-    private static readonly Avro.Schema AvroSchema = Avro.Schema.Parse(SchemaString);
+    private static readonly Schema AvroSchema = Schema.Parse(SchemaString);
     public required Content Content { get; init; }
     public required long SequenceNumber { get; init; }
     public required long MinSequenceNumber { get; init; }
@@ -55,7 +56,7 @@ public readonly record struct ManifestListEntry
         long sequenceNumber,
         bool leaveOpen = true)
     {
-        var writer =
+        IFileWriter<ManifestListEntry>? writer =
             DataFileWriter<ManifestListEntry>.OpenWriter(new ManifestFileV2Writer(), stream, leaveOpen);
         WriteMetadata(writer, snapshotId, parentSnapshotId, sequenceNumber);
 
@@ -76,8 +77,8 @@ public readonly record struct ManifestListEntry
 
 
     private static DatumReader<ManifestListEntry> CreateDatumReader(
-        Avro.Schema writerSchema,
-        Avro.Schema readerSchema)
+        Schema writerSchema,
+        Schema readerSchema)
     {
         return new ManifestFileV2Reader(readerSchema, writerSchema);
     }
@@ -87,7 +88,7 @@ public readonly record struct ManifestListEntry
         return $"snap-{snapshotId}-{sequenceNumber}-{guid}.avro";
     }
 
-    private record ManifestFileV2Reader(Avro.Schema ReaderSchema, Avro.Schema WriterSchema)
+    private record ManifestFileV2Reader(Schema ReaderSchema, Schema WriterSchema)
         : DatumReader<ManifestListEntry>
     {
         public ManifestListEntry Read(ManifestListEntry reuse, Decoder decoder)
@@ -138,6 +139,6 @@ public readonly record struct ManifestListEntry
             encoder.WriteOptional(datum.KeyMetadata, (encoder1, bytes) => encoder1.WriteBytes(bytes));
         }
 
-        public Avro.Schema Schema => new AvroUtils.AvroSchemaWrapper(AvroSchema, SchemaString);
+        public Schema Schema => new AvroUtils.AvroSchemaWrapper(AvroSchema, SchemaString);
     }
 }
