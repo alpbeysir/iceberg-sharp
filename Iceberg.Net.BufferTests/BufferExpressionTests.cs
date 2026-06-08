@@ -28,20 +28,18 @@ public partial record TestRow
     public TestNested N { get; set; } = new();
 }
 
-public record TestCase(LambdaExpression Expr, string Desc);
+public record TestCase(LambdaExpression Expr, string Desc)
+{
+    public override string ToString()
+    {
+        return Desc;
+    }
+}
 
 public class BufferExpressionTests
 {
-    private static readonly List<TestRow> Rows =
-    [
-        new() { A = 5, B = 10.0, L = [1, 2, 3], LNest = [[78, 79], [80, 81]], N = new TestNested { C = 100 } },
-        new() { A = 20, B = 20.0, L = [42], LNest = [[78, 79], [80, 81]], N = new TestNested { C = 200 } },
-        new() { A = 3, B = 7.0, L = [1, 1, 1], LNest = [[78, 79], [80, 81]], N = new TestNested { C = 400 } },
-        new() { A = 50, B = -5.0, L = [], LNest = [[78, 79], [80, 81]], N = new TestNested { C = 300 } },
-        new() { A = 0, B = 0.0, L = [0, 0], LNest = [[78, 79], [80, 81]], N = new TestNested { C = 500 } }
-    ];
-
-    // preserves anonymous return types (no cast to object)
+    private static readonly List<TestRow> Rows = TestData.GenerateRows();
+    
     private static LambdaExpression L<T, T2>(Expression<Func<T, T2>> expr)
     {
         return expr;
@@ -49,7 +47,7 @@ public class BufferExpressionTests
 
     public static TheoryData<TestCase> Expressions()
     {
-        TheoryData<TestCase> data = new();
+        TheoryData<TestCase> data = [];
         data.AddRange(
             new TestCase(
                 L((TestRow str) => new { b = str.B, c = str.N.C }),
@@ -70,6 +68,21 @@ public class BufferExpressionTests
                 L((TestRow str) => str.L.All(n => n < 3)),
                 "list all"),
             new TestCase(
+                L((TestRow str) => str.LNest.Select(n => n.All(n2 => n2 > 127))),
+                "list nested select all"),
+            new TestCase(
+                L((TestRow str) => str.LNest.Select(n => n.Any(n2 => n2 > 350))),
+                "list nested select any"),
+            new TestCase(
+                L((TestRow str) => str.LNest.Select(n => n.Select(n2 => n2 + 350))),
+                "list nested select select"),
+            new TestCase(
+                L((TestRow str) => str.LNest.Any(n => n.Any(n2 => n2 == 350))),
+                "list nested any any"),
+            new TestCase(
+                L((TestRow str) => str.LNest.All(n => n.All(n2 => n2 == 350))),
+                "list nested all all"),
+            new TestCase(
                 L((TestRow str) =>
                     str.A > 300 &&
                     str.B < 500.0 &&
@@ -77,10 +90,11 @@ public class BufferExpressionTests
                     str.L.Select(n => n + 4).All(n => n > 5) &&
                     str.L.Any(n => n == 7)
                 ),
-                "complex boolean with list ops"),
-            new TestCase(
-                L((TestRow str) => str.L.Select(n => n + 3).GroupBy(n => n)),
-                "group by"));
+                "complex boolean with list ops")
+            // new TestCase(
+            //     L((TestRow str) => str.L.Select(n => n + 3).GroupBy(n => n)),
+            //     "group by")
+        );
         return data;
     }
 

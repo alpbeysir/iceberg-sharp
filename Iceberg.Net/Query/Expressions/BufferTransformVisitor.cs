@@ -689,8 +689,8 @@ public class BufferTransformVisitor : ExpressionVisitorNarrow<Expression, Lambda
         InputType inputType = _inputTypes.Peek()![index];
         Type baseType = inputType switch
         {
-            InputType.Ranged => typeof(RangedInput<>),
             InputType.Identity => typeof(IdentityInput<>),
+            InputType.Ranged => typeof(RangedInput<>),
             InputType.Masked => typeof(MaskedInput<>),
             _ => throw new ArgumentOutOfRangeException()
         };
@@ -852,7 +852,6 @@ public class BufferTransformVisitor : ExpressionVisitorNarrow<Expression, Lambda
             Expression span = AccessValues(AccessArray(input));
             return Expression.Call(
                 input,
-                // Hacky but works for other subtypes as well
                 nameof(RangedInput<>.Slice),
                 [ExpressionPrimitiveElementType(span)],
                 span);
