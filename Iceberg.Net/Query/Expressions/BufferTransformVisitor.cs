@@ -55,12 +55,7 @@ public readonly record struct RangedInput<TArray>(TArray Array, Range Range)
     {
         return new RangedInput<TReturn>(array, Range);
     }
-
-    public static IdentityInput<TArray> New(TArray array)
-    {
-        return new IdentityInput<TArray>(array);
-    }
-
+    
     public ReadOnlySpan<T> Slice<T>(ReadOnlySpan<T> span)
     {
         (int Offset, int Length) offsetAndLength = Range.GetOffsetAndLength(span.Length);
