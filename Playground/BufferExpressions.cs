@@ -1,6 +1,8 @@
 ﻿using System.Linq.Expressions;
+using System.Reflection;
 using Apache.Arrow;
 using Apache.Arrow.Serialization;
+using Apache.Arrow.Types;
 using FastExpressionCompiler;
 using Iceberg.Net.Misc;
 using Iceberg.Net.Query.Arrow;
@@ -9,6 +11,7 @@ using Iceberg.Net.Query.FastArrow;
 using Iceberg.Net.Schemas;
 using Varena;
 using ExecutionContext = Iceberg.Net.Query.Expressions.ExecutionContext;
+using Schema = Apache.Arrow.Schema;
 
 namespace Playground;
 
@@ -35,7 +38,7 @@ public class BufferExpressions
         LambdaExpression test = (int a, int b) => a + b;
         //Do(test);   
 
-        var size = (int)Math.Pow(2, 20);
+        var size = (int)Math.Pow(2, 16);
         Console.WriteLine($"size: {size}");
         List<MyStruct> list = Enumerable.Range(0, size).Select(_ => CreateRandom()).ToList();
 
@@ -45,7 +48,7 @@ public class BufferExpressions
         LambdaExpression test4 = (MyStruct str) => str.L.Select(n => n + 3);
         Run(test4, list);
 
-        LambdaExpression test5 = (MyStruct str) => str.LNest.All(n => n.All(n2 => n2 > 0));
+        LambdaExpression test5 = (MyStruct str) => str.LNest.Any(n => n.Any(n2 => n2 > 0));
         Run(test5, list);
 
         // LambdaExpression test3 = (MyStruct str) =>
@@ -65,13 +68,13 @@ public class BufferExpressions
     private static void Run(LambdaExpression expr, List<MyStruct> list)
     {
         Console.WriteLine($"{expr}");
-        
-        var arrow = CompileArrow(expr);
-        var linq = CompileLinq(expr);
+
+        Delegate arrow = CompileArrow(expr);
+        Delegate linq = CompileLinq(expr);
         using StructArray inputBatch = ArrowFfiBridge.BuildRecordBatch(list).AsStructArray();
-        var method = typeof(BufferExpressions).GetMethod(nameof(Execute))!
+        MethodInfo method = typeof(BufferExpressions).GetMethod(nameof(Execute))!
             .MakeGenericMethod(typeof(MyStruct), expr.ReturnType);
-        for (var i = 0; i < 5; i++) method.Invoke(null, [linq, arrow, list, inputBatch]);
+        for (var i = 0; i < 10; i++) method.Invoke(null, [linq, arrow, list, inputBatch]);
     }
 
     private static MyStruct CreateRandom()
@@ -95,15 +98,15 @@ public class BufferExpressions
     {
         using VirtualArenaManager manager = new();
         using VirtualBuffer buffer = manager.CreateBuffer("default", 4_000_000_000);
-        var allocator = new UnsafeArenaMemoryAllocator(buffer);
-        var ctx = new ExecutionContext { Arena = buffer, ArrowAllocator = allocator };
+        UnsafeArenaMemoryAllocator allocator = new(buffer);
+        ExecutionContext ctx = new() { Arena = buffer, ArrowAllocator = allocator };
 
-        var outputType = ArrowSchema.FromIcebergType(CSharpSchema.ToIcebergType(typeof(T2), s => -1, ""));
+        IArrowType outputType = ArrowSchema.FromIcebergType(CSharpSchema.ToIcebergType(typeof(T2), s => -1, ""));
 
-        var builder = ArrowCompute.MakeBuilderFor(outputType, allocator);
+        IArrowArrayBuilder<IArrowArray> builder = ArrowCompute.MakeBuilderFor(outputType, allocator);
         using (new MeasureTime("arrow"))
         {
-            arrowCompiled.DynamicInvoke(ctx, structArray, builder);
+            arrowCompiled.DynamicInvoke(ctx, new IdentityInput<StructArray>(structArray), builder);
         }
         
         Console.WriteLine($"arena used: {Utils.ToFileSize(buffer.AllocatedBytes)}");
@@ -129,17 +132,16 @@ public class BufferExpressions
     private static Delegate CompileArrow(LambdaExpression expr)
     {
         BufferTransformVisitor visitor = new();
-        var result = visitor.Visit(expr);
-
+        Expression? result = visitor.Visit(expr);
         Delegate? compiled = ((LambdaExpression)result).CompileFast();
         return compiled;
     }
 
     public static void Show<T>(StructArray arr)
     {
-        var schema = ArrowSchema.FromSchema(CSharpSchema.ToIcebergSchema(typeof(T), -1, s => -1));
-        var list = ArrowReader.ReadRecordBatch<T>(arr.AsRecordBatch(schema));
-        foreach (var l in list) Console.WriteLine(l);
+        Schema schema = ArrowSchema.FromSchema(CSharpSchema.ToIcebergSchema(typeof(T), -1, s => -1));
+        IEnumerable<T> list = ArrowReader.ReadRecordBatch<T>(arr.AsRecordBatch(schema));
+        foreach (T l in list) Console.WriteLine(l);
     }
 }
 

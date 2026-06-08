@@ -88,14 +88,16 @@ public static class ArrowCompute
         throw new UnreachableException();
     }
 
-    public static TResultBuilder ExecuteElementWiseListOpWithRange<TElementArray, TResultBuilder>(
+    public static TResultBuilder ExecuteElementWiseListOpWithRange<TInput, TElementArray, TResultBuilder>(
         ExecutionContext ctx,
-        ListArray l,
+        TInput input,
         TResultBuilder builder,
-        Action<ExecutionContext, TElementArray, Range, TResultBuilder> op)
+        Action<ExecutionContext, RangedInput<TElementArray>, TResultBuilder> op)
         where TResultBuilder : IArrowArrayBuilder<IArrowArray>
         where TElementArray : class, IArrowArray
+        where TInput : IInput<ListArray>
     {
+        ListArray l = input.Array;
         ListArrayBuilder? asListBuilder = builder as ListArrayBuilder;
         for (var i = 0; i < l.Length; i++)
         {
@@ -103,22 +105,24 @@ public static class ArrowCompute
             var start = l.ValueOffsets[i];
             var end = start + l.GetValueLength(i);
             Range range = new(start, end);
-            op(ctx, Unsafe.As<TElementArray>(l.Values), range, builder);
+            op(ctx, new RangedInput<TElementArray>((TElementArray)l.Values, range), builder);
         }
 
         return builder;
     }
 
     // fast path when result is a list and we can reuse the original offsets
-    public static ListArrayBuilder ExecuteOneToOneListOp<TElementArray>(
+    public static ListArrayBuilder ExecuteOneToOneListOp<TInput, TElementArray>(
         ExecutionContext ctx,
-        ListArray l,
+        TInput input,
         ListArrayBuilder builder,
-        Action<ExecutionContext, TElementArray, ListArrayBuilder> op)
+        Action<ExecutionContext, IdentityInput<TElementArray>, ListArrayBuilder> op) where TInput : IInput<ListArray>
+        where TElementArray : IArrowArray
     {
+        ListArray l = input.Array;
         builder.Reserve(l.Length);
         builder.ValueBuilder.Reserve(l.Values.Length);
-        TElementArray? values = (TElementArray)l.Values;
+        IdentityInput<TElementArray> values = new((TElementArray)l.Values);
         op(ctx, values, builder);
         builder.InitializeFromList(l);
         return builder;
@@ -269,13 +273,15 @@ public static class ArrowCompute
         return true;
     }
 
-    public static bool Any(BooleanArray array, int bitOffset, int length)
+    public static bool Any(BooleanArray array, Range range)
     {
         ReadOnlySpan<byte> bitmap = array.Values;
-        if (length <= 0) return false;
 
-        var currentBit = bitOffset;
-        var bitsRemaining = length;
+        (int Offset, int Length) offsetAndLength = range.GetOffsetAndLength(array.Length);
+        var currentBit = offsetAndLength.Offset;
+        var bitsRemaining = offsetAndLength.Length;
+
+        if (bitsRemaining <= 0) return true;
 
         // 1. Handle Head
         var headBits = (8 - (currentBit & 7)) & 7;

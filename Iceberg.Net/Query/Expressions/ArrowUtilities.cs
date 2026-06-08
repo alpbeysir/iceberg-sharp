@@ -40,7 +40,8 @@ public static class ArrowUtilities
             ArrowBufferBuilder<T> builder = new(size);
             builder.Resize(size);
             builder.Span.Fill(item.Value);
-            return ArrayFromBuffer<T>(builder.Build(), size).Quoted;
+            IdentityInput<PrimitiveArray<T>> constantInput = new(ArrayFromBuffer<T>(builder.Build(), size));
+            return constantInput.Quoted;
         }
         else
         {
@@ -48,9 +49,9 @@ public static class ArrowUtilities
         }
     }
 
-    internal static ArrowTypeInfo ListOf(IArrowType arrowType)
+    internal static ArrowTypeInfo ListOf(IArrowType elementType)
     {
-        return new ArrowTypeInfo(new ListType(arrowType), typeof(ListArray), typeof(ListArrayBuilder));
+        return new ArrowTypeInfo(new ListType(elementType), typeof(ListArray), typeof(ListArrayBuilder));
     }
 
     internal static ArrowTypeInfo GetTypeInfo(Type type)
@@ -62,11 +63,12 @@ public static class ArrowUtilities
         return info;
     }
 
-    public static T AccessField<T>(StructArray arr, int index) where T : class, IArrowArray
+    public static T AccessStructField<T>(StructArray arr, int index) where T : class, IArrowArray
     {
         // TODO use Unsafe.As in release mode
         return (T)arr.Fields[index];
     }
+
 
     private static PrimitiveArray<T> ArrayFromBuffer<T>(ArrowBuffer valueBuffer, int length)
         where T : struct, IEquatable<T>
