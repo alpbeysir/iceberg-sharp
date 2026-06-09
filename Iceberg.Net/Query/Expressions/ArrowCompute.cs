@@ -190,7 +190,7 @@ public static class ArrowCompute
 
     private static Span<T> ArenaAllocate<T>(VirtualBuffer buffer, int amount) where T : struct
     {
-        Console.WriteLine($"arena compute alloc {Utils.ToFileSize(amount)}");
+        Console.WriteLine($"compute alloc {Utils.ToFileSize(amount)}");
         return MemoryMarshal.Cast<byte, T>(buffer.AllocateRange(Unsafe.SizeOf<T>() * amount));
     }
 

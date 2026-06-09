@@ -36,7 +36,7 @@ public class BufferExpressions
 {
     public static void Main()
     {
-        var size = (int)Math.Pow(2, 20);
+        var size = (int)Math.Pow(2, 18);
         Console.WriteLine($"size: {size}");
         List<MyStruct> list = Enumerable.Range(0, size).Select(_ => CreateRandom()).ToList();
 
@@ -72,7 +72,7 @@ public class BufferExpressions
         using StructArray inputBatch = ArrowFfiBridge.BuildRecordBatch(list).AsStructArray();
         MethodInfo method = typeof(BufferExpressions).GetMethod(nameof(Execute))!
             .MakeGenericMethod(typeof(MyStruct), expr.ReturnType);
-        for (var i = 0; i < 10; i++) method.Invoke(null, [linq, arrow, list, inputBatch]);
+        for (var i = 0; i < 2; i++) method.Invoke(null, [linq, arrow, list, inputBatch]);
     }
 
     private static MyStruct CreateRandom()
@@ -95,7 +95,7 @@ public class BufferExpressions
         StructArray structArray)
     {
         using VirtualArenaManager manager = new();
-        using VirtualBuffer buffer = manager.CreateBuffer("default", 1_000_000_000);
+        using VirtualBuffer buffer = manager.CreateBuffer("default", 4_000_000_000);
         UnsafeArenaMemoryAllocator allocator = new(buffer);
         ExecutionContext ctx = new() { Arena = buffer, ArrowAllocator = allocator };
 
