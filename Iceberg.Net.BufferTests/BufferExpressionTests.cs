@@ -9,10 +9,11 @@ using Iceberg.Net.Query.Arrow;
 using Iceberg.Net.Query.Expressions;
 using Iceberg.Net.Query.FastArrow;
 using Iceberg.Net.Schemas;
+using Iceberg.Net.Tests;
 using Varena;
 using ExecutionContext = Iceberg.Net.Query.Expressions.ExecutionContext;
 
-namespace Iceberg.Net.Tests;
+namespace Iceberg.Net.BufferTests;
 
 public partial record TestNested
 {
@@ -116,19 +117,6 @@ public class BufferExpressionTests
         MethodInfo method = typeof(BufferExpressionTests).GetMethod(nameof(Execute))!
             .MakeGenericMethod(typeof(TestRow), expr.ReturnType);
         for (var i = 0; i < 2; i++) method.Invoke(null, [linq, arrow, list, inputBatch]);
-    }
-
-    private static TestRow CreateRandom()
-    {
-        return new TestRow
-        {
-            A = Random.Shared.Next() % 1000,
-            B = Random.Shared.NextDouble() * 1000,
-            L = Enumerable.Range(0, Random.Shared.Next() % 10).Select(_ => Random.Shared.Next() % 1000).ToList(),
-            N = new TestNested { C = Random.Shared.Next() % 10000 },
-            LNest = Enumerable.Range(0, Random.Shared.Next() % 10)
-                .Select(_ => Enumerable.Range(0, Random.Shared.Next() % 10).ToList()).ToList()
-        };
     }
 
     public static void Execute<T, T2>(

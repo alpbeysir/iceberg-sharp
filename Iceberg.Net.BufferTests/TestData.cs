@@ -1,4 +1,6 @@
-﻿namespace Iceberg.Net.Tests;
+﻿using Iceberg.Net.BufferTests;
+
+namespace Iceberg.Net.Tests;
 
 public static class TestData
 {

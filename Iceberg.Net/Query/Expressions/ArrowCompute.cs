@@ -281,8 +281,6 @@ public static class ArrowCompute
         var currentBit = offsetAndLength.Offset;
         var bitsRemaining = offsetAndLength.Length;
 
-        if (bitsRemaining <= 0) return true;
-
         // 1. Handle Head
         var headBits = (8 - (currentBit & 7)) & 7;
         if (headBits > 0)
@@ -294,7 +292,7 @@ public static class ArrowCompute
             currentBit += bitsToRead;
             bitsRemaining -= bitsToRead;
         }
-
+        
         if (bitsRemaining <= 0) return false;
 
         var byteIndex = currentBit >> 3;
