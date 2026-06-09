@@ -1,4 +1,5 @@
-﻿using System.Linq.Expressions;
+﻿using System.Diagnostics;
+using System.Linq.Expressions;
 using System.Reflection;
 using Apache.Arrow;
 using Apache.Arrow.Serialization;
@@ -35,16 +36,13 @@ public class BufferExpressions
 {
     public static void Main()
     {
-        LambdaExpression test = (int a, int b) => a + b;
-        //Do(test);   
-
-        var size = (int)Math.Pow(2, 16);
+        var size = (int)Math.Pow(2, 20);
         Console.WriteLine($"size: {size}");
         List<MyStruct> list = Enumerable.Range(0, size).Select(_ => CreateRandom()).ToList();
 
         LambdaExpression test2 = (MyStruct str) => new { b = str.B, a = str.A + str.B, Z = str.N.C };
         Run(test2, list);
-
+        
         LambdaExpression test4 = (MyStruct str) => str.L.Select(n => n + 3);
         Run(test4, list);
 
@@ -97,7 +95,7 @@ public class BufferExpressions
         StructArray structArray)
     {
         using VirtualArenaManager manager = new();
-        using VirtualBuffer buffer = manager.CreateBuffer("default", 4_000_000_000);
+        using VirtualBuffer buffer = manager.CreateBuffer("default", 1_000_000_000);
         UnsafeArenaMemoryAllocator allocator = new(buffer);
         ExecutionContext ctx = new() { Arena = buffer, ArrowAllocator = allocator };
 
@@ -109,19 +107,35 @@ public class BufferExpressions
             arrowCompiled.DynamicInvoke(ctx, new IdentityInput<StructArray>(structArray), builder);
         }
         
-        Console.WriteLine($"arena used: {Utils.ToFileSize(buffer.AllocatedBytes)}");
-
         using IArrowArray output = ((dynamic)builder).Build();
+
+        Console.WriteLine($"arena: {Utils.ToFileSize(buffer.CommittedBytes)}");
 
         Func<T, T2> linqRunner = (Func<T, T2>)linqCompiled;
         List<T2> linqResult;
         using (new MeasureTime("linq"))
         {
+            // 1. Clean up memory to get a baseline
+            GC.Collect();
+            GC.WaitForPendingFinalizers();
+            GC.Collect();
+
+            // 2. Take the initial snapshot
+            var bytesBefore = GC.GetAllocatedBytesForCurrentThread();
+
             linqResult = input.Select(linqRunner).ToList();
+
+            // 4. Take the final snapshot
+            var bytesAfter = GC.GetAllocatedBytesForCurrentThread();
+
+            // 5. Calculate the difference
+            var bytesAllocated = bytesAfter - bytesBefore;
+
+            Console.WriteLine($"heap: {Utils.ToFileSize(bytesAllocated)}");
         }
 
         IEnumerable<T2> arrowResult = ArrowReader.ReadRecordBatch<T2>(output);
-        Console.WriteLine(linqResult.Count == arrowResult.Count());
+        Debug.Assert(linqResult.Count == arrowResult.Count());
     }
 
     private static Delegate CompileLinq(LambdaExpression expr)

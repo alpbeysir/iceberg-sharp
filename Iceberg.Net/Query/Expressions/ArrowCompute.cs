@@ -6,6 +6,7 @@ using System.Runtime.InteropServices;
 using Apache.Arrow;
 using Apache.Arrow.Memory;
 using Apache.Arrow.Types;
+using Iceberg.Net.Misc;
 using Iceberg.Net.Query.FastArrow;
 using Varena;
 using ZLinq.Simd;
@@ -131,7 +132,7 @@ public static class ArrowCompute
     }
 
     public static TResultBuilder MakeBuilderForGeneric<TResultBuilder>(IArrowType arrowType, MemoryAllocator? allocator)
-        where TResultBuilder : IArrowArrayBuilder
+        where TResultBuilder : class, IArrowArrayBuilder
     {
         return (TResultBuilder)MakeBuilderFor(arrowType, allocator);
     }
@@ -189,6 +190,7 @@ public static class ArrowCompute
 
     private static Span<T> ArenaAllocate<T>(VirtualBuffer buffer, int amount) where T : struct
     {
+        Console.WriteLine($"arena compute alloc {Utils.ToFileSize(amount)}");
         return MemoryMarshal.Cast<byte, T>(buffer.AllocateRange(Unsafe.SizeOf<T>() * amount));
     }
 

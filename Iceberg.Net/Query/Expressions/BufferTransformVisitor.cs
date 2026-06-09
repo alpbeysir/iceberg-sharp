@@ -112,7 +112,7 @@ public class BufferTransformVisitor : ExpressionVisitorNarrow<Expression, Lambda
         foreach ((var index, ParameterExpression expression) in node.Parameters.Index())
             curBindings.Add(
                 expression.Name!,
-                Expression.Parameter(GetInputType(GetBufferType(expression.Type), index), expression.Name));
+                Expression.Parameter(MakeInputTypeForArray(GetBufferType(expression.Type), index), expression.Name));
 
         Expression? expr = base.VisitLambda(node);
 
@@ -412,6 +412,7 @@ public class BufferTransformVisitor : ExpressionVisitorNarrow<Expression, Lambda
         return lambda;
     }
 
+    [DynamicDependency(DynamicallyAccessedMemberTypes.AllMethods, typeof(IArrowArrayBuilder<,,>))]
     private static Expression AppendSpanToBuilder(Expression span, Expression builder)
     {
         if (IsBooleanBuilder(builder))
@@ -426,6 +427,7 @@ public class BufferTransformVisitor : ExpressionVisitorNarrow<Expression, Lambda
         }
     }
 
+    [DynamicDependency(DynamicallyAccessedMemberTypes.AllMethods, typeof(IdentityInput<>))]
     private static Expression TransformInput(Expression input, Func<Expression, Expression> transformer)
     {
         Expression transformed = transformer(AccessArray(input));
@@ -672,7 +674,7 @@ public class BufferTransformVisitor : ExpressionVisitorNarrow<Expression, Lambda
             [spanOrArray]);
     }
 
-    private Type GetInputType(Type type, int index)
+    private Type MakeInputTypeForArray(Type type, int index)
     {
         Debug.Assert(type.ImplementsInterface(typeof(IArrowArray)));
 
@@ -682,6 +684,7 @@ public class BufferTransformVisitor : ExpressionVisitorNarrow<Expression, Lambda
             InputType.Identity => typeof(IdentityInput<>),
             InputType.Ranged => typeof(RangedInput<>),
             InputType.Masked => typeof(MaskedInput<>),
+            InputType.Indexed => typeof(IndexedInput<>),
             _ => throw new ArgumentOutOfRangeException()
         };
 
@@ -872,6 +875,7 @@ public class BufferTransformVisitor : ExpressionVisitorNarrow<Expression, Lambda
         return names.Contains(node.Method.Name);
     }
 
+    [DynamicDependency(DynamicallyAccessedMemberTypes.AllProperties, typeof(ExecutionContext))]
     private Expression ArrowArenaAllocator()
     {
         return _ctxParam.Property(nameof(ExecutionContext.ArrowAllocator));
@@ -911,6 +915,7 @@ public class BufferTransformVisitor : ExpressionVisitorNarrow<Expression, Lambda
             BuildArray(builder));
     }
 
+    [MethodImpl(MethodImplOptions.NoInlining)]
     private MethodCallExpression MakeBuilderFor(ArrowUtilities.ArrowTypeInfo resultInfo)
     {
         return Expression.Call(
