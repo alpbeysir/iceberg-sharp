@@ -270,7 +270,7 @@ public class BufferTransformVisitor : ExpressionVisitorNarrow<Expression, Lambda
         LambdaExpression op,
         ArrowUtilities.ArrowTypeInfo resultElementType)
     {
-        ArrowUtilities.ArrowTypeInfo resultListType = ArrowUtilities.ListOf(resultElementType.ArrowType);
+        ArrowUtilities.ArrowTypeInfo resultInfo = ArrowUtilities.ListOf(resultElementType.ArrowType);
         Type arrowInputArrayType = GetInputArrayType(GetInput(op, 0));
         MethodInfo method = typeof(ArrowCompute).GetMethod(nameof(ArrowCompute.ExecuteOneToOneListOp))!
             .MakeGenericMethod(source.Type, arrowInputArrayType);
@@ -282,18 +282,7 @@ public class BufferTransformVisitor : ExpressionVisitorNarrow<Expression, Lambda
         }
         else
         {
-            ParameterExpression builder = Expression.Variable(resultListType.BuilderType, "tmpBuilder");
-            MethodCallExpression init = Expression.Call(
-                null,
-                typeof(ArrowCompute).GetMethod(nameof(ArrowCompute.MakeBuilderForGeneric))!
-                    .MakeGenericMethod(resultListType.BuilderType),
-                resultListType.ArrowType.Quoted,
-                ArrowArenaAllocator());
-            return Expression.Block(
-                [builder],
-                Expression.Assign(builder, init),
-                Expression.Call(null, method, _ctxParam, source, builder, op),
-                BuildArray(builder));
+            return ExecuteInline(source, op, resultInfo, method);
         }
     }
 
@@ -309,7 +298,11 @@ public class BufferTransformVisitor : ExpressionVisitorNarrow<Expression, Lambda
         Type arrowResultBuilderType = GetResultBuilder(op).Type;
         MethodInfo method =
             typeof(ArrowCompute).GetMethod(nameof(ArrowCompute.ExecuteElementWiseListOpWithRange))!
-                .MakeGenericMethod(source.Type, GetInputArrayType(inputType), arrowResultBuilderType);
+                .MakeGenericMethod(
+                    source.Type,
+                    GetInputArrayType(inputType),
+                    resultInfo.ArrayType,
+                    arrowResultBuilderType);
 
         Expression? outer = _builderStack.Peek();
         if (outer is not null)
@@ -318,22 +311,7 @@ public class BufferTransformVisitor : ExpressionVisitorNarrow<Expression, Lambda
         }
         else
         {
-            ParameterExpression builder = Expression.Variable(resultInfo.BuilderType, "tmpBuilder");
-            MethodCallExpression init = Expression.Call(
-                null,
-                typeof(ArrowCompute).GetMethod(nameof(ArrowCompute.MakeBuilderForGeneric))!
-                    .MakeGenericMethod(resultInfo.BuilderType),
-                resultInfo.ArrowType.Quoted,
-                ArrowArenaAllocator());
-            MethodCallExpression reserveInBuilder = builder.Call(
-                nameof(IArrowArrayBuilder<,>.Reserve),
-                source.Property(nameof(IInput<>.Length)));
-            return Expression.Block(
-                [builder],
-                Expression.Assign(builder, init),
-                reserveInBuilder,
-                Expression.Call(null, method, _ctxParam, source, builder, op),
-                BuildArray(builder));
+            return ExecuteInline(source, op, resultInfo, method);
         }
     }
 
@@ -916,5 +894,30 @@ public class BufferTransformVisitor : ExpressionVisitorNarrow<Expression, Lambda
 
         param = null;
         return false;
+    }
+    
+    private Expression ExecuteInline(
+        Expression source,
+        LambdaExpression op,
+        ArrowUtilities.ArrowTypeInfo resultInfo,
+        MethodInfo method)
+    {
+        ParameterExpression builder = Expression.Variable(resultInfo.BuilderType, "tmpBuilder");
+        MethodCallExpression init = MakeBuilderFor(resultInfo);
+        return Expression.Block(
+            [builder],
+            Expression.Assign(builder, init),
+            Expression.Call(null, method, _ctxParam, source, builder, op),
+            BuildArray(builder));
+    }
+
+    private MethodCallExpression MakeBuilderFor(ArrowUtilities.ArrowTypeInfo resultInfo)
+    {
+        return Expression.Call(
+            null,
+            typeof(ArrowCompute).GetMethod(nameof(ArrowCompute.MakeBuilderForGeneric))!
+                .MakeGenericMethod(resultInfo.BuilderType),
+            resultInfo.ArrowType.Quoted,
+            ArrowArenaAllocator());
     }
 }

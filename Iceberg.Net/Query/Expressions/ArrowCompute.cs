@@ -88,15 +88,17 @@ public static class ArrowCompute
         throw new UnreachableException();
     }
 
-    public static TResultBuilder ExecuteElementWiseListOpWithRange<TInput, TElementArray, TResultBuilder>(
+    public static TResultBuilder ExecuteElementWiseListOpWithRange<TInput, TElementArray, TResultArray, TResultBuilder>(
         ExecutionContext ctx,
         TInput input,
         TResultBuilder builder,
         Action<ExecutionContext, RangedInput<TElementArray>, TResultBuilder> op)
-        where TResultBuilder : IArrowArrayBuilder<IArrowArray>
+        where TResultBuilder : IArrowArrayBuilder<TResultArray, TResultBuilder>
         where TElementArray : class, IArrowArray
         where TInput : IInput<ListArray>
+        where TResultArray : class, IArrowArray
     {
+        builder.Reserve(input.Length);
         ListArray l = input.Array;
         ListArrayBuilder? asListBuilder = builder as ListArrayBuilder;
         for (var i = 0; i < l.Length; i++)
