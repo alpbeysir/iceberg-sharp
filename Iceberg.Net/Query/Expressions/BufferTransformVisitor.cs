@@ -23,7 +23,8 @@ public enum InputType
 {
     Identity,
     Ranged,
-    Masked
+    Masked,
+    Indexed
 }
 
 public interface IInput<out TArray> where TArray : IArrowArray
@@ -74,6 +75,17 @@ public readonly record struct MaskedInput<TArray>(TArray Array, BooleanArray Mas
     }
 
     public int Length => throw new NotImplementedException();
+}
+
+public readonly record struct IndexedInput<TArray>(TArray Array, int Index)
+    : IInput<TArray> where TArray : IArrowArray
+{
+    public IndexedInput<TReturn> Apply<TReturn>(TReturn array) where TReturn : IArrowArray
+    {
+        return new IndexedInput<TReturn>(array, Index);
+    }
+
+    public int Length => 1;
 }
 
 public class BufferTransformVisitor : ExpressionVisitorNarrow<Expression, LambdaExpression, Expression,
