@@ -6,9 +6,7 @@ using System.Linq.Expressions;
 using System.Reflection;
 using System.Runtime.CompilerServices;
 using Apache.Arrow;
-using Avro;
 using DotNext.Linq.Expressions;
-using DotNext.Metaprogramming;
 using Iceberg.Net.Misc;
 using Iceberg.Net.Query.FastArrow;
 using Varena;
@@ -93,7 +91,7 @@ public readonly record struct IndexedInput<TArray>(TArray Array, int Index)
 public class BufferTransformVisitor : ExpressionVisitorNarrow<Expression, LambdaExpression, Expression,
     NewExpression, ElementInit, MemberBinding, MemberAssignment, MemberListBinding, MemberMemberBinding>
 {
-    private readonly Stack<Dictionary<string, ParameterExpression>> _bindings = [];
+    private readonly Dictionary<ParameterExpression, ParameterExpression> _bindings = [];
     private readonly ParameterExpression _ctxParam = Expression.Parameter(typeof(ExecutionContext), "ctx");
     private readonly Dictionary<MemberInfo, int> _memberIndex = [];
     private readonly Stack<Expression?> _builderStack = new();
@@ -109,18 +107,14 @@ public class BufferTransformVisitor : ExpressionVisitorNarrow<Expression, Lambda
 
         _builderStack.Push(resultBuilderParam);
         
-        _bindings.Push([]);
-        Dictionary<string, ParameterExpression> curBindings = _bindings.Peek();
         foreach ((var index, ParameterExpression expression) in node.Parameters.Index())
-            curBindings.Add(
-                expression.Name!,
+            _bindings.Add(
+                expression,
                 Expression.Parameter(MakeInputTypeForArray(GetBufferType(expression.Type), index), expression.Name));
 
         Expression? expr = base.VisitLambda(node);
 
         _builderStack.Pop();
-        
-        _bindings.Pop();
 
         return expr;
     }
@@ -602,12 +596,7 @@ public class BufferTransformVisitor : ExpressionVisitorNarrow<Expression, Lambda
 
     protected override Expression MakeParameter(ParameterExpression node)
     {
-        if (!_bindings.Peek().TryGetValue(node.Name!, out ParameterExpression? param))
-        {
-            throw new UnreachableException("we should have seen this parameter");
-        }
-
-        return param;
+        return _bindings[node];
     }
 
     protected override Expression MakeTypeBinary(TypeBinaryExpression node, Expression expression)
