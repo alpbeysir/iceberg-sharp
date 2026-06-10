@@ -13,4 +13,9 @@ public static class ExpressionUtilities
         MethodInfo instantiated = generics.Length > 0 ? info.MakeGenericMethod(generics.ToArray()) : info;
         return Expression.Call(null, instantiated, args);
     }
+
+    public static void EnableAsmPrint()
+    {
+        Environment.SetEnvironmentVariable("DOTNET_JitDisasm", "QueryMethod_*");
+    }
 }

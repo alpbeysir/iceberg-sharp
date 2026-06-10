@@ -92,8 +92,8 @@ public static class ArrowCompute
     public static TResultBuilder ExecuteElementWiseListOpWithRange<TInput, TElementArray, TResultArray, TResultBuilder>(
         ExecutionContext ctx,
         TInput input,
-        TResultBuilder builder,
-        Action<ExecutionContext, RangedInput<TElementArray>, TResultBuilder> op)
+        Action<ExecutionContext, RangedInput<TElementArray>, TResultBuilder> op,
+        TResultBuilder builder)
         where TResultBuilder : IArrowArrayBuilder<TResultArray, TResultBuilder>
         where TElementArray : class, IArrowArray
         where TInput : IInput<ListArray>
@@ -115,11 +115,12 @@ public static class ArrowCompute
     }
 
     // fast path when result is a list and we can reuse the original offsets
-    public static ListArrayBuilder ExecuteOneToOneListOp<TInput, TElementArray>(
+    public static ListArrayBuilder ExecuteListSelect<TInput, TElementArray>(
         ExecutionContext ctx,
         TInput input,
-        ListArrayBuilder builder,
-        Action<ExecutionContext, IdentityInput<TElementArray>, ListArrayBuilder> op) where TInput : IInput<ListArray>
+        Action<ExecutionContext, IdentityInput<TElementArray>, ListArrayBuilder> op,
+        ListArrayBuilder builder)
+        where TInput : IInput<ListArray>
         where TElementArray : IArrowArray
     {
         ListArray l = input.Array;
@@ -136,7 +137,7 @@ public static class ArrowCompute
     {
         return (TResultBuilder)MakeBuilderFor(arrowType, allocator);
     }
-
+    
     public static IArrowArrayBuilder<IArrowArray> MakeBuilderFor(IArrowType arrowType, MemoryAllocator? allocator)
     {
         return arrowType switch

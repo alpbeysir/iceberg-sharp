@@ -4,7 +4,6 @@ using System.Reflection;
 using Apache.Arrow;
 using Apache.Arrow.Serialization;
 using Apache.Arrow.Types;
-using FastExpressionCompiler;
 using Iceberg.Net.Misc;
 using Iceberg.Net.Query.Arrow;
 using Iceberg.Net.Query.Expressions;
@@ -36,6 +35,7 @@ public class BufferExpressions
 {
     public static void Main()
     {
+        ExpressionUtilities.EnableAsmPrint();
         var size = (int)Math.Pow(2, 18);
         Console.WriteLine($"size: {size}");
         List<MyStruct> list = Enumerable.Range(0, size).Select(_ => CreateRandom()).ToList();
@@ -102,6 +102,7 @@ public class BufferExpressions
         IArrowType outputType = ArrowSchema.FromIcebergType(CSharpSchema.ToIcebergType(typeof(T2), s => -1, ""));
 
         IArrowArrayBuilder<IArrowArray> builder = ArrowCompute.MakeBuilderFor(outputType, allocator);
+        using (new MeasureHeap("arrow"))
         using (new MeasureTime("arrow"))
         {
             arrowCompiled.DynamicInvoke(ctx, new IdentityInput<StructArray>(structArray), builder);
@@ -113,27 +114,12 @@ public class BufferExpressions
 
         Func<T, T2> linqRunner = (Func<T, T2>)linqCompiled;
         List<T2> linqResult;
+        using (new MeasureHeap("linq"))
         using (new MeasureTime("linq"))
         {
-            // 1. Clean up memory to get a baseline
-            GC.Collect();
-            GC.WaitForPendingFinalizers();
-            GC.Collect();
-
-            // 2. Take the initial snapshot
-            var bytesBefore = GC.GetAllocatedBytesForCurrentThread();
-
             linqResult = input.Select(linqRunner).ToList();
-
-            // 4. Take the final snapshot
-            var bytesAfter = GC.GetAllocatedBytesForCurrentThread();
-
-            // 5. Calculate the difference
-            var bytesAllocated = bytesAfter - bytesBefore;
-
-            Console.WriteLine($"heap: {Utils.ToFileSize(bytesAllocated)}");
         }
-
+        
         IEnumerable<T2> arrowResult = ArrowReader.ReadRecordBatch<T2>(output);
         Debug.Assert(linqResult.Count == arrowResult.Count());
     }
@@ -147,7 +133,7 @@ public class BufferExpressions
     {
         BufferTransformVisitor visitor = new();
         Expression? result = visitor.Visit(expr);
-        Delegate? compiled = ((LambdaExpression)result).CompileFast();
+        Delegate? compiled = ((LambdaExpression)result).Compile();
         return compiled;
     }
 

@@ -272,18 +272,10 @@ public class BufferTransformVisitor : ExpressionVisitorNarrow<Expression, Lambda
     {
         ArrowUtilities.ArrowTypeInfo resultInfo = ArrowUtilities.ListOf(resultElementType.ArrowType);
         Type arrowInputArrayType = GetInputArrayType(GetInput(op, 0));
-        MethodInfo method = typeof(ArrowCompute).GetMethod(nameof(ArrowCompute.ExecuteOneToOneListOp))!
+        MethodInfo method = typeof(ArrowCompute).GetMethod(nameof(ArrowCompute.ExecuteListSelect))!
             .MakeGenericMethod(source.Type, arrowInputArrayType);
 
-        Expression? outer = _builderStack.Peek();
-        if (outer is not null)
-        {
-            return Expression.Call(null, method, _ctxParam, source, outer, op);
-        }
-        else
-        {
-            return ExecuteInline(source, op, resultInfo, method);
-        }
+        return ExecuteInline(source, op, resultInfo, method);
     }
 
     private Expression ExecuteElementWiseListOp(
@@ -304,15 +296,20 @@ public class BufferTransformVisitor : ExpressionVisitorNarrow<Expression, Lambda
                     resultInfo.ArrayType,
                     arrowResultBuilderType);
 
+        return ExecuteInline(source, op, resultInfo, method);
+    }
+
+    private Expression ExecuteInline(
+        Expression source,
+        LambdaExpression op,
+        ArrowUtilities.ArrowTypeInfo resultInfo,
+        MethodInfo method)
+    {
         Expression? outer = _builderStack.Peek();
         if (outer is not null)
-        {
-            return Expression.Call(null, method, _ctxParam, source, outer, op);
-        }
+            return Expression.Call(null, method, _ctxParam, source, op, outer);
         else
-        {
-            return ExecuteInline(source, op, resultInfo, method);
-        }
+            return ExecuteWithTempBuilder(source, op, resultInfo, method);
     }
 
     protected override Expression MakeBinary(
@@ -408,7 +405,11 @@ public class BufferTransformVisitor : ExpressionVisitorNarrow<Expression, Lambda
         lambdaParams.Add(builderParam!);
 
         Expression append = IsSpan(body) ? AppendSpanToBuilder(body, builderParam!) : body;
-        LambdaExpression lambda = Expression.Lambda(HideBuilderReturn(append), lambdaParams);
+        LambdaExpression lambda = Expression.Lambda(
+            HideBuilderReturn(append),
+            $"QueryMethod_{node}",
+            false,
+            lambdaParams);
         return lambda;
     }
 
@@ -899,8 +900,8 @@ public class BufferTransformVisitor : ExpressionVisitorNarrow<Expression, Lambda
         param = null;
         return false;
     }
-    
-    private Expression ExecuteInline(
+
+    private Expression ExecuteWithTempBuilder(
         Expression source,
         LambdaExpression op,
         ArrowUtilities.ArrowTypeInfo resultInfo,
@@ -911,11 +912,10 @@ public class BufferTransformVisitor : ExpressionVisitorNarrow<Expression, Lambda
         return Expression.Block(
             [builder],
             Expression.Assign(builder, init),
-            Expression.Call(null, method, _ctxParam, source, builder, op),
+            Expression.Call(null, method, _ctxParam, source, op, builder),
             BuildArray(builder));
     }
-
-    [MethodImpl(MethodImplOptions.NoInlining)]
+    
     private MethodCallExpression MakeBuilderFor(ArrowUtilities.ArrowTypeInfo resultInfo)
     {
         return Expression.Call(

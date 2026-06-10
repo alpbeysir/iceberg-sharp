@@ -9,7 +9,7 @@ public readonly struct MeasureTime : IDisposable
 
     public MeasureTime(string label)
     {
-        Console.WriteLine($"Start {label}");
+        Console.WriteLine($"--- {label} time");
         _label = label;
         _stopwatch.Start();
     }
@@ -17,6 +17,6 @@ public readonly struct MeasureTime : IDisposable
     public void Dispose()
     {
         _stopwatch.Stop();
-        Console.WriteLine($"{_label} Elapsed={_stopwatch.Elapsed.TotalMilliseconds}ms");
+        Console.WriteLine($"--- {_label} time={_stopwatch.Elapsed.TotalMilliseconds}ms");
     }
 }
