@@ -6,7 +6,9 @@ using System.Linq.Expressions;
 using System.Reflection;
 using System.Runtime.CompilerServices;
 using Apache.Arrow;
+using Avro;
 using DotNext.Linq.Expressions;
+using DotNext.Metaprogramming;
 using Iceberg.Net.Misc;
 using Iceberg.Net.Query.FastArrow;
 using Varena;
@@ -170,7 +172,7 @@ public class BufferTransformVisitor : ExpressionVisitorNarrow<Expression, Lambda
     {
         Expression source = Visit(node.Object);
         var isRangeNeeded = IsRangeNeeded(node);
-
+        
         if (isRangeNeeded) _inputTypes.Push([InputType.Ranged]);
         ReadOnlyCollection<Expression>? args = Visit(node.Arguments);
         if (isRangeNeeded) _inputTypes.Pop();
@@ -183,7 +185,7 @@ public class BufferTransformVisitor : ExpressionVisitorNarrow<Expression, Lambda
         Type originalReturnType,
         LambdaExpression predicate)
     {
-        return ExecuteOneToOneListOp(
+        return ExecuteListSelect(
             source,
             AccessValueBuilderAndCallPredicate(predicate),
             ArrowUtilities.GetTypeInfo(originalReturnType));
@@ -260,12 +262,28 @@ public class BufferTransformVisitor : ExpressionVisitorNarrow<Expression, Lambda
             ArrowUtilities.GetTypeInfo(typeof(bool)));
     }
 
+    // TODO null should be handled
+    public static LambdaExpression ListContainsPredicate<T>(Expression value)
+    {
+        var tParam = Expression.Parameter(typeof(T), "input");
+        var pred = Expression.Lambda<Func<T, bool>>(Expression.MakeBinary(ExpressionType.Equal, tParam, value), tParam);
+        return (IQueryable<T> i) => i.Any(pred);
+    }
+
     private Expression GenerateListContains(Expression source, Expression valueExpr)
     {
+        LambdaExpression predicate =
+            (LambdaExpression)typeof(BufferTransformVisitor).GetMethod(nameof(ListContainsPredicate))!
+                .MakeGenericMethod(valueExpr.Type).Invoke(null, [valueExpr])!;
+
+        _inputTypes.Push([InputType.Ranged]);
+        LambdaExpression arrowPredicate = (LambdaExpression)Visit(predicate);
+        _inputTypes.Pop();
+
         throw new NotImplementedException();
     }
 
-    private Expression ExecuteOneToOneListOp(
+    private Expression ExecuteListSelect(
         Expression source,
         LambdaExpression op,
         ArrowUtilities.ArrowTypeInfo resultElementType)
@@ -275,7 +293,7 @@ public class BufferTransformVisitor : ExpressionVisitorNarrow<Expression, Lambda
         MethodInfo method = typeof(ArrowCompute).GetMethod(nameof(ArrowCompute.ExecuteListSelect))!
             .MakeGenericMethod(source.Type, arrowInputArrayType);
 
-        return ExecuteInline(source, op, resultInfo, method);
+        return ExecuteInline(method, [source], op, resultInfo);
     }
 
     private Expression ExecuteElementWiseListOp(
@@ -296,20 +314,7 @@ public class BufferTransformVisitor : ExpressionVisitorNarrow<Expression, Lambda
                     resultInfo.ArrayType,
                     arrowResultBuilderType);
 
-        return ExecuteInline(source, op, resultInfo, method);
-    }
-
-    private Expression ExecuteInline(
-        Expression source,
-        LambdaExpression op,
-        ArrowUtilities.ArrowTypeInfo resultInfo,
-        MethodInfo method)
-    {
-        Expression? outer = _builderStack.Peek();
-        if (outer is not null)
-            return Expression.Call(null, method, _ctxParam, source, op, outer);
-        else
-            return ExecuteWithTempBuilder(source, op, resultInfo, method);
+        return ExecuteInline(method, [source], op, resultInfo);
     }
 
     protected override Expression MakeBinary(
@@ -492,27 +497,27 @@ public class BufferTransformVisitor : ExpressionVisitorNarrow<Expression, Lambda
         else
         {
             // TODO replace this with 'function registry'
+            List<string> supportedTypes = ["Enumerable", "Queryable", "List"];
             Type? declaringType = node.Method.DeclaringType;
-            if (declaringType == null ||
-                (!declaringType.Name.Contains("Enumerable") && !declaringType.Name.Contains("Queryable")))
+            if (declaringType == null && !supportedTypes.Any(name => declaringType!.Name.Contains(name)))
                 throw new NotImplementedException("this method can't be mapped yet");
 
             var methodName = node.Method.Name;
 
             Expression enumerable = arguments[0];
-
+            
             if (methodName == "Contains")
-                return GenerateListContains(enumerable, node.Arguments[1]);
-
+                return GenerateListContains(enumerable, node.Arguments[0]);
+            
             LambdaExpression predicate = (LambdaExpression)arguments[1];
             LambdaExpression originalPredicate = (LambdaExpression)node.Arguments[1];
-
+            
             return methodName switch
             {
                 "Select" => GenerateListSelect(enumerable, originalPredicate.ReturnType, predicate),
                 "All" => GenerateListAll(enumerable, originalPredicate.ReturnType, predicate),
                 "Any" => GenerateListAny(enumerable, originalPredicate.ReturnType, predicate),
-                _ => node
+                _ => throw new NotImplementedException("this method can't be mapped yet")
             };
         }
     }
@@ -902,17 +907,17 @@ public class BufferTransformVisitor : ExpressionVisitorNarrow<Expression, Lambda
     }
 
     private Expression ExecuteWithTempBuilder(
-        Expression source,
+        MethodInfo method,
+        List<Expression> inputs,
         LambdaExpression op,
-        ArrowUtilities.ArrowTypeInfo resultInfo,
-        MethodInfo method)
+        ArrowUtilities.ArrowTypeInfo resultInfo)
     {
         ParameterExpression builder = Expression.Variable(resultInfo.BuilderType, "tmpBuilder");
         MethodCallExpression init = MakeBuilderFor(resultInfo);
         return Expression.Block(
             [builder],
             Expression.Assign(builder, init),
-            Expression.Call(null, method, _ctxParam, source, op, builder),
+            Expression.Call(null, method, [_ctxParam, ..inputs, op, builder]),
             BuildArray(builder));
     }
     
@@ -924,5 +929,18 @@ public class BufferTransformVisitor : ExpressionVisitorNarrow<Expression, Lambda
                 .MakeGenericMethod(resultInfo.BuilderType),
             resultInfo.ArrowType.Quoted,
             ArrowArenaAllocator());
+    }
+
+    private Expression ExecuteInline(
+        MethodInfo method,
+        List<Expression> inputs,
+        LambdaExpression op,
+        ArrowUtilities.ArrowTypeInfo resultInfo)
+    {
+        Expression? outer = _builderStack.Peek();
+        if (outer is not null)
+            return Expression.Call(null, method, [_ctxParam, ..inputs, op, outer]);
+        else
+            return ExecuteWithTempBuilder(method, inputs, op, resultInfo);
     }
 }
