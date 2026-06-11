@@ -132,23 +132,21 @@ public class BufferTransformVisitor : ExpressionVisitorNarrow<Expression, Lambda
             Type memberType = Utils.PropertyOrFieldType(members[i]);
             Type underlying = Nullable.GetUnderlyingType(memberType) ?? memberType;
 
+            Expression? subBuilder = null;
             if (underlying.IsClass || underlying is { IsValueType: true, IsPrimitive: false })
             {
                 Expression? parentBuilder = _builderStack.Peek();
-                MethodCallExpression subBuilder = Expression.Call(
+                subBuilder = Expression.Call(
                     parentBuilder,
                     typeof(StructArrayBuilder).GetMethod(
                             nameof(StructArrayBuilder.GetFieldBuilder))!
                         .MakeGenericMethod(typeof(StructArrayBuilder)),
                     Expression.Constant(i));
-                _builderStack.Push(subBuilder);
-                visitedArgs.Add(Visit(node.Arguments[i]));
-                _builderStack.Pop();
             }
-            else
-            {
-                visitedArgs.Add(Visit(node.Arguments[i]));
-            }
+            
+            _builderStack.Push(subBuilder);
+            visitedArgs.Add(Visit(node.Arguments[i]));
+            _builderStack.Pop();
         }
 
         return MakeNew(node, visitedArgs.AsReadOnly());
@@ -287,7 +285,7 @@ public class BufferTransformVisitor : ExpressionVisitorNarrow<Expression, Lambda
         MethodInfo method = typeof(ArrowCompute).GetMethod(nameof(ArrowCompute.ExecuteListSelect))!
             .MakeGenericMethod(source.Type, arrowInputArrayType);
 
-        return ExecuteInline(method, [source], op, resultInfo);
+        return TryExecuteWithBuilder(method, [source], op, resultInfo);
     }
 
     private Expression ExecuteElementWiseListOp(
@@ -308,7 +306,7 @@ public class BufferTransformVisitor : ExpressionVisitorNarrow<Expression, Lambda
                     resultInfo.ArrayType,
                     arrowResultBuilderType);
 
-        return ExecuteInline(method, [source], op, resultInfo);
+        return TryExecuteWithBuilder(method, [source], op, resultInfo);
     }
 
     protected override Expression MakeBinary(
@@ -770,7 +768,7 @@ public class BufferTransformVisitor : ExpressionVisitorNarrow<Expression, Lambda
         return Expression.Block(expression, Expression.Empty());
     }
 
-    private static void HideBuilderReturnGeneric<T>(T value)
+    private static void HideBuilderReturnGeneric<T>(T _)
     {
     }
 
@@ -864,7 +862,7 @@ public class BufferTransformVisitor : ExpressionVisitorNarrow<Expression, Lambda
             ArrowArenaAllocator());
     }
 
-    private Expression ExecuteInline(
+    private Expression TryExecuteWithBuilder(
         MethodInfo method,
         List<Expression> inputs,
         LambdaExpression op,
