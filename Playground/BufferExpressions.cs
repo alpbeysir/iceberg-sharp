@@ -35,32 +35,28 @@ public class BufferExpressions
 {
     public static void Main()
     {
-        ExpressionUtilities.EnableAsmPrint();
-        var size = (int)Math.Pow(2, 18);
+        // ExpressionUtilities.EnableAsmPrint();
+        var size = (int)Math.Pow(2, 16);
         Console.WriteLine($"size: {size}");
         List<MyStruct> list = Enumerable.Range(0, size).Select(_ => CreateRandom()).ToList();
-
+        
         LambdaExpression test2 = (MyStruct str) => new { b = str.B, a = str.A + str.B, Z = str.N.C };
         Run(test2, list);
         
         LambdaExpression test4 = (MyStruct str) => str.L.Select(n => n + 3);
         Run(test4, list);
-
+        
         LambdaExpression test5 = (MyStruct str) => str.LNest.Any(n => n.Any(n2 => n2 > 0));
         Run(test5, list);
 
-        // LambdaExpression test3 = (MyStruct str) =>
-        //     new
-        //     {
-        //         Res = str.A > 300 &&
-        //               str.B < 500.0 &&
-        //               str.N.C > 12 &&
-        //               // str.LNest.Concat(new[] { new List<int> { 1, 2 } }).Select(l => l.Concat(new[] { str.A.Value, 2 }))
-        //               //     .All(l => l.Contains(5)) &&
-        //               str.L.Select(n => n + 3).All(n => n > 5) &&
-        //               str.L.Any(n => n > 7)
-        //     };
-        // method.MakeGenericMethod(typeof(MyStruct), test3.ReturnType).Invoke(null, [test3, list]);
+        // LambdaExpression test6 = (MyStruct str) => str.L.Contains(65);
+        // Run(test6, list);
+        //
+        // LambdaExpression test7 = (MyStruct str) => str.L.Contains(str.N.C);
+        // Run(test7, list);
+
+        LambdaExpression test8 = (MyStruct str) => str.LNest.Any(n => n.All(n2 => n2 > str.N.C));
+        Run(test8, list);
     }
 
     private static void Run(LambdaExpression expr, List<MyStruct> list)
@@ -72,7 +68,7 @@ public class BufferExpressions
         using StructArray inputBatch = ArrowFfiBridge.BuildRecordBatch(list).AsStructArray();
         MethodInfo method = typeof(BufferExpressions).GetMethod(nameof(Execute))!
             .MakeGenericMethod(typeof(MyStruct), expr.ReturnType);
-        for (var i = 0; i < 2; i++) method.Invoke(null, [linq, arrow, list, inputBatch]);
+        method.Invoke(null, [linq, arrow, list, inputBatch]);
     }
 
     private static MyStruct CreateRandom()
@@ -110,7 +106,7 @@ public class BufferExpressions
         
         using IArrowArray output = ((dynamic)builder).Build();
 
-        Console.WriteLine($"arena: {Utils.ToFileSize(buffer.CommittedBytes)}");
+        Console.WriteLine($"--- arrow arena: {Utils.ToFileSize(buffer.CommittedBytes)}");
 
         Func<T, T2> linqRunner = (Func<T, T2>)linqCompiled;
         List<T2> linqResult;
