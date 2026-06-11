@@ -163,14 +163,14 @@ public class BufferTransformVisitor : ExpressionVisitorNarrow<Expression, Lambda
     protected override Expression VisitMethodCall(MethodCallExpression node)
     {
         Expression source = Visit(node.Object);
-        var isRangeNeeded = IsRangeNeeded(node);
-        
-        if (isRangeNeeded) _inputTypes.Push([InputType.Ranged]);
-        else _inputTypes.Push([InputType.Identity]);
-        ReadOnlyCollection<Expression>? args = Visit(node.Arguments);
-        _inputTypes.Pop();
+        // Visit the enumerable source (first argument) but leave lambda arguments unvisited.
+        // Each Generate* method visits the lambda with the correct input type context.
+        List<Expression> args = new(node.Arguments.Count);
+        args.Add(Visit(node.Arguments[0]));
+        for (var i = 1; i < node.Arguments.Count; i++)
+            args.Add(node.Arguments[i]);
 
-        return MakeMethodCall(node, source, args);
+        return MakeMethodCall(node, source, args.AsReadOnly());
     }
 
     private static LambdaExpression AccessValueBuilderAndCallPredicate(
@@ -210,23 +210,22 @@ public class BufferTransformVisitor : ExpressionVisitorNarrow<Expression, Lambda
 
     private Expression GenerateListSelect(
         Expression source,
-        Type originalReturnType,
-        LambdaExpression predicate)
+        LambdaExpression originalPredicate)
     {
-        return ExecuteListSelect(
-            source,
-            AccessValueBuilderAndCallPredicate(predicate),
-            ArrowUtilities.GetTypeInfo(originalReturnType));
-    }
+        var isRanged = IsRangedInput(source);
+        _inputTypes.Push(isRanged ? [InputType.Ranged] : [InputType.Identity]);
+        LambdaExpression predicate = (LambdaExpression)Visit(originalPredicate);
+        _inputTypes.Pop();
 
-    private Expression ExecuteListSelect(
-        Expression source,
-        LambdaExpression op,
-        ArrowUtilities.ArrowTypeInfo resultElementType)
-    {
+        LambdaExpression op = AccessValueBuilderAndCallPredicate(predicate);
+        ArrowUtilities.ArrowTypeInfo resultElementType = ArrowUtilities.GetTypeInfo(originalPredicate.ReturnType);
         ArrowUtilities.ArrowTypeInfo resultInfo = ArrowUtilities.ListOf(resultElementType.ArrowType);
         Type arrowInputArrayType = GetInputArrayType(GetInput(op, 0));
-        MethodInfo method = typeof(ArrowCompute).GetMethod(nameof(ArrowCompute.ExecuteListSelect))!
+
+        string methodName = isRanged
+            ? nameof(ArrowCompute.ExecuteListSelectRanged)
+            : nameof(ArrowCompute.ExecuteListSelect);
+        MethodInfo method = typeof(ArrowCompute).GetMethod(methodName)!
             .MakeGenericMethod(source.Type, arrowInputArrayType);
 
         return TryExecuteWithBuilder(method, [source], op, resultInfo);
@@ -234,35 +233,27 @@ public class BufferTransformVisitor : ExpressionVisitorNarrow<Expression, Lambda
 
     private Expression GenerateListWhere(
         Expression source,
-        Type originalReturnType,
-        LambdaExpression predicate)
+        LambdaExpression originalPredicate)
     {
-        return ExecuteListWhere(
-            source,
-            predicate,
-            ArrowUtilities.GetTypeInfo(originalReturnType));
-    }
+        _inputTypes.Push([InputType.Ranged]);
+        LambdaExpression predicate = (LambdaExpression)Visit(originalPredicate);
+        _inputTypes.Pop();
 
-    private Expression ExecuteListWhere(
-        Expression source,
-        LambdaExpression op,
-        ArrowUtilities.ArrowTypeInfo resultElementType)
-    {
+        ArrowUtilities.ArrowTypeInfo resultElementType = ArrowUtilities.GetTypeInfo(originalPredicate.ReturnType);
         ArrowUtilities.ArrowTypeInfo resultInfo = ArrowUtilities.ListViewOf(resultElementType.ArrowType);
-        Type arrowInputArrayType = GetInputArrayType(GetInput(op, 0));
+        Type arrowInputArrayType = GetInputArrayType(GetInput(predicate, 0));
         MethodInfo method = typeof(ArrowCompute).GetMethod(nameof(ArrowCompute.ExecuteListWhere))!
             .MakeGenericMethod(source.Type, arrowInputArrayType);
 
-        return TryExecuteWithBuilder(method, [source], op, resultInfo);
+        return TryExecuteWithBuilder(method, [source], predicate, resultInfo);
     }
     
     private Expression GenerateListAll(
         Expression source,
-        Type originalReturnType,
-        LambdaExpression predicate)
+        LambdaExpression originalPredicate)
     {
         _builderStack.Push(null);
-        Expression map = GenerateListSelect(source, originalReturnType, predicate);
+        Expression map = GenerateListSelect(source, originalPredicate);
         _builderStack.Pop();
 
         LambdaExpression all = (ExecutionContext ctx, RangedInput<BooleanArray> input, BooleanArrayBuilder builder) =>
@@ -276,11 +267,10 @@ public class BufferTransformVisitor : ExpressionVisitorNarrow<Expression, Lambda
 
     private Expression GenerateListAny(
         Expression source,
-        Type originalReturnType,
-        LambdaExpression predicate)
+        LambdaExpression originalPredicate)
     {
         _builderStack.Push(null);
-        Expression map = GenerateListSelect(source, originalReturnType, predicate);
+        Expression map = GenerateListSelect(source, originalPredicate);
         _builderStack.Pop();
 
         LambdaExpression any = (ExecutionContext ctx, RangedInput<BooleanArray> input, BooleanArrayBuilder builder) =>
@@ -466,14 +456,6 @@ public class BufferTransformVisitor : ExpressionVisitorNarrow<Expression, Lambda
         return node;
     }
 
-    private static bool IsRangeNeeded(MethodCallExpression node)
-    {
-        Type? declaringType = node.Method.DeclaringType;
-        if (declaringType == null) return false;
-        List<string> names = ["Where"];
-        return names.Contains(node.Method.Name);
-    }
-
     protected override Expression MakeMethodCall(
         MethodCallExpression node,
         Expression @object,
@@ -494,19 +476,18 @@ public class BufferTransformVisitor : ExpressionVisitorNarrow<Expression, Lambda
             var methodName = node.Method.Name;
 
             Expression enumerable = arguments[0];
-            
+
             if (methodName == "Contains")
                 return GenerateListContains(enumerable, node.Arguments[0]);
-            
-            LambdaExpression predicate = (LambdaExpression)arguments[1];
+
             LambdaExpression originalPredicate = (LambdaExpression)node.Arguments[1];
-            
+
             return methodName switch
             {
-                "Select" => GenerateListSelect(enumerable, originalPredicate.ReturnType, predicate),
-                "All" => GenerateListAll(enumerable, originalPredicate.ReturnType, predicate),
-                "Any" => GenerateListAny(enumerable, originalPredicate.ReturnType, predicate),
-                "Where" => GenerateListWhere(enumerable, originalPredicate.ReturnType, predicate),
+                "Select" => GenerateListSelect(enumerable, originalPredicate),
+                "All" => GenerateListAll(enumerable, originalPredicate),
+                "Any" => GenerateListAny(enumerable, originalPredicate),
+                "Where" => GenerateListWhere(enumerable, originalPredicate),
                 _ => throw new NotImplementedException("this method can't be mapped yet")
             };
         }

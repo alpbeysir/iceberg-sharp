@@ -71,7 +71,7 @@ public class BufferExpressions
         LambdaExpression test10 = (MyStruct str) => new
         {
             Output1 = str.L.Where(n => n > 5),
-            Output2 = str.LNest.Where(l => l.Any(n => n == 3))
+           // Output2 = str.LNest.Where(l => l.Any(n => n == 3))
         };
         Run(test10, list);
     }

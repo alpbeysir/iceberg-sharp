@@ -98,7 +98,7 @@ public static class ArrowCompute
         where TInput : IInput<ListArray>
         where TResultArray : class, IArrowArray
     {
-        Debug.Assert(typeof(TInput) == typeof(IdentityInput<>));
+        Debug.Assert(typeof(TInput) == typeof(IdentityInput<ListArray>));
         
         builder.Reserve(input.Length);
         ListArray l = input.Array;
@@ -125,13 +125,45 @@ public static class ArrowCompute
         where TElementArray : IArrowArray
     {
         Debug.Assert(typeof(TInput) == typeof(IdentityInput<ListArray>));
-        
+
         ListArray l = input.Array;
+
         builder.Reserve(l.Length);
         builder.ValueBuilder.Reserve(l.Values.Length);
         IdentityInput<TElementArray> values = new((TElementArray)l.Values);
         op(ctx, values, builder);
-        builder.InitializeOffsetsFromList(l);
+        builder.InitializeOffsetsFromList(l, 0, l.Length);
+        return builder;
+    }
+
+    public static ListArrayBuilder ExecuteListSelectRanged<TInput, TElementArray>(
+        ExecutionContext ctx,
+        TInput input,
+        Action<ExecutionContext, RangedInput<TElementArray>, ListArrayBuilder> op,
+        ListArrayBuilder builder)
+        where TInput : IInput<ListArray>
+        where TElementArray : IArrowArray
+    {
+        ListArray l = input.Array;
+
+        Range inputRange = input switch
+        {
+            IdentityInput<ListArray> ii => new Range(0, l.Length),
+            RangedInput<ListArray> ri => ri.Range,
+            _ => throw new ArgumentOutOfRangeException(nameof(input), input, null)
+        };
+
+        var (offset, length) = inputRange.GetOffsetAndLength(l.Length);
+        builder.Reserve(length);
+
+        var start = l.ValueOffsets[offset];
+        var end = l.ValueOffsets[offset + length];
+        
+        builder.ValueBuilder.Reserve(end - start);
+
+        Range range = new(start, end);
+        op(ctx, new RangedInput<TElementArray>((TElementArray)l.Values, range), builder);
+
         return builder;
     }
 
@@ -164,7 +196,9 @@ public static class ArrowCompute
             op(ctx, new RangedInput<TElementArray>((TElementArray)l.Values, range), maskBuilder);
         }
 
-        BooleanArray mask = maskBuilder.Build();
+        using BooleanArray mask = maskBuilder.Build(ctx.ArrowAllocator);
+        
+        Debug.Assert(mask.Length == l.Length);
 
         builder.Reserve(BitUtility.CountBits(mask.Values));
         builder.InitializeValuesFromList(l);

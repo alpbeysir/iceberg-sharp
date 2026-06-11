@@ -87,7 +87,7 @@ public class BitmapBuilder
         }
         else
         {
-            // Fallback fallback if bits are completely unaligned
+            // Fallback if bits are completely unaligned
             for (var i = 0; i < validBits; i++)
                 Append(source.IsEmpty || BitUtility.GetBit(source, i));
         }
