@@ -2,6 +2,7 @@
 using System.Linq.Expressions;
 using System.Reflection;
 using Apache.Arrow;
+using Apache.Arrow.Memory;
 using Apache.Arrow.Serialization;
 using Apache.Arrow.Types;
 using Iceberg.Net.Misc;
@@ -36,7 +37,7 @@ public class BufferExpressions
     public static void Main()
     {
         // ExpressionUtilities.EnableAsmPrint();
-        var size = (int)Math.Pow(2, 16);
+        var size = (int)Math.Pow(2, 18);
         Console.WriteLine($"size: {size}");
         List<MyStruct> list = Enumerable.Range(0, size).Select(_ => CreateRandom()).ToList();
         
@@ -68,7 +69,11 @@ public class BufferExpressions
         using StructArray inputBatch = ArrowFfiBridge.BuildRecordBatch(list).AsStructArray();
         MethodInfo method = typeof(BufferExpressions).GetMethod(nameof(Execute))!
             .MakeGenericMethod(typeof(MyStruct), expr.ReturnType);
-        method.Invoke(null, [linq, arrow, list, inputBatch]);
+        for (var i = 0; i < 5; i++)
+        {
+            Console.WriteLine($"Run {i}");
+            method.Invoke(null, [linq, arrow, list, inputBatch]);
+        }
     }
 
     private static MyStruct CreateRandom()
@@ -79,8 +84,8 @@ public class BufferExpressions
             B = Random.Shared.NextDouble() * 1000,
             L = Enumerable.Range(0, Random.Shared.Next() % 10).Select(_ => Random.Shared.Next() % 1000).ToList(),
             N = new Nested { C = Random.Shared.Next() % 10000 },
-            LNest = Enumerable.Range(0, Random.Shared.Next() % 10)
-                .Select(_ => Enumerable.Range(0, Random.Shared.Next() % 10).ToList()).ToList()
+            LNest = Enumerable.Range(0, Random.Shared.Next() % 5)
+                .Select(_ => Enumerable.Range(0, Random.Shared.Next() % 5).ToList()).ToList()
         };
     }
 
@@ -103,8 +108,8 @@ public class BufferExpressions
         {
             arrowCompiled.DynamicInvoke(ctx, new IdentityInput<StructArray>(structArray), builder);
         }
-        
-        using IArrowArray output = ((dynamic)builder).Build();
+
+        using IArrowArray output = builder.Build(MemoryAllocator.Default.Value);
 
         Console.WriteLine($"--- arrow arena: {Utils.ToFileSize(buffer.CommittedBytes)}");
 

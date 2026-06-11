@@ -317,47 +317,11 @@ public class BufferTransformVisitor : ExpressionVisitorNarrow<Expression, Lambda
         LambdaExpression conversion,
         Expression right)
     {
-        Type leftElementType = ExpressionPrimitiveElementType(left);
-        Type rightElementType = ExpressionPrimitiveElementType(right);
-
-        // if not equal, convert both to bitmap
-        if ((leftElementType == typeof(bool) && rightElementType == typeof(bool)) ||
-            leftElementType != rightElementType)
-        {
-            if (leftElementType != typeof(bool))
-            {
-                left = typeof(ArrowCompute).GetMethod(nameof(ArrowCompute.BitmapFromMask))!.CallStatic(
-                    [leftElementType],
-                    [_ctxParam, AccessSpan(left)]);
-            }
-
-            if (rightElementType != typeof(bool))
-            {
-                right = typeof(ArrowCompute).GetMethod(nameof(ArrowCompute.BitmapFromMask))!.CallStatic(
-                    [rightElementType],
-                    [_ctxParam, AccessSpan(right)]);
-            }
-
-            return typeof(ArrowCompute).GetMethod(nameof(ArrowCompute.BitmapOps))!.CallStatic(
-                [],
-                [
-                    _ctxParam,
-                    AccessSpan(left),
-                    AccessSpan(right),
-                    node.NodeType.Quoted
-                ]);
-        }
-
-        return typeof(ArrowCompute).GetMethod(nameof(ArrowCompute.Zip))!.CallStatic(
-            [leftElementType],
-            [
-                _ctxParam,
-                AccessSpan(left),
-                AccessSpan(right),
-                node.NodeType.Quoted
-            ]);
+        Expression leftSpan = AsSpan(left);
+        Expression rightSpan = AsSpan(right);
+        return ExecuteBinary(node, leftSpan, rightSpan);
     }
-
+    
     protected override Expression MakeConditional(
         ConditionalExpression node,
         Expression test,
@@ -619,7 +583,7 @@ public class BufferTransformVisitor : ExpressionVisitorNarrow<Expression, Lambda
                 return Expression.Call(
                     null,
                     convertMethod,
-                    [_ctxParam, AccessSpan(operand)]);
+                    [_ctxParam, AsSpan(operand)]);
             }
             else if (IsSpan(operand))
             {
@@ -631,7 +595,7 @@ public class BufferTransformVisitor : ExpressionVisitorNarrow<Expression, Lambda
                 return Expression.Call(
                     null,
                     convertMethod2,
-                    [_ctxParam, AccessSpan(operand)]);
+                    [_ctxParam, AsSpan(operand)]);
             }
         }
 
@@ -650,23 +614,6 @@ public class BufferTransformVisitor : ExpressionVisitorNarrow<Expression, Lambda
         }
 
         throw new InvalidOperationException("only struct can be accessed");
-    }
-
-    private static Expression MakeArray(Expression spanOrArray)
-    {
-        if (spanOrArray.Type.ImplementsInterface(typeof(IArrowArray))) return spanOrArray;
-
-        // TODO bitmap is problematic
-        if (spanOrArray.Type.IsGenericType && spanOrArray.Type.GetGenericArguments()[0] == typeof(byte))
-        {
-            return typeof(ArrowUtilities).GetMethod(nameof(ArrowUtilities.BooleanArrayFromBitmap))!.CallStatic(
-                [],
-                [spanOrArray, spanOrArray.Property(nameof(ReadOnlySpan<>.Length))]);
-        }
-
-        return typeof(ArrowUtilities).GetMethod(nameof(ArrowUtilities.ArrayFromSpan))!.CallStatic(
-            [ExpressionPrimitiveElementType(spanOrArray)],
-            [spanOrArray]);
     }
 
     private Type MakeInputTypeForArray(Type type, int index)
@@ -827,7 +774,7 @@ public class BufferTransformVisitor : ExpressionVisitorNarrow<Expression, Lambda
     {
     }
 
-    private static Expression AccessSpan(Expression input)
+    private static Expression AsSpan(Expression input)
     {
         if (IsSpan(input)) return input;
 
@@ -844,11 +791,8 @@ public class BufferTransformVisitor : ExpressionVisitorNarrow<Expression, Lambda
                 [ExpressionPrimitiveElementType(span)],
                 span);
         }
-        else if (IsMaskedInput(input))
-        {
-        }
 
-        throw new NotImplementedException();
+        throw new InvalidOperationException();
     }
 
     private static Expression AccessValues(Expression array)
@@ -931,5 +875,44 @@ public class BufferTransformVisitor : ExpressionVisitorNarrow<Expression, Lambda
             return Expression.Call(null, method, [_ctxParam, ..inputs, op, outer]);
         else
             return ExecuteWithTempBuilder(method, inputs, op, resultInfo);
+    }
+
+    private Expression ExecuteBinary(BinaryExpression node, Expression left, Expression right)
+    {
+        Type leftElementType = ExpressionPrimitiveElementType(left);
+        Type rightElementType = ExpressionPrimitiveElementType(right);
+
+        // if not equal, convert both to bitmap
+        if ((leftElementType == typeof(bool) && rightElementType == typeof(bool)) ||
+            leftElementType != rightElementType)
+        {
+            if (leftElementType != typeof(bool))
+                left = typeof(ArrowCompute).GetMethod(nameof(ArrowCompute.BitmapFromMask))!.CallStatic(
+                    [leftElementType],
+                    [_ctxParam, left]);
+
+            if (rightElementType != typeof(bool))
+                right = typeof(ArrowCompute).GetMethod(nameof(ArrowCompute.BitmapFromMask))!.CallStatic(
+                    [rightElementType],
+                    [_ctxParam, right]);
+
+            return typeof(ArrowCompute).GetMethod(nameof(ArrowCompute.BitmapOps))!.CallStatic(
+                [],
+                [
+                    _ctxParam,
+                    left,
+                    right,
+                    node.NodeType.Quoted
+                ]);
+        }
+
+        return typeof(ArrowCompute).GetMethod(nameof(ArrowCompute.Zip))!.CallStatic(
+            [leftElementType],
+            [
+                _ctxParam,
+                left,
+                right,
+                node.NodeType.Quoted
+            ]);
     }
 }

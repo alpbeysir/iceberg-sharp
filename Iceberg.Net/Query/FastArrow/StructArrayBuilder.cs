@@ -27,7 +27,8 @@ public class StructArrayBuilder : IArrowArrayBuilder<StructArray, StructArrayBui
     public StructArrayBuilder SetFieldArray(int index, IArrowArray array)
     {
         // For now we need to copy to prevent ownership issues - will fix later
-        IArrowArray? copy = ArrowArrayFactory.BuildArray(array.Data.Clone(Allocator));
+        IArrowArray? copy = ArrowArrayFactory.BuildArray(ArrowArrayBuilderFactory.CloneData(array.Data, Allocator));
+        // IArrowArray? copy = ArrowArrayFactory.BuildArray(array.Data.Clone(Allocator));
         if (_fieldBuilders[index] != null)
             throw new InvalidOperationException(
                 $"Field {index} already has a builder; cannot alias.");
