@@ -71,7 +71,7 @@ public class BooleanArrayBuilder(MemoryAllocator? allocator = null)
         ValidityBuffer.Clear();
         return this;
     }
-
+    
     public BooleanArrayBuilder Reserve(int capacity)
     {
         if (capacity < 0) throw new ArgumentOutOfRangeException(nameof(capacity));

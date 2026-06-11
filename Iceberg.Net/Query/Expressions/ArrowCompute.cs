@@ -88,7 +88,7 @@ public static class ArrowCompute
         throw new UnreachableException();
     }
 
-    public static TResultBuilder ExecuteElementWiseListOpWithRange<TInput, TElementArray, TResultArray, TResultBuilder>(
+    public static TResultBuilder ExecuteElementWiseListOp<TInput, TElementArray, TResultArray, TResultBuilder>(
         ExecutionContext ctx,
         TInput input,
         Action<ExecutionContext, RangedInput<TElementArray>, TResultBuilder> op,
@@ -98,6 +98,8 @@ public static class ArrowCompute
         where TInput : IInput<ListArray>
         where TResultArray : class, IArrowArray
     {
+        Debug.Assert(typeof(TInput) == typeof(IdentityInput<>));
+        
         builder.Reserve(input.Length);
         ListArray l = input.Array;
         ListArrayBuilder? asListBuilder = builder as ListArrayBuilder;
@@ -122,12 +124,58 @@ public static class ArrowCompute
         where TInput : IInput<ListArray>
         where TElementArray : IArrowArray
     {
+        Debug.Assert(typeof(TInput) == typeof(IdentityInput<ListArray>));
+        
         ListArray l = input.Array;
         builder.Reserve(l.Length);
         builder.ValueBuilder.Reserve(l.Values.Length);
         IdentityInput<TElementArray> values = new((TElementArray)l.Values);
         op(ctx, values, builder);
-        builder.InitializeFromList(l);
+        builder.InitializeOffsetsFromList(l);
+        return builder;
+    }
+
+    public static ListViewArrayBuilder ExecuteListWhere<TInput, TElementArray>(
+        ExecutionContext ctx,
+        TInput input,
+        // TODO allow this function to ask for another builder type
+        Action<ExecutionContext, RangedInput<TElementArray>, BooleanArrayBuilder> op,
+        ListViewArrayBuilder builder)
+        where TInput : IInput<ListArray>
+        where TElementArray : IArrowArray
+    {
+        BooleanArrayBuilder maskBuilder = new(ctx.ArrowAllocator);
+        ListArray l = input.Array;
+
+        Range inputRange = input switch
+        {
+            IdentityInput<ListArray> ii => new Range(0, l.Length),
+            RangedInput<ListArray> ri => ri.Range,
+            _ => throw new ArgumentOutOfRangeException(nameof(input), input, null)
+        };
+
+        var (offset, length) = inputRange.GetOffsetAndLength(l.Length);
+
+        for (var i = offset; i < length; i++)
+        {
+            var start = l.ValueOffsets[i];
+            var end = start + l.GetValueLength(i);
+            Range range = new(start, end);
+            op(ctx, new RangedInput<TElementArray>((TElementArray)l.Values, range), maskBuilder);
+        }
+
+        BooleanArray mask = maskBuilder.Build();
+
+        builder.Reserve(BitUtility.CountBits(mask.Values));
+        builder.InitializeValuesFromList(l);
+
+        for (var i = 0; i < l.Length; i++)
+        {
+            var maskResult = mask.GetValue(i);
+            Debug.Assert(maskResult.HasValue);
+            if (maskResult.Value) builder.AppendSized(l.ValueOffsets[i], l.GetValueLength(i));
+        }
+
         return builder;
     }
 
@@ -146,6 +194,7 @@ public static class ArrowCompute
             BooleanType => new BooleanArrayBuilder(allocator),
             ListType l => new ListArrayBuilder(l, allocator),
             StructType s => new StructArrayBuilder(s, allocator),
+            ListViewType lv => new ListViewArrayBuilder(lv, allocator),
             _ => throw new ArgumentOutOfRangeException(nameof(arrowType), arrowType, null)
         };
     }

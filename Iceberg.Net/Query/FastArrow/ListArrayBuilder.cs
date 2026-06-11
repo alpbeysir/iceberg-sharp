@@ -39,7 +39,7 @@ public class ListArrayBuilder : IArrowArrayBuilder<ListArray, ListArrayBuilder>
     }
 
     // Shortcut when the value builder has already been appended to
-    public ListArrayBuilder InitializeFromList(ListArray l)
+    public ListArrayBuilder InitializeOffsetsFromList(ListArray l)
     {
         ValueOffsetsBufferBuilder.Append(l.ValueOffsets[..^1]);
         ValidityBufferBuilder.Append(l.NullBitmapBuffer.Span, l.NullBitmapBuffer.Length);

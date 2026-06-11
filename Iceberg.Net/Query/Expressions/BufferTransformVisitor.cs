@@ -166,21 +166,11 @@ public class BufferTransformVisitor : ExpressionVisitorNarrow<Expression, Lambda
         var isRangeNeeded = IsRangeNeeded(node);
         
         if (isRangeNeeded) _inputTypes.Push([InputType.Ranged]);
+        else _inputTypes.Push([InputType.Identity]);
         ReadOnlyCollection<Expression>? args = Visit(node.Arguments);
-        if (isRangeNeeded) _inputTypes.Pop();
+        _inputTypes.Pop();
 
         return MakeMethodCall(node, source, args);
-    }
-
-    private Expression GenerateListSelect(
-        Expression source,
-        Type originalReturnType,
-        LambdaExpression predicate)
-    {
-        return ExecuteListSelect(
-            source,
-            AccessValueBuilderAndCallPredicate(predicate),
-            ArrowUtilities.GetTypeInfo(originalReturnType));
     }
 
     private static LambdaExpression AccessValueBuilderAndCallPredicate(
@@ -218,6 +208,54 @@ public class BufferTransformVisitor : ExpressionVisitorNarrow<Expression, Lambda
             [listBuilder.Property(nameof(ListArrayBuilder.ValueBuilder))]);
     }
 
+    private Expression GenerateListSelect(
+        Expression source,
+        Type originalReturnType,
+        LambdaExpression predicate)
+    {
+        return ExecuteListSelect(
+            source,
+            AccessValueBuilderAndCallPredicate(predicate),
+            ArrowUtilities.GetTypeInfo(originalReturnType));
+    }
+
+    private Expression ExecuteListSelect(
+        Expression source,
+        LambdaExpression op,
+        ArrowUtilities.ArrowTypeInfo resultElementType)
+    {
+        ArrowUtilities.ArrowTypeInfo resultInfo = ArrowUtilities.ListOf(resultElementType.ArrowType);
+        Type arrowInputArrayType = GetInputArrayType(GetInput(op, 0));
+        MethodInfo method = typeof(ArrowCompute).GetMethod(nameof(ArrowCompute.ExecuteListSelect))!
+            .MakeGenericMethod(source.Type, arrowInputArrayType);
+
+        return TryExecuteWithBuilder(method, [source], op, resultInfo);
+    }
+
+    private Expression GenerateListWhere(
+        Expression source,
+        Type originalReturnType,
+        LambdaExpression predicate)
+    {
+        return ExecuteListWhere(
+            source,
+            predicate,
+            ArrowUtilities.GetTypeInfo(originalReturnType));
+    }
+
+    private Expression ExecuteListWhere(
+        Expression source,
+        LambdaExpression op,
+        ArrowUtilities.ArrowTypeInfo resultElementType)
+    {
+        ArrowUtilities.ArrowTypeInfo resultInfo = ArrowUtilities.ListViewOf(resultElementType.ArrowType);
+        Type arrowInputArrayType = GetInputArrayType(GetInput(op, 0));
+        MethodInfo method = typeof(ArrowCompute).GetMethod(nameof(ArrowCompute.ExecuteListWhere))!
+            .MakeGenericMethod(source.Type, arrowInputArrayType);
+
+        return TryExecuteWithBuilder(method, [source], op, resultInfo);
+    }
+    
     private Expression GenerateListAll(
         Expression source,
         Type originalReturnType,
@@ -275,19 +313,6 @@ public class BufferTransformVisitor : ExpressionVisitorNarrow<Expression, Lambda
         throw new NotImplementedException();
     }
 
-    private Expression ExecuteListSelect(
-        Expression source,
-        LambdaExpression op,
-        ArrowUtilities.ArrowTypeInfo resultElementType)
-    {
-        ArrowUtilities.ArrowTypeInfo resultInfo = ArrowUtilities.ListOf(resultElementType.ArrowType);
-        Type arrowInputArrayType = GetInputArrayType(GetInput(op, 0));
-        MethodInfo method = typeof(ArrowCompute).GetMethod(nameof(ArrowCompute.ExecuteListSelect))!
-            .MakeGenericMethod(source.Type, arrowInputArrayType);
-
-        return TryExecuteWithBuilder(method, [source], op, resultInfo);
-    }
-
     private Expression ExecuteElementWiseListOp(
         Expression source,
         LambdaExpression op,
@@ -299,7 +324,7 @@ public class BufferTransformVisitor : ExpressionVisitorNarrow<Expression, Lambda
         ParameterExpression inputType = GetInput(op, 0);
         Type arrowResultBuilderType = GetResultBuilder(op).Type;
         MethodInfo method =
-            typeof(ArrowCompute).GetMethod(nameof(ArrowCompute.ExecuteElementWiseListOpWithRange))!
+            typeof(ArrowCompute).GetMethod(nameof(ArrowCompute.ExecuteElementWiseListOp))!
                 .MakeGenericMethod(
                     source.Type,
                     GetInputArrayType(inputType),
@@ -441,6 +466,14 @@ public class BufferTransformVisitor : ExpressionVisitorNarrow<Expression, Lambda
         return node;
     }
 
+    private static bool IsRangeNeeded(MethodCallExpression node)
+    {
+        Type? declaringType = node.Method.DeclaringType;
+        if (declaringType == null) return false;
+        List<string> names = ["Where"];
+        return names.Contains(node.Method.Name);
+    }
+
     protected override Expression MakeMethodCall(
         MethodCallExpression node,
         Expression @object,
@@ -473,6 +506,7 @@ public class BufferTransformVisitor : ExpressionVisitorNarrow<Expression, Lambda
                 "Select" => GenerateListSelect(enumerable, originalPredicate.ReturnType, predicate),
                 "All" => GenerateListAll(enumerable, originalPredicate.ReturnType, predicate),
                 "Any" => GenerateListAny(enumerable, originalPredicate.ReturnType, predicate),
+                "Where" => GenerateListWhere(enumerable, originalPredicate.ReturnType, predicate),
                 _ => throw new NotImplementedException("this method can't be mapped yet")
             };
         }
@@ -802,14 +836,6 @@ public class BufferTransformVisitor : ExpressionVisitorNarrow<Expression, Lambda
     {
         Debug.Assert(input.Type.ImplementsInterface(typeof(IInput<>)));
         return input.Property(nameof(IInput<>.Array));
-    }
-
-    private static bool IsRangeNeeded(MethodCallExpression node)
-    {
-        Type? declaringType = node.Method.DeclaringType;
-        if (declaringType == null) return false;
-        List<string> names = [];
-        return names.Contains(node.Method.Name);
     }
 
     [DynamicDependency(DynamicallyAccessedMemberTypes.AllProperties, typeof(ExecutionContext))]

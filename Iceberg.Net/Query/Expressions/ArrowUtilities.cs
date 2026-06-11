@@ -54,6 +54,11 @@ public static class ArrowUtilities
         return new ArrowTypeInfo(new ListType(elementType), typeof(ListArray), typeof(ListArrayBuilder));
     }
 
+    internal static ArrowTypeInfo ListViewOf(IArrowType elementType)
+    {
+        return new ArrowTypeInfo(new ListViewType(elementType), typeof(ListViewArray), typeof(ListViewArrayBuilder));
+    }
+
     internal static ArrowTypeInfo GetTypeInfo(Type type)
     {
         if (type.ImplementsInterface(typeof(IEnumerable<>))) return ListOf(GetTypeInfo(type.GetGenericArguments()[0]).ArrowType);

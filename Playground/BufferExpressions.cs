@@ -1,14 +1,10 @@
 ﻿using System.Diagnostics;
 using System.Linq.Expressions;
-using System.Numerics;
 using System.Reflection;
-using System.Runtime.InteropServices;
-using System.Runtime.Intrinsics;
 using Apache.Arrow;
 using Apache.Arrow.Memory;
 using Apache.Arrow.Serialization;
 using Apache.Arrow.Types;
-using DotNext;
 using Iceberg.Net.Misc;
 using Iceberg.Net.Query.Arrow;
 using Iceberg.Net.Query.Expressions;
@@ -41,19 +37,19 @@ public class BufferExpressions
     public static void Main()
     {
         // ExpressionUtilities.EnableAsmPrint();
-        var size = (int)Math.Pow(2, 20);
+        var size = (int)Math.Pow(2, 16);
         Console.WriteLine($"size: {size}");
         List<MyStruct> list = Enumerable.Range(0, size).Select(_ => CreateRandom()).ToList();
         
         // LambdaExpression test2 = (MyStruct str) => new { b = str.B, a = str.A + str.B, Z = str.N.C };
         // Run(test2, list);
-        
+        //
         // LambdaExpression test4 = (MyStruct str) => str.L.Select(n => n + 3);
         // Run(test4, list);
-        
+        //
         // LambdaExpression test5 = (MyStruct str) => str.LNest.Any(n => n.Any(n2 => n2 > 0));
         // Run(test5, list);
-
+        
         // LambdaExpression test6 = (MyStruct str) => str.L.Contains(65);
         // Run(test6, list);
         //
@@ -62,15 +58,22 @@ public class BufferExpressions
 
         // LambdaExpression test8 = (MyStruct str) => str.LNest.Any(n => n.All(n2 => n2 > str.N.C));
         // Run(test8, list);
+        //
+        // LambdaExpression test9 = (MyStruct str) => new
+        // {
+        //     Output1 = str.LNest.Any(n => n.Any(n2 => n2 > 0)),
+        //     Output2 = str.L.Select(n => n + str.B + 3),
+        //     Output3 = str.L,
+        //     Output4 = new { ZZZ = str.B + str.A + str.A }
+        // };
+        // Run(test9, list);
 
-        LambdaExpression test9 = (MyStruct str) => new
+        LambdaExpression test10 = (MyStruct str) => new
         {
-            Output1 = str.LNest.Any(n => n.Any(n2 => n2 > 0)),
-            Output2 = str.L.Select(n => n + str.B + 3),
-            Output3 = str.L,
-            Output4 = new { ZZZ = str.B + str.A + str.A }
+            Output1 = str.L.Where(n => n > 5),
+            Output2 = str.LNest.Where(l => l.Any(n => n == 3))
         };
-        Run(test9, list);
+        Run(test10, list);
     }
 
     private static void Run(LambdaExpression expr, List<MyStruct> list)
