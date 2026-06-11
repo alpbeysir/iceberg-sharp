@@ -14,18 +14,21 @@
 // limitations under the License.
 
 using Apache.Arrow;
+using Apache.Arrow.Memory;
 using Apache.Arrow.Types;
 
 namespace Iceberg.Net.Query.FastArrow;
 
 internal static class ArrowArrayBuilderFactory
 {
-    internal static IArrowArrayBuilder<IArrowArray, IArrowArrayBuilder<IArrowArray>> Build(IArrowType dataType)
+    internal static IArrowArrayBuilder<IArrowArray, IArrowArrayBuilder<IArrowArray>> Build(
+        IArrowType dataType,
+        MemoryAllocator? allocator = null)
     {
         switch (dataType.TypeId)
         {
             case ArrowTypeId.Boolean:
-                return new BooleanArrayBuilder();
+                return new BooleanArrayBuilder(allocator);
             case ArrowTypeId.UInt8:
                 return new UInt8Array.Builder();
             case ArrowTypeId.Int8:
@@ -69,7 +72,7 @@ internal static class ArrowArrayBuilderFactory
             case ArrowTypeId.Duration:
                 return new DurationArray.Builder(dataType as DurationType);
             case ArrowTypeId.List:
-                return new ListArrayBuilder(dataType as ListType);
+                return new ListArrayBuilder(dataType as ListType, allocator);
             case ArrowTypeId.ListView:
                 return new ListViewArray.Builder(dataType as ListViewType);
             case ArrowTypeId.Decimal32:
@@ -92,7 +95,7 @@ internal static class ArrowArrayBuilderFactory
             case ArrowTypeId.Map:
                 return new MapArray.Builder(dataType as MapType);
             case ArrowTypeId.Struct:
-                return new StructArrayBuilder(dataType as StructType);
+                return new StructArrayBuilder(dataType as StructType, allocator);
             case ArrowTypeId.Union:
             case ArrowTypeId.Dictionary:
             case ArrowTypeId.FixedSizedBinary:

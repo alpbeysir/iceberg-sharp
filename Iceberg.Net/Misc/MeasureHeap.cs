@@ -12,8 +12,7 @@ public readonly struct MeasureHeap : IDisposable
         GC.Collect();
 
         _bytesBefore = GC.GetAllocatedBytesForCurrentThread();
-
-        Console.WriteLine($"--- {label} heap");
+        
         _label = label;
     }
 

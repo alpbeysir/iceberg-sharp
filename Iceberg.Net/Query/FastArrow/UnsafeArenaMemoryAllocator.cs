@@ -2,7 +2,6 @@
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using Apache.Arrow.Memory;
-using Iceberg.Net.Misc;
 using Varena;
 
 namespace Iceberg.Net.Query.FastArrow;
@@ -42,7 +41,7 @@ public class UnsafeArenaMemoryAllocator(VirtualBuffer buffer) : MemoryAllocator
 
     protected override IMemoryOwner<byte> AllocateInternal(int length, out int bytesAllocated)
     {
-        Console.WriteLine($"arrow alloc {Utils.ToFileSize(length)}");
+        // Console.WriteLine($"arrow alloc {Utils.ToFileSize(length)}");
         bytesAllocated = length;
         Span<byte> span = buffer.AllocateRange(length);
         unsafe

@@ -6,7 +6,6 @@ using System.Runtime.InteropServices;
 using Apache.Arrow;
 using Apache.Arrow.Memory;
 using Apache.Arrow.Types;
-using Iceberg.Net.Misc;
 using Iceberg.Net.Query.FastArrow;
 using Varena;
 using ZLinq.Simd;
@@ -191,7 +190,7 @@ public static class ArrowCompute
 
     private static Span<T> ArenaAllocate<T>(VirtualBuffer buffer, int amount) where T : struct
     {
-        Console.WriteLine($"compute alloc {Utils.ToFileSize(amount)}");
+        // Console.WriteLine($"compute alloc {Utils.ToFileSize(amount)}");
         return MemoryMarshal.Cast<byte, T>(buffer.AllocateRange(Unsafe.SizeOf<T>() * amount));
     }
 
@@ -202,6 +201,7 @@ public static class ArrowCompute
         where TResult : struct, INumber<TResult>
     {
         Span<TResult> result = ArenaAllocate<TResult>(ctx.Arena, buffer.Length);
+        // TODO optimize here by choosing unchecked if values are within range
         for (var i = 0; i < buffer.Length; i++) result[i] = TResult.CreateChecked(buffer[i]);
 
         return result;

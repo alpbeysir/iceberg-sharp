@@ -32,8 +32,8 @@ public class ListArrayBuilder : IArrowArrayBuilder<ListArray, ListArrayBuilder>
 
     internal ListArrayBuilder(ListType dataType, MemoryAllocator? allocator = null)
     {
-        ValueBuilder = ArrowArrayBuilderFactory.Build(dataType.ValueDataType);
-        ValueOffsetsBufferBuilder = new ArrowBufferBuilder<int>();
+        ValueBuilder = ArrowArrayBuilderFactory.Build(dataType.ValueDataType, allocator);
+        ValueOffsetsBufferBuilder = new ArrowBufferBuilder<int>(8, allocator);
         ValidityBufferBuilder = new BitmapBuilder(64, allocator);
         DataType = dataType;
     }
