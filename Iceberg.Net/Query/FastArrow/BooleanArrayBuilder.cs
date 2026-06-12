@@ -36,7 +36,13 @@ public class BooleanArrayBuilder(MemoryAllocator? allocator = null)
     public BooleanArrayBuilder AppendMask<TMask>(ReadOnlySpan<TMask> mask)
         where TMask : unmanaged, INumber<TMask>
     {
-        foreach (TMask value in mask) Append(value != TMask.Zero);
+        // TODO optimize this
+        foreach (TMask value in mask)
+        {
+            var isTrue = value != TMask.Zero;
+            ValueBuffer.Append(isTrue);
+            ValidityBuffer.Append(true);
+        }
         return this;
     }
 

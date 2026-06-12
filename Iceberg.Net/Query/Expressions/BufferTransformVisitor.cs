@@ -235,15 +235,17 @@ public class BufferTransformVisitor : ExpressionVisitorNarrow<Expression, Lambda
         Expression source,
         LambdaExpression originalPredicate)
     {
-        _inputTypes.Push([InputType.Ranged]);
+        _inputTypes.Push([InputType.Identity]);
         LambdaExpression predicate = (LambdaExpression)Visit(originalPredicate);
         _inputTypes.Pop();
 
         ArrowUtilities.ArrowTypeInfo resultElementType = ArrowUtilities.GetTypeInfo(originalPredicate.ReturnType);
-        ArrowUtilities.ArrowTypeInfo resultInfo = ArrowUtilities.ListViewOf(resultElementType.ArrowType);
+        ArrowUtilities.ArrowTypeInfo resultInfo = ArrowUtilities.ListOf(resultElementType.ArrowType);
         Type arrowInputArrayType = GetInputArrayType(GetInput(predicate, 0));
         MethodInfo method = typeof(ArrowCompute).GetMethod(nameof(ArrowCompute.ExecuteListWhere))!
             .MakeGenericMethod(source.Type, arrowInputArrayType);
+
+
 
         return TryExecuteWithBuilder(method, [source], predicate, resultInfo);
     }
@@ -288,6 +290,16 @@ public class BufferTransformVisitor : ExpressionVisitorNarrow<Expression, Lambda
         var tParam = Expression.Parameter(typeof(T), "input");
         var pred = Expression.Lambda<Func<T, bool>>(Expression.MakeBinary(ExpressionType.Equal, tParam, value), tParam);
         return (IQueryable<T> i) => i.Any(pred);
+    }
+
+    public static LambdaExpression IdentityOperation<TInput, TArray, TArrayBuilder>()
+        where TInput : IInput<TArray>
+        where TArray : IArrowArray
+        where TArrayBuilder : IArrowArrayBuilder<TArray, TArrayBuilder>
+    {
+        LambdaExpression identity = (ExecutionContext ctx, TInput input, TArrayBuilder builder) =>
+            HideBuilderReturnGeneric(3);
+        return identity;
     }
 
     private Expression GenerateListContains(Expression source, Expression valueExpr)
@@ -379,10 +391,10 @@ public class BufferTransformVisitor : ExpressionVisitorNarrow<Expression, Lambda
             throw new InvalidOperationException("Lambda cannot be constructed without a builder parameter");
 
         lambdaParams.Add(builderParam!);
-
-        Expression append = IsSpan(body) ? AppendSpanToBuilder(body, builderParam!) : body;
+        
+        body = IsSpan(body) ? AppendSpanToBuilder(body, builderParam!) : body;
         LambdaExpression lambda = Expression.Lambda(
-            HideBuilderReturn(append),
+            HideBuilderReturn(body),
             $"QueryMethod_{node}",
             false,
             lambdaParams);

@@ -111,8 +111,8 @@ internal static class ArrowArrayBuilderFactory
             data.Length,
             data.NullCount,
             data.Offset,
-            data.Buffers?.Select(b => CloneBuffer(b, allocator))?.ToArray(),
-            data.Children?.Select(c => CloneData(c, allocator))?.ToArray(),
+            data.Buffers?.Select(b => CloneBuffer(b, allocator)).ToArray(),
+            data.Children?.Select(c => CloneData(c, allocator)).ToArray(),
             data.Dictionary?.Clone(allocator));
     }
 

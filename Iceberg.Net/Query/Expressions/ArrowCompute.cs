@@ -167,12 +167,12 @@ public static class ArrowCompute
         return builder;
     }
 
-    public static ListViewArrayBuilder ExecuteListWhere<TInput, TElementArray>(
+    public static ListArrayBuilder ExecuteListWhere<TInput, TElementArray>(
         ExecutionContext ctx,
         TInput input,
         // TODO allow this function to ask for another builder type
-        Action<ExecutionContext, RangedInput<TElementArray>, BooleanArrayBuilder> op,
-        ListViewArrayBuilder builder)
+        Action<ExecutionContext, IdentityInput<TElementArray>, BooleanArrayBuilder> op,
+        ListArrayBuilder builder)
         where TInput : IInput<ListArray>
         where TElementArray : IArrowArray
     {
@@ -188,28 +188,13 @@ public static class ArrowCompute
 
         var (offset, length) = inputRange.GetOffsetAndLength(l.Length);
 
-        for (var i = offset; i < length; i++)
-        {
-            var start = l.ValueOffsets[i];
-            var end = start + l.GetValueLength(i);
-            Range range = new(start, end);
-            op(ctx, new RangedInput<TElementArray>((TElementArray)l.Values, range), maskBuilder);
-        }
+        op(ctx, new IdentityInput<TElementArray>((TElementArray)l.Values), maskBuilder);
 
         using BooleanArray mask = maskBuilder.Build(ctx.ArrowAllocator);
+
+        Debug.Assert(mask.Length == l.Values.Length);
+        Debug.Assert(mask.NullCount == 0);
         
-        Debug.Assert(mask.Length == l.Length);
-
-        builder.Reserve(BitUtility.CountBits(mask.Values));
-        builder.InitializeValuesFromList(l);
-
-        for (var i = 0; i < l.Length; i++)
-        {
-            var maskResult = mask.GetValue(i);
-            Debug.Assert(maskResult.HasValue);
-            if (maskResult.Value) builder.AppendSized(l.ValueOffsets[i], l.GetValueLength(i));
-        }
-
         return builder;
     }
 
