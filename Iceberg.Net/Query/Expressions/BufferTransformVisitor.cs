@@ -89,6 +89,11 @@ public readonly record struct IndexedInput(IArrowArray Array, int Index)
     }
 
     public int Length => 1;
+
+    public T ValueAt<T>(ReadOnlySpan<T> span)
+    {
+        return span[Index];
+    }
 }
 
 public class BufferTransformVisitor : ExpressionVisitorNarrow<Expression, LambdaExpression, Expression,
@@ -214,17 +219,21 @@ public class BufferTransformVisitor : ExpressionVisitorNarrow<Expression, Lambda
 
     private static Expression AccessValueBuilder(Type valueBuilderType, ParameterExpression listBuilder)
     {
+#if DEBUG
+        return Expression.Convert(listBuilder.Property(nameof(ListArrayBuilder.ValueBuilder)), valueBuilderType);
+#else
+
         return typeof(Unsafe).GetMethod(nameof(Unsafe.As), [typeof(object)])!.CallStatic(
             [valueBuilderType],
             [listBuilder.Property(nameof(ListArrayBuilder.ValueBuilder))]);
+#endif
     }
 
     private Expression GenerateListSelect(
         Expression source,
         LambdaExpression originalPredicate)
     {
-        var isRanged = IsRangedInput(source);
-        _inputTypes.Push(isRanged ? [InputType.Ranged] : [InputType.Identity]);
+        _inputTypes.Push([InputType.Identity]);
         LambdaExpression predicate = (LambdaExpression)Visit(originalPredicate);
         _inputTypes.Pop();
 
@@ -232,13 +241,15 @@ public class BufferTransformVisitor : ExpressionVisitorNarrow<Expression, Lambda
         ArrowTypeInfo resultElementType = ArrowTypeUtils.ForCSharpType(originalPredicate.ReturnType);
         ArrowTypeInfo resultInfo = ArrowTypeUtils.ListOf(resultElementType);
 
-        string methodName = isRanged
-            ? nameof(ArrowCompute.ExecuteListSelectRanged)
-            : nameof(ArrowCompute.ExecuteListSelect);
-        MethodInfo method = typeof(ArrowCompute).GetMethod(methodName)!
+        MethodInfo method = typeof(ArrowCompute).GetMethod(nameof(ArrowCompute.ExecuteListSelect))!
             .MakeGenericMethod(source.Type);
 
-        return TryExecuteWithBuilder(method, [source], op, resultInfo);
+        ParameterExpression builderParam = Expression.Parameter(resultInfo.BuilderType, "builder");
+        LambdaExpression callLambda = Expression.Lambda(
+            Expression.Call(null, method, _ctxParam, source, op, builderParam),
+            builderParam);
+
+        return TryExecuteWithBuilder(callLambda, resultInfo);
     }
 
     private Expression GenerateListWhere(
@@ -249,12 +260,21 @@ public class BufferTransformVisitor : ExpressionVisitorNarrow<Expression, Lambda
         LambdaExpression predicate = (LambdaExpression)Visit(originalPredicate);
         _inputTypes.Pop();
 
-        ArrowTypeInfo resultElementType = ArrowTypeUtils.ForCSharpType(originalPredicate.ReturnType);
-        ArrowTypeInfo resultInfo = ArrowTypeUtils.ListOf(resultElementType);
+        Type elementType = originalPredicate.Parameters[0].Type;
+        ArrowTypeInfo elementTypeInfo = ArrowTypeUtils.ForCSharpType(elementType);
+        LambdaExpression valueCopier = GenerateCopy(typeof(IndexedInput), elementTypeInfo);
+        LambdaExpression copier = PassValueBuilderAndCall(valueCopier);
+
+        ArrowTypeInfo resultInfo = ArrowTypeUtils.ListOf(elementTypeInfo);
         MethodInfo method = typeof(ArrowCompute).GetMethod(nameof(ArrowCompute.ExecuteListWhere))!
             .MakeGenericMethod(source.Type);
-        
-        return TryExecuteWithBuilder(method, [source], predicate, resultInfo);
+
+        ParameterExpression builderParam = Expression.Parameter(resultInfo.BuilderType, "builder");
+        LambdaExpression callLambda = Expression.Lambda(
+            Expression.Call(null, method, _ctxParam, source, predicate, copier, builderParam),
+            builderParam);
+
+        return TryExecuteWithBuilder(callLambda, resultInfo);
     }
     
     private Expression GenerateListAll(
@@ -337,7 +357,7 @@ public class BufferTransformVisitor : ExpressionVisitorNarrow<Expression, Lambda
         return expr;
     }
 
-    private LambdaExpression GenerateCopy(Type inputType, ArrowTypeInfo typeInfo)
+    private static LambdaExpression GenerateCopy(Type inputType, ArrowTypeInfo typeInfo)
     {
         IArrowType arrowType = typeInfo.ArrowType;
         if (arrowType is ListType listType)
@@ -383,7 +403,12 @@ public class BufferTransformVisitor : ExpressionVisitorNarrow<Expression, Lambda
                     resultInfo.ArrayType,
                     arrowResultBuilderType);
 
-        return TryExecuteWithBuilder(method, [source], op, resultInfo);
+        ParameterExpression builderParam = Expression.Parameter(resultInfo.BuilderType, "builder");
+        LambdaExpression callLambda = Expression.Lambda(
+            Expression.Call(null, method, _ctxParam, source, op, builderParam),
+            builderParam);
+
+        return TryExecuteWithBuilder(callLambda, resultInfo);
     }
 
     protected override Expression MakeBinary(
@@ -392,6 +417,17 @@ public class BufferTransformVisitor : ExpressionVisitorNarrow<Expression, Lambda
         LambdaExpression conversion,
         Expression right)
     {
+        var leftIsScalar = !IsSpan(left) && !IsInput(left);
+        var rightIsScalar = !IsSpan(right) && !IsInput(right);
+
+        if (leftIsScalar || rightIsScalar || IsIndexedInput(left) || IsIndexedInput(right))
+        {
+            // At least one operand is (or derived from) an indexed input — use scalar path
+            Expression l = AsScalar(left, node.Left);
+            Expression r = AsScalar(right, node.Right);
+            return Expression.MakeBinary(node.NodeType, l, r);
+        }
+
         Expression leftSpan = AsSpan(left, node.Left);
         Expression rightSpan = AsSpan(right, node.Right);
         return ExecuteBinarySpan(node, leftSpan, rightSpan);
@@ -441,8 +477,10 @@ public class BufferTransformVisitor : ExpressionVisitorNarrow<Expression, Lambda
             throw new InvalidOperationException("Lambda cannot be constructed without a builder parameter");
 
         lambdaParams.Add(builderParam!);
-        
-        body = IsSpan(body) ? AppendSpanToBuilder(body, builderParam!) : body;
+
+        body = IsSpan(body) ? AppendSpanToBuilder(body, builderParam!)
+            : !body.Type.Name.Contains("Builder") ? AppendScalarToBuilder(body, builderParam!)
+            : body;
         LambdaExpression lambda = Expression.Lambda(
             HideBuilderReturn(body),
             $"QueryMethod_{node}",
@@ -464,6 +502,14 @@ public class BufferTransformVisitor : ExpressionVisitorNarrow<Expression, Lambda
         {
             return builder.Call(nameof(IArrowArrayBuilder<,,>.Append), span);
         }
+    }
+
+    private static Expression AppendScalarToBuilder(Expression scalar, Expression builder)
+    {
+        if (IsBooleanBuilder(builder))
+            return builder.Call(nameof(BooleanArrayBuilder.Append), scalar);
+        else
+            return builder.Call(nameof(IArrowArrayBuilder<,,>.Append), scalar);
     }
 
     [DynamicDependency(DynamicallyAccessedMemberTypes.AllMethods, typeof(IInput<>))]
@@ -648,6 +694,15 @@ public class BufferTransformVisitor : ExpressionVisitorNarrow<Expression, Lambda
         {
             if (IsInput(operand))
             {
+                if (IsIndexedInput(operand))
+                {
+                    // For indexed input, convert scalar using normal operators
+                    Expression scalar = AsScalar(operand, node.Operand);
+                    Type targetType = Nullable.GetUnderlyingType(node.Type) ?? node.Type;
+                    if (scalar.Type == targetType) return scalar;
+                    return Expression.Convert(scalar, node.Type);
+                }
+
                 Expression asSpan = AsSpan(operand, node);
                 Type elemType = SpanElementType(asSpan);
                 Type resultUnderlyingType = Nullable.GetUnderlyingType(node.Type) ?? node.Type;
@@ -813,6 +868,11 @@ public class BufferTransformVisitor : ExpressionVisitorNarrow<Expression, Lambda
         return expression.Type.Name.Contains("MaskedInput");
     }
 
+    private static bool IsIndexedInput(Expression expression)
+    {
+        return expression.Type.Name.Contains("IndexedInput");
+    }
+
     private static bool IsBooleanBuilder(Expression expression)
     {
         return expression.Type == typeof(BooleanArrayBuilder);
@@ -845,8 +905,38 @@ public class BufferTransformVisitor : ExpressionVisitorNarrow<Expression, Lambda
                 [SpanElementType(span)],
                 span);
         }
+        else if (IsIndexedInput(input))
+        {
+            Expression span = AccessValues(AccessArray(input, original));
+            return Expression.Call(
+                input,
+                nameof(IndexedInput.ValueAt),
+                [SpanElementType(span)],
+                span);
+        }
 
         throw new InvalidOperationException();
+    }
+
+    private static Expression AsScalar(Expression input, Expression original)
+    {
+        if (IsIndexedInput(input))
+        {
+            Expression span = AccessValues(AccessArray(input, original));
+            return Expression.Call(
+                input,
+                nameof(IndexedInput.ValueAt),
+                [SpanElementType(span)],
+                span);
+        }
+
+        if (original is ConstantExpression constExpr) return Expression.Constant(constExpr.Value, constExpr.Type);
+
+        if (!IsSpan(input) && !IsInput(input))
+            // Already a scalar (e.g., from a prior MakeUnary convert)
+            return input;
+
+        throw new InvalidOperationException($"Cannot convert to scalar: {input.Type.Name}");
     }
 
     private static Expression AccessValues(Expression array)
@@ -888,9 +978,7 @@ public class BufferTransformVisitor : ExpressionVisitorNarrow<Expression, Lambda
     }
 
     private Expression ExecuteWithTempBuilder(
-        MethodInfo method,
-        List<Expression> inputs,
-        LambdaExpression op,
+        LambdaExpression callLambda,
         ArrowTypeInfo resultInfo)
     {
         ParameterExpression builder = Expression.Variable(resultInfo.BuilderType, "tmpBuilder");
@@ -898,7 +986,7 @@ public class BufferTransformVisitor : ExpressionVisitorNarrow<Expression, Lambda
         return Expression.Block(
             [builder],
             Expression.Assign(builder, init),
-            Expression.Call(null, method, [_ctxParam, ..inputs, op, builder]),
+            Expression.Invoke(callLambda, builder),
             BuildArray(builder));
     }
 
@@ -913,16 +1001,14 @@ public class BufferTransformVisitor : ExpressionVisitorNarrow<Expression, Lambda
     }
 
     private Expression TryExecuteWithBuilder(
-        MethodInfo method,
-        List<Expression> inputs,
-        LambdaExpression op,
+        LambdaExpression callLambda,
         ArrowTypeInfo resultInfo)
     {
         Expression? outer = _builderStack.Peek();
         if (outer is not null)
-            return Expression.Call(null, method, [_ctxParam, ..inputs, op, outer]);
+            return Expression.Invoke(callLambda, outer);
         else
-            return ExecuteWithTempBuilder(method, inputs, op, resultInfo);
+            return ExecuteWithTempBuilder(callLambda, resultInfo);
     }
 
     private Expression ExecuteBinarySpan(BinaryExpression node, Expression left, Expression right)

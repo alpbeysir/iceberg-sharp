@@ -68,16 +68,16 @@ public class BufferExpressions
         // };
         // Run(test9, list);
 
-        LambdaExpression test999 = (MyStruct str) => str;
-        Run(test999, list);
-
-        LambdaExpression test1000 = (int num) => num;
-        Run(test1000, list);
+        // LambdaExpression test999 = (MyStruct str) => str;
+        // Run(test999, list);
+        //
+        // LambdaExpression test1000 = (int num) => num;
+        // Run(test1000, list);
 
         LambdaExpression test10 = (MyStruct str) => new
         {
-            Output1 = str.L.Where(n => n > 5),
-           // Output2 = str.LNest.Where(l => l.Any(n => n == 3))
+            Output1 = str.L.Where(n => n > 500)
+            // Output2 = str.LNest.Where(l => l.Any(n => n == 3))
         };
         Run(test10, list);
     }

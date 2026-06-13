@@ -118,7 +118,7 @@ public static class ArrowCompute
     public static ListArrayBuilder ExecuteListSelect<TInput>(
         ExecutionContext ctx,
         TInput input,
-        Action<ExecutionContext, IdentityInput, ListArrayBuilder> op,
+        Action<ExecutionContext, TInput, ListArrayBuilder> op,
         ListArrayBuilder builder)
         where TInput : IInput<TInput>
     {
@@ -128,40 +128,13 @@ public static class ArrowCompute
 
         builder.Reserve(l.Length);
         builder.ValueBuilder.Reserve(l.Values.Length);
-        IdentityInput values = new(l.Values);
-        op(ctx, values, builder);
+
+        TInput subInput = input.Apply(l.Values);
+        op(ctx, subInput, builder);
+
+        // TODO use input type here
         builder.InitializeOffsetsFromList(l, 0, l.Length);
-        return builder;
-    }
-
-    // TODO this can be generic for input type now
-    public static ListArrayBuilder ExecuteListSelectRanged<TInput>(
-        ExecutionContext ctx,
-        TInput input,
-        Action<ExecutionContext, RangedInput, ListArrayBuilder> op,
-        ListArrayBuilder builder)
-        where TInput : IInput<TInput>
-    {
-        ListArray l = (ListArray)input.Array;
-
-        Range inputRange = input switch
-        {
-            IdentityInput ii => new Range(0, l.Length),
-            RangedInput ri => ri.Range,
-            _ => throw new ArgumentOutOfRangeException(nameof(input), input, null)
-        };
-
-        var (offset, length) = inputRange.GetOffsetAndLength(l.Length);
-        builder.Reserve(length);
-
-        var start = l.ValueOffsets[offset];
-        var end = l.ValueOffsets[offset + length];
         
-        builder.ValueBuilder.Reserve(end - start);
-
-        Range range = new(start, end);
-        op(ctx, new RangedInput(l.Values, range), builder);
-
         return builder;
     }
 
@@ -170,29 +143,37 @@ public static class ArrowCompute
         TInput input,
         // TODO allow this function to ask for another builder type
         Action<ExecutionContext, TInput, BooleanArrayBuilder> op,
-        Action<ExecutionContext, TInput, ListArrayBuilder> copier,
+        Action<ExecutionContext, IndexedInput, ListArrayBuilder> copier,
         ListArrayBuilder builder)
         where TInput : IInput<TInput>
     {
+        Debug.Assert(typeof(TInput) == typeof(IdentityInput));
+        
         BooleanArrayBuilder maskBuilder = new(ctx.ArrowAllocator);
         ListArray l = (ListArray)input.Array;
-
-        Range inputRange = input switch
-        {
-            IdentityInput ii => new Range(0, l.Length),
-            RangedInput ri => ri.Range,
-            _ => throw new ArgumentOutOfRangeException(nameof(input), input, null)
-        };
-
-        var (offset, length) = inputRange.GetOffsetAndLength(l.Length);
 
         TInput subInput = input.Apply(l.Values);
         op(ctx, subInput, maskBuilder);
 
         using BooleanArray mask = maskBuilder.Build(ctx.ArrowAllocator);
-
+        
         Debug.Assert(mask.Length == l.Values.Length);
         Debug.Assert(mask.NullCount == 0);
+
+        for (var i = 0; i < l.Length; i++)
+        {
+            builder.Append();
+            var start = l.ValueOffsets[i];
+            var end = start + l.GetValueLength(i);
+            for (var j = start; j < end; j++)
+            {
+                if (!mask.GetValue(j)!.Value)
+                    continue;
+
+                IndexedInput indexedInput = new(l.Values, j);
+                copier(ctx, indexedInput, builder);
+            }
+        }
         
         return builder;
     }
@@ -285,10 +266,12 @@ public static class ArrowCompute
         where TBuilder : PrimitiveArrayBuilder<TValue, TArray, TBuilder>
         where TValue : struct, IEquatable<TValue>
     {
-        // TODO switch by input type
-        Debug.Assert(typeof(TInput) == typeof(IdentityInput));
-
         TArray array = (TArray)input.Array;
+
+        if (input is IndexedInput indexed)
+            return builder.Append(array.Values[indexed.Index]);
+
+        Debug.Assert(typeof(TInput) == typeof(IdentityInput));
         return builder.Append(array.Values);
     }
 
