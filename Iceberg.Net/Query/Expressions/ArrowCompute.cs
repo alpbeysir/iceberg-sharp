@@ -88,20 +88,19 @@ public static class ArrowCompute
         throw new UnreachableException();
     }
 
-    public static TResultBuilder ExecuteElementWiseListOp<TInput, TElementArray, TResultArray, TResultBuilder>(
+    public static TResultBuilder ExecuteElementWiseListOp<TInput, TResultArray, TResultBuilder>(
         ExecutionContext ctx,
         TInput input,
-        Action<ExecutionContext, RangedInput<TElementArray>, TResultBuilder> op,
+        Action<ExecutionContext, RangedInput, TResultBuilder> op,
         TResultBuilder builder)
         where TResultBuilder : IArrowArrayBuilder<TResultArray, TResultBuilder>
-        where TElementArray : class, IArrowArray
-        where TInput : IInput<ListArray>
+        where TInput : IInput<TInput>
         where TResultArray : class, IArrowArray
     {
-        Debug.Assert(typeof(TInput) == typeof(IdentityInput<ListArray>));
+        Debug.Assert(typeof(TInput) == typeof(IdentityInput));
         
         builder.Reserve(input.Length);
-        ListArray l = input.Array;
+        ListArray l = (ListArray)input.Array;
         ListArrayBuilder? asListBuilder = builder as ListArrayBuilder;
         for (var i = 0; i < l.Length; i++)
         {
@@ -109,47 +108,46 @@ public static class ArrowCompute
             var start = l.ValueOffsets[i];
             var end = start + l.GetValueLength(i);
             Range range = new(start, end);
-            op(ctx, new RangedInput<TElementArray>((TElementArray)l.Values, range), builder);
+            op(ctx, new RangedInput(l.Values, range), builder);
         }
 
         return builder;
     }
 
     // fast path when result is a list and we can reuse the original offsets
-    public static ListArrayBuilder ExecuteListSelect<TInput, TElementArray>(
+    public static ListArrayBuilder ExecuteListSelect<TInput>(
         ExecutionContext ctx,
         TInput input,
-        Action<ExecutionContext, IdentityInput<TElementArray>, ListArrayBuilder> op,
+        Action<ExecutionContext, IdentityInput, ListArrayBuilder> op,
         ListArrayBuilder builder)
-        where TInput : IInput<ListArray>
-        where TElementArray : IArrowArray
+        where TInput : IInput<TInput>
     {
-        Debug.Assert(typeof(TInput) == typeof(IdentityInput<ListArray>));
+        Debug.Assert(typeof(TInput) == typeof(IdentityInput));
 
-        ListArray l = input.Array;
+        ListArray l = (ListArray)input.Array;
 
         builder.Reserve(l.Length);
         builder.ValueBuilder.Reserve(l.Values.Length);
-        IdentityInput<TElementArray> values = new((TElementArray)l.Values);
+        IdentityInput values = new(l.Values);
         op(ctx, values, builder);
         builder.InitializeOffsetsFromList(l, 0, l.Length);
         return builder;
     }
 
-    public static ListArrayBuilder ExecuteListSelectRanged<TInput, TElementArray>(
+    // TODO this can be generic for input type now
+    public static ListArrayBuilder ExecuteListSelectRanged<TInput>(
         ExecutionContext ctx,
         TInput input,
-        Action<ExecutionContext, RangedInput<TElementArray>, ListArrayBuilder> op,
+        Action<ExecutionContext, RangedInput, ListArrayBuilder> op,
         ListArrayBuilder builder)
-        where TInput : IInput<ListArray>
-        where TElementArray : IArrowArray
+        where TInput : IInput<TInput>
     {
-        ListArray l = input.Array;
+        ListArray l = (ListArray)input.Array;
 
         Range inputRange = input switch
         {
-            IdentityInput<ListArray> ii => new Range(0, l.Length),
-            RangedInput<ListArray> ri => ri.Range,
+            IdentityInput ii => new Range(0, l.Length),
+            RangedInput ri => ri.Range,
             _ => throw new ArgumentOutOfRangeException(nameof(input), input, null)
         };
 
@@ -162,33 +160,34 @@ public static class ArrowCompute
         builder.ValueBuilder.Reserve(end - start);
 
         Range range = new(start, end);
-        op(ctx, new RangedInput<TElementArray>((TElementArray)l.Values, range), builder);
+        op(ctx, new RangedInput(l.Values, range), builder);
 
         return builder;
     }
 
-    public static ListArrayBuilder ExecuteListWhere<TInput, TElementArray>(
+    public static ListArrayBuilder ExecuteListWhere<TInput>(
         ExecutionContext ctx,
         TInput input,
         // TODO allow this function to ask for another builder type
-        Action<ExecutionContext, IdentityInput<TElementArray>, BooleanArrayBuilder> op,
+        Action<ExecutionContext, TInput, BooleanArrayBuilder> op,
+        Action<ExecutionContext, TInput, ListArrayBuilder> copier,
         ListArrayBuilder builder)
-        where TInput : IInput<ListArray>
-        where TElementArray : IArrowArray
+        where TInput : IInput<TInput>
     {
         BooleanArrayBuilder maskBuilder = new(ctx.ArrowAllocator);
-        ListArray l = input.Array;
+        ListArray l = (ListArray)input.Array;
 
         Range inputRange = input switch
         {
-            IdentityInput<ListArray> ii => new Range(0, l.Length),
-            RangedInput<ListArray> ri => ri.Range,
+            IdentityInput ii => new Range(0, l.Length),
+            RangedInput ri => ri.Range,
             _ => throw new ArgumentOutOfRangeException(nameof(input), input, null)
         };
 
         var (offset, length) = inputRange.GetOffsetAndLength(l.Length);
 
-        op(ctx, new IdentityInput<TElementArray>((TElementArray)l.Values), maskBuilder);
+        TInput subInput = input.Apply(l.Values);
+        op(ctx, subInput, maskBuilder);
 
         using BooleanArray mask = maskBuilder.Build(ctx.ArrowAllocator);
 
@@ -276,6 +275,39 @@ public static class ArrowCompute
     }
 
     private static readonly int VectorSize = Vector<byte>.Count;
+
+    public static TBuilder CopyPrimitive<TInput, TArray, TValue, TBuilder>(
+        ExecutionContext ctx,
+        TInput input,
+        TBuilder builder)
+        where TInput : IInput<TInput>
+        where TArray : PrimitiveArray<TValue>
+        where TBuilder : PrimitiveArrayBuilder<TValue, TArray, TBuilder>
+        where TValue : struct, IEquatable<TValue>
+    {
+        // TODO switch by input type
+        Debug.Assert(typeof(TInput) == typeof(IdentityInput));
+
+        TArray array = (TArray)input.Array;
+        return builder.Append(array.Values);
+    }
+
+    public static ListArrayBuilder CopyList<TInput>(
+        ExecutionContext ctx,
+        TInput input,
+        ListArrayBuilder builder,
+        Action<ExecutionContext, TInput, ListArrayBuilder> valueCopier)
+        where TInput : IInput<TInput>
+    {
+        // TODO switch by input type
+        Debug.Assert(typeof(TInput) == typeof(IdentityInput));
+
+        ListArray l = (ListArray)input.Array;
+        builder.InitializeOffsetsFromList(l, 0, input.Length);
+        TInput subInput = input.Apply(l.Values);
+        valueCopier(ctx, subInput, builder);
+        return builder;
+    }
 
     public static bool All(BooleanArray array, Range range)
     {

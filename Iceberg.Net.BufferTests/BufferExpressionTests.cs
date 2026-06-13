@@ -135,7 +135,7 @@ public class BufferExpressionTests
         IArrowArrayBuilder<IArrowArray> builder = ArrowCompute.MakeBuilderFor(outputType, allocator);
         using (new MeasureTime("arrow"))
         {
-            arrowCompiled.DynamicInvoke(ctx, new IdentityInput<StructArray>(structArray), builder);
+            arrowCompiled.DynamicInvoke(ctx, new IdentityInput(structArray), builder);
         }
 
         Console.WriteLine($"arena used: {Utils.ToFileSize(buffer.AllocatedBytes)}");

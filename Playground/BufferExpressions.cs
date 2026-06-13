@@ -71,6 +71,9 @@ public class BufferExpressions
         LambdaExpression test999 = (MyStruct str) => str;
         Run(test999, list);
 
+        LambdaExpression test1000 = (int num) => num;
+        Run(test1000, list);
+
         LambdaExpression test10 = (MyStruct str) => new
         {
             Output1 = str.L.Where(n => n > 5),
@@ -125,7 +128,7 @@ public class BufferExpressions
         using (new MeasureHeap("arrow"))
         using (new MeasureTime("arrow"))
         {
-            arrowCompiled.DynamicInvoke(ctx, new IdentityInput<StructArray>(structArray), builder);
+            arrowCompiled.DynamicInvoke(ctx, new IdentityInput(structArray), builder);
         }
 
         using IArrowArray output = builder.Build(MemoryAllocator.Default.Value);
