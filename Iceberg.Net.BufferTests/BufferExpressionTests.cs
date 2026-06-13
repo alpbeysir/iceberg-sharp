@@ -3,7 +3,6 @@ using System.Reflection;
 using Apache.Arrow;
 using Apache.Arrow.Types;
 using AwesomeAssertions;
-using FastExpressionCompiler;
 using Iceberg.Net.Misc;
 using Iceberg.Net.Query.Arrow;
 using Iceberg.Net.Query.Expressions;
@@ -12,6 +11,8 @@ using Iceberg.Net.Schemas;
 using Iceberg.Net.Tests;
 using Varena;
 using ExecutionContext = Iceberg.Net.Query.Expressions.ExecutionContext;
+
+[assembly: CollectionBehavior(DisableTestParallelization = true)]
 
 namespace Iceberg.Net.BufferTests;
 
@@ -36,6 +37,7 @@ public record TestCase(LambdaExpression Expr, string Desc)
         return Desc;
     }
 }
+
 
 public class BufferExpressionTests
 {
@@ -81,7 +83,7 @@ public class BufferExpressionTests
                 L((TestRow str) => str.LNest.Any(n => n.Any(n2 => n2 == 350))),
                 "list nested any any"),
             new TestCase(
-                L((TestRow str) => str.LNest.All(n => n.All(n2 => n2 == 350))),
+                L((TestRow str) => str.LNest.All(n => n.All(n2 => n2 == str.N.C))),
                 "list nested all all"),
             new TestCase(
                 L((TestRow str) =>
@@ -91,7 +93,39 @@ public class BufferExpressionTests
                     str.L.Select(n => n + 4).All(n => n > 5) &&
                     str.L.Any(n => n == 7)
                 ),
-                "complex boolean with list ops")
+                "complex boolean with list ops"),
+            new TestCase(
+                L((TestRow str) => str.L.Where(n => n > 500)),
+                "list where"),
+            new TestCase(
+                L((TestRow str) => new { Filtered = str.L.Where(n => n > 500) }),
+                "list where in projection"),
+            new TestCase(
+                L((TestRow str) => str.L.Where(n => n > 100 && n < 900)),
+                "list where with boolean and"),
+            new TestCase(
+                L((TestRow str) => str.L.Where(n => n > str.N.C)),
+                "list where with struct field"),
+            new TestCase(
+                L((TestRow str) => str.LNest.Select(n => n.Where(n2 => n2 > 500))),
+                "list nested select where"),
+            new TestCase(
+                L((TestRow str) => new
+                {
+                    Low = str.L.Where(n => n < 300),
+                    High = str.L.Where(n => n > 700)
+                }),
+                "multiple list where in projection"),
+            new TestCase(
+                L((TestRow str) => str.LNest.Select(n => n.Where(n2 => n2 > 100 && n2 < 900))),
+                "list nested select where with boolean and"),
+            new TestCase(
+                L((TestRow str) => new
+                {
+                    Filtered = str.L.Where(n => n > 400),
+                    Doubled = str.L.Select(n => n * 2)
+                }),
+                "list where and select in projection")
             // new TestCase(
             //     L((TestRow str) => str.L.Select(n => n + 3).GroupBy(n => n)),
             //     "group by")
@@ -162,7 +196,7 @@ public class BufferExpressionTests
     {
         BufferTransformVisitor visitor = new();
         Expression? result = visitor.Visit(expr);
-        Delegate? compiled = ((LambdaExpression)result).CompileFast();
+        Delegate? compiled = ((LambdaExpression)result).Compile();
         return compiled;
     }
 }

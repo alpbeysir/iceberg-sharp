@@ -1,4 +1,5 @@
 ﻿using System.Diagnostics;
+using System.Linq.CompilerServices;
 using System.Linq.Expressions;
 using System.Reflection;
 using Apache.Arrow;
@@ -74,11 +75,7 @@ public class BufferExpressions
         // LambdaExpression test1000 = (int num) => num;
         // Run(test1000, list);
 
-        LambdaExpression test10 = (MyStruct str) => new
-        {
-            Output1 = str.L.Where(n => n > 500)
-            // Output2 = str.LNest.Where(l => l.Any(n => n == 3))
-        };
+        LambdaExpression test10 = (MyStruct str) => str.LNest.Select(n => n.Where(n2 => n2 > str.N.C));
         Run(test10, list);
     }
 
