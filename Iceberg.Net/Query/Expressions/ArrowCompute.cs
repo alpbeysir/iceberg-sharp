@@ -68,6 +68,21 @@ public static class ArrowCompute
     }
 
     /// <summary>
+    ///     Wraps a built <see cref="IArrowArray" /> into the appropriate <see cref="IInput{T}" /> wrapper.
+    /// </summary>
+    public static TInput BuildArray<TInput>(IArrowArray array)
+        where TInput : IInput<TInput>
+    {
+        if (typeof(TInput) == typeof(IdentityInput))
+            return (TInput)(object)IdentityInput.New(array);
+        if (typeof(TInput) == typeof(IndexedInput))
+            return (TInput)(object)new IndexedInput(array, 0);
+        if (typeof(TInput) == typeof(RangedInput))
+            return (TInput)(object)new RangedInput(array, Range.All);
+        throw new InvalidOperationException($"Unsupported TInput: {typeof(TInput)}");
+    }
+
+    /// <summary>
     ///     Wraps raw bitmap bytes with a known logical bit count into a <see cref="Bitmap" />.
     /// </summary>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
@@ -249,21 +264,50 @@ public static class ArrowCompute
         where TInput : IInput<TInput>
         where TResultArray : class, IArrowArray
     {
-        Debug.Assert(typeof(TInput) == typeof(IdentityInput));
-
         builder.Reserve(input.Length);
         ListArray l = (ListArray)input.Array;
         ListArrayBuilder? asListBuilder = builder as ListArrayBuilder;
-        for (var i = 0; i < l.Length; i++)
+
+        // IdentityInput: iterate all rows
+        if (typeof(TInput) == typeof(IdentityInput))
         {
-            asListBuilder?.Append();
-            var start = l.ValueOffsets[i];
-            var end = start + l.GetValueLength(i);
-            Range range = new(start, end);
-            op(ctx, new RangedInput(l.Values, range), builder);
+            for (var i = 0; i < l.Length; i++)
+            {
+                asListBuilder?.Append();
+                var start = l.ValueOffsets[i];
+                var end = start + l.GetValueLength(i);
+                op(ctx, new RangedInput(l.Values, new Range(start, end)), builder);
+            }
+            return builder;
         }
 
-        return builder;
+        // IndexedInput: process a single row
+        if (typeof(TInput) == typeof(IndexedInput))
+        {
+            ref IndexedInput indexed = ref Unsafe.As<TInput, IndexedInput>(ref input);
+            asListBuilder?.Append();
+            var start = l.ValueOffsets[indexed.Index];
+            var end = start + l.GetValueLength(indexed.Index);
+            op(ctx, new RangedInput(l.Values, new Range(start, end)), builder);
+            return builder;
+        }
+
+        // RangedInput: iterate rows within the range
+        if (typeof(TInput) == typeof(RangedInput))
+        {
+            ref RangedInput ranged = ref Unsafe.As<TInput, RangedInput>(ref input);
+            (int offset, int length) = ranged.Range.GetOffsetAndLength(l.Length);
+            for (var i = offset; i < offset + length; i++)
+            {
+                asListBuilder?.Append();
+                var start = l.ValueOffsets[i];
+                var end = start + l.GetValueLength(i);
+                op(ctx, new RangedInput(l.Values, new Range(start, end)), builder);
+            }
+            return builder;
+        }
+
+        throw new InvalidOperationException($"Unsupported TInput: {typeof(TInput)}");
     }
 
     // fast path when result is a list and we can reuse the original offsets
@@ -285,10 +329,26 @@ public static class ArrowCompute
             builder.Reserve(l.Length);
             builder.ValueBuilder.Reserve(l.Values.Length);
 
+            builder.InitializeOffsetsFromList(l, 0, l.Length);
             TInput subInput = input.Apply(l.Values);
             op(ctx, Unsafe.As<TInput, TValueInput>(ref subInput), valueBuilder);
 
-            builder.InitializeOffsetsFromList(l, 0, l.Length);
+            return builder;
+        }
+
+        if (typeof(TInput) == typeof(RangedInput))
+        {
+            ref RangedInput ranged = ref Unsafe.As<TInput, RangedInput>(ref input);
+            Range range = ranged.Range;
+            var (offset, length) = range.GetOffsetAndLength(l.Length);
+
+            var start = l.ValueOffsets[offset];
+            var end = l.ValueOffsets[offset + length];
+
+            builder.InitializeOffsetsFromList(l, offset, length);
+            RangedInput subInput = new(l.Values, new Range(start, end));
+            op(ctx, Unsafe.As<RangedInput, TValueInput>(ref subInput), valueBuilder);
+
             return builder;
         }
 
@@ -320,36 +380,86 @@ public static class ArrowCompute
         where TInput : IInput<TInput>
         where TValueBuilder : class, IArrowArrayBuilder
     {
-        Debug.Assert(typeof(TInput) == typeof(IdentityInput));
-
-        var valueBuilder = (TValueBuilder)(object)builder.ValueBuilder;
-        BooleanArrayBuilder maskBuilder = new(ctx.ArrowAllocator);
+        TValueBuilder valueBuilder = (TValueBuilder)builder.ValueBuilder;
         ListArray l = (ListArray)input.Array;
 
-        TInput subInput = input.Apply(l.Values);
-        op(ctx, subInput, maskBuilder);
-
-        using BooleanArray mask = maskBuilder.Build(ctx.ArrowAllocator);
-
-        Debug.Assert(mask.Length == l.Values.Length);
-        Debug.Assert(mask.NullCount == 0);
-
-        for (var i = 0; i < l.Length; i++)
+        // IdentityInput: process all rows at once
+        if (typeof(TInput) == typeof(IdentityInput))
         {
-            builder.Append();
-            var start = l.ValueOffsets[i];
-            var end = start + l.GetValueLength(i);
+            BooleanArrayBuilder maskBuilder = new(ctx.ArrowAllocator);
+            TInput subInput = input.Apply(l.Values);
+            op(ctx, subInput, maskBuilder);
+            using BooleanArray mask = maskBuilder.Build(ctx.ArrowAllocator);
+
+            for (var i = 0; i < l.Length; i++)
+            {
+                builder.Append();
+                var start = l.ValueOffsets[i];
+                var end = start + l.GetValueLength(i);
+                for (var j = start; j < end; j++)
+                {
+                    if (!mask.GetValue(j)!.Value)
+                        continue;
+                    copier(ctx, new IndexedInput(l.Values, j), valueBuilder);
+                }
+            }
+            return builder;
+        }
+
+        // IndexedInput: process a single row, scalar per-element
+        if (typeof(TInput) == typeof(IndexedInput))
+        {
+            ref IndexedInput indexed = ref Unsafe.As<TInput, IndexedInput>(ref input);
+            var start = l.ValueOffsets[indexed.Index];
+            var end = start + l.GetValueLength(indexed.Index);
+
+            BooleanArrayBuilder maskBuilder = new(ctx.ArrowAllocator);
             for (var j = start; j < end; j++)
+            {
+                IndexedInput el = new(l.Values, j);
+                op(ctx, Unsafe.As<IndexedInput, TInput>(ref el), maskBuilder);
+            }
+            using BooleanArray mask = maskBuilder.Build(ctx.ArrowAllocator);
+
+            builder.Append();
+            for (var j = 0; j < end - start; j++)
             {
                 if (!mask.GetValue(j)!.Value)
                     continue;
-
-                IndexedInput indexedInput = new(l.Values, j);
-                copier(ctx, indexedInput, valueBuilder);
+                copier(ctx, new IndexedInput(l.Values, start + j), valueBuilder);
             }
+            return builder;
         }
 
-        return builder;
+        // RangedInput: process rows within the range, vectorized
+        if (typeof(TInput) == typeof(RangedInput))
+        {
+            ref RangedInput ranged = ref Unsafe.As<TInput, RangedInput>(ref input);
+            var (offset, length) = ranged.Range.GetOffsetAndLength(l.Length);
+            var valStart = l.ValueOffsets[offset];
+            var valEnd = l.ValueOffsets[offset + length];
+
+            BooleanArrayBuilder maskBuilder = new(ctx.ArrowAllocator);
+            RangedInput rangeInput = new(l.Values, new Range(valStart, valEnd));
+            op(ctx, Unsafe.As<RangedInput, TInput>(ref rangeInput), maskBuilder);
+            using BooleanArray mask = maskBuilder.Build(ctx.ArrowAllocator);
+
+            for (var i = offset; i < offset + length; i++)
+            {
+                builder.Append();
+                var start = l.ValueOffsets[i];
+                var end = start + l.GetValueLength(i);
+                for (var j = start; j < end; j++)
+                {
+                    if (!mask.GetValue(j - valStart)!.Value)
+                        continue;
+                    copier(ctx, new IndexedInput(l.Values, j), valueBuilder);
+                }
+            }
+            return builder;
+        }
+
+        throw new InvalidOperationException($"Unsupported TInput: {typeof(TInput)}");
     }
 
     public static TResultBuilder MakeBuilderForGeneric<TResultBuilder>(IArrowType arrowType, MemoryAllocator? allocator)
@@ -437,6 +547,8 @@ public static class ArrowCompute
         where T : struct, INumber<T>
         where TResult : struct, INumber<TResult>
     {
+        if (buffer.IsEmpty) return Span<TResult>.Empty;
+        
         // Note: memConfig reuse only meaningful when T == TResult (same size)
         Span<TResult> result;
         if (memConfig != MemoryConfig.None && typeof(T) == typeof(TResult))
@@ -481,7 +593,7 @@ public static class ArrowCompute
         // TODO switch by input type
         Debug.Assert(typeof(TInput) == typeof(IdentityInput));
 
-        var valueBuilder = (TValueBuilder)(object)builder.ValueBuilder;
+        var valueBuilder = (TValueBuilder)builder.ValueBuilder;
         ListArray l = (ListArray)input.Array;
         builder.InitializeOffsetsFromList(l, 0, input.Length);
         TInput subInput = input.Apply(l.Values);

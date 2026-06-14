@@ -84,9 +84,9 @@ public class BufferExpressionTests
             new TestCase(
                 L((TestRow str) => str.LNest.Any(n => n.Any(n2 => n2 == 350))),
                 "list nested any any"),
-            // new TestCase(
-            //     L((TestRow str) => str.LNest.All(n => n.All(n2 => n2 == str.N.C))),
-            //     "list nested all all"),
+            new TestCase(
+                L((TestRow str) => str.LNest.All(n => n.All(n2 => n2 == str.N.C))),
+                "list nested all all"),
             new TestCase(
                 L((TestRow str) =>
                     str.A > 300 &&
@@ -105,9 +105,9 @@ public class BufferExpressionTests
             new TestCase(
                 L((TestRow str) => str.L.Where(n => n > 100 && n < 900)),
                 "list where with boolean and"),
-            // new TestCase(
-            //     L((TestRow str) => str.L.Where(n => n > str.N.C)),
-            //     "list where with struct field"),
+            new TestCase(
+                L((TestRow str) => str.L.Where(n => n > str.N.C)),
+                "list where with struct field"),
             new TestCase(
                 L((TestRow str) => str.LNest.Select(n => n.Where(n2 => n2 > 500))),
                 "list nested select where"),

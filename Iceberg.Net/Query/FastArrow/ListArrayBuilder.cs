@@ -41,8 +41,13 @@ public class ListArrayBuilder : IArrowArrayBuilder<ListArray, ListArrayBuilder>
     // Shortcut when the value builder has already been appended to
     public ListArrayBuilder InitializeOffsetsFromList(ListArray l, int offset, int length)
     {
-        ValueOffsetsBufferBuilder.Append(l.ValueOffsets[..^1].Slice(offset, length));
-        if (!l.NullBitmapBuffer.IsEmpty) ValidityBufferBuilder.Append(l.NullBitmapBuffer.Span[offset..], length);
+        var srcOffsets = l.ValueOffsets[..^1];
+        int first = srcOffsets[offset];
+        for (int i = offset; i < offset + length; i++)
+            ValueOffsetsBufferBuilder.Append(srcOffsets[i] - first);
+        if (!l.NullBitmapBuffer.IsEmpty)
+            for (int i = offset; i < offset + length; i++)
+                ValidityBufferBuilder.Append(BitUtility.GetBit(l.NullBitmapBuffer.Span, i));
         return this;
     }
 
