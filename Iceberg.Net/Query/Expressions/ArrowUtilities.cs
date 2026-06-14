@@ -1,5 +1,6 @@
 ﻿using System.Linq.Expressions;
 using System.Reflection;
+using System.Runtime.CompilerServices;
 using Apache.Arrow;
 using Apache.Arrow.Types;
 using DotNext.Linq.Expressions;
@@ -50,8 +51,11 @@ public static class ArrowUtilities
 
     public static T AccessStructField<T>(StructArray arr, int index) where T : class, IArrowArray
     {
-        // TODO use Unsafe.As in release mode
+#if DEBUG
         return (T)arr.Fields[index];
+#else
+        return Unsafe.As<T>(arr.Fields[index]);
+#endif
     }
 
 

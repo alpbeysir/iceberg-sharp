@@ -150,30 +150,6 @@ public static class Utils
         return $"[{string.Join(", ", head)}, ..., {string.Join(", ", tail)}]";
     }
 
-    public static Expression ForExpression(
-        ParameterExpression loopVar,
-        Expression initValue,
-        Expression condition,
-        Expression increment,
-        Expression loopContent)
-    {
-        BinaryExpression initAssign = Expression.Assign(loopVar, initValue);
-        LabelTarget breakLabel = Expression.Label("LoopBreak");
-
-        return Expression.Block(
-            [loopVar],
-            initAssign,
-            Expression.Loop(
-                Expression.IfThenElse(
-                    condition,
-                    Expression.Block(
-                        loopContent,
-                        increment),
-                    Expression.Break(breakLabel)),
-                breakLabel)
-        );
-    }
-
     extension(Content content)
     {
         public string ToMetadataString()

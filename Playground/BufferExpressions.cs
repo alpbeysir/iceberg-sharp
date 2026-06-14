@@ -1,6 +1,4 @@
-﻿using System.Diagnostics;
-using System.Linq.CompilerServices;
-using System.Linq.Expressions;
+﻿using System.Linq.Expressions;
 using System.Reflection;
 using Apache.Arrow;
 using Apache.Arrow.Memory;
@@ -38,7 +36,7 @@ public class BufferExpressions
     public static void Main()
     {
         // ExpressionUtilities.EnableAsmPrint();
-        var size = (int)Math.Pow(2, 16);
+        var size = (int)Math.Pow(2, 20);
         Console.WriteLine($"size: {size}");
         List<MyStruct> list = Enumerable.Range(0, size).Select(_ => CreateRandom()).ToList();
         
@@ -75,8 +73,11 @@ public class BufferExpressions
         // LambdaExpression test1000 = (int num) => num;
         // Run(test1000, list);
 
-        LambdaExpression test10 = (MyStruct str) => str.LNest.Select(n => n.Where(n2 => n2 > str.N.C));
-        Run(test10, list);
+        LambdaExpression test11 = (MyStruct str) => str.L.Select(n => str.N.C);
+        Run(test11, list);
+
+        // LambdaExpression test10 = (MyStruct str) => str.LNest.Select(n => n.Where(n2 => n2 > str.N.C));
+        // Run(test10, list);
     }
 
     private static void Run(LambdaExpression expr, List<MyStruct> list)
@@ -88,7 +89,7 @@ public class BufferExpressions
         using StructArray inputBatch = ArrowFfiBridge.BuildRecordBatch(list).AsStructArray();
         MethodInfo method = typeof(BufferExpressions).GetMethod(nameof(Execute))!
             .MakeGenericMethod(typeof(MyStruct), expr.ReturnType);
-        for (var i = 0; i < 5; i++)
+        for (var i = 0; i < 5000; i++)
         {
             Console.WriteLine($"Run {i}");
             method.Invoke(null, [linq, arrow, list, inputBatch]);
@@ -132,16 +133,16 @@ public class BufferExpressions
 
         Console.WriteLine($"--- arrow arena: {Utils.ToFileSize(buffer.CommittedBytes)}");
 
-        Func<T, T2> linqRunner = (Func<T, T2>)linqCompiled;
-        List<T2> linqResult;
-        using (new MeasureHeap("linq"))
-        using (new MeasureTime("linq"))
-        {
-            linqResult = input.Select(linqRunner).ToList();
-        }
-        
-        IEnumerable<T2> arrowResult = ArrowReader.ReadRecordBatch<T2>(output);
-        Debug.Assert(linqResult.Count == arrowResult.Count());
+        // Func<T, T2> linqRunner = (Func<T, T2>)linqCompiled;
+        // List<T2> linqResult;
+        // using (new MeasureHeap("linq"))
+        // using (new MeasureTime("linq"))
+        // {
+        //     linqResult = input.Select(linqRunner).ToList();
+        // }
+        //
+        // IEnumerable<T2> arrowResult = ArrowReader.ReadRecordBatch<T2>(output);
+        // Debug.Assert(linqResult.Count == arrowResult.Count());
     }
 
     private static Delegate CompileLinq(LambdaExpression expr)
@@ -152,7 +153,9 @@ public class BufferExpressions
     private static Delegate CompileArrow(LambdaExpression expr)
     {
         BufferTransformVisitor visitor = new();
-        Expression result = visitor.Visit(expr);
+        ExpressionOptimizer optimizer = new(new DefaultSemanticProvider(), new DefaultEvaluatorFactory());
+        Expression visited = visitor.Visit(expr);
+        Expression result = optimizer.Visit(visited)!;
         Delegate compiled = ((LambdaExpression)result).Compile();
         return compiled;
     }

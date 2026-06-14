@@ -254,27 +254,46 @@ public static class ArrowCompute
     }
 
     // fast path when result is a list and we can reuse the original offsets
-    public static ListArrayBuilder ExecuteListSelect<TInput>(
+    public static ListArrayBuilder ExecuteListSelect<TInput, TValueInput>(
         ExecutionContext ctx,
         TInput input,
-        Action<ExecutionContext, TInput, ListArrayBuilder> op,
+        Action<ExecutionContext, TValueInput, ListArrayBuilder> op,
         ListArrayBuilder builder)
         where TInput : IInput<TInput>
+        where TValueInput : IInput<TValueInput>
     {
-        Debug.Assert(typeof(TInput) == typeof(IdentityInput));
-
         ListArray l = (ListArray)input.Array;
 
-        builder.Reserve(l.Length);
-        builder.ValueBuilder.Reserve(l.Values.Length);
+        // IdentityInput: process all rows at once (columnar fast path)
+        if (typeof(TInput) == typeof(IdentityInput))
+        {
+            builder.Reserve(l.Length);
+            builder.ValueBuilder.Reserve(l.Values.Length);
 
-        TInput subInput = input.Apply(l.Values);
-        op(ctx, subInput, builder);
+            TInput subInput = input.Apply(l.Values);
+            op(ctx, Unsafe.As<TInput, TValueInput>(ref subInput), builder);
 
-        // TODO use input type here
-        builder.InitializeOffsetsFromList(l, 0, l.Length);
+            builder.InitializeOffsetsFromList(l, 0, l.Length);
+            return builder;
+        }
 
-        return builder;
+        // IndexedInput: process a single row identified by the index
+        if (typeof(TInput) == typeof(IndexedInput))
+        {
+            ref IndexedInput indexed = ref Unsafe.As<TInput, IndexedInput>(ref input);
+            var start = l.ValueOffsets[indexed.Index];
+            var end = start + l.GetValueLength(indexed.Index);
+
+            builder.Append();
+            builder.ValueBuilder.Reserve(end - start);
+
+            RangedInput subInput = new(l.Values, new Range(start, end));
+            op(ctx, Unsafe.As<RangedInput, TValueInput>(ref subInput), builder);
+
+            return builder;
+        }
+
+        throw new InvalidOperationException($"Unsupported TInput: {typeof(TInput)}");
     }
 
     public static ListArrayBuilder ExecuteListWhere<TInput>(
