@@ -201,6 +201,7 @@ public class BufferTransformVisitor : ExpressionVisitorNarrow<Expression, Lambda
 
             if (hasClosures)
             {
+                // TODO
             }
 
             closureParams.ForEach(pair => _bindings.Push(pair));
@@ -241,23 +242,22 @@ public class BufferTransformVisitor : ExpressionVisitorNarrow<Expression, Lambda
         return Expression.Lambda(
             Expression.Invoke(arrowPredicate, invokeArgs),
             outerParams);
+
+        static Expression AccessValueBuilder(Type valueBuilderType, ParameterExpression listBuilder)
+        {
+#if DEBUG
+            return Expression.Convert(listBuilder.Property(nameof(ListArrayBuilder.ValueBuilder)), valueBuilderType);
+#else
+        return typeof(Unsafe).GetMethod(nameof(Unsafe.As), [typeof(object)])!.CallStatic(
+            [valueBuilderType],
+            [listBuilder.Property(nameof(ListArrayBuilder.ValueBuilder))]);
+#endif
+        }
     }
 
     private static ParameterExpression GetResultBuilder(LambdaExpression arrowPredicate)
     {
         return arrowPredicate.Parameters[^1];
-    }
-
-    private static Expression AccessValueBuilder(Type valueBuilderType, ParameterExpression listBuilder)
-    {
-#if DEBUG
-        return Expression.Convert(listBuilder.Property(nameof(ListArrayBuilder.ValueBuilder)), valueBuilderType);
-#else
-
-        return typeof(Unsafe).GetMethod(nameof(Unsafe.As), [typeof(object)])!.CallStatic(
-            [valueBuilderType],
-            [listBuilder.Property(nameof(ListArrayBuilder.ValueBuilder))]);
-#endif
     }
 
     private Expression GenerateListSelect(
