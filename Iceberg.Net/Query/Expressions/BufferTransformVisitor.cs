@@ -1,12 +1,11 @@
-﻿using System.Collections.ObjectModel;
+﻿#if !DEBUG
+#endif
+using System.Collections.ObjectModel;
 using System.Diagnostics;
 using System.Diagnostics.CodeAnalysis;
 using System.Linq.CompilerServices;
 using System.Linq.Expressions;
 using System.Reflection;
-#if !DEBUG
-using System.Runtime.CompilerServices;
-#endif
 using Apache.Arrow;
 using Apache.Arrow.Types;
 using DotNext.Linq.Expressions;
@@ -316,9 +315,9 @@ public class BufferTransformVisitor : ExpressionVisitorNarrow<Expression, Lambda
         ParameterExpression builderParam = Expression.Parameter(resultInfo.BuilderType, "builder");
         LambdaExpression callLambda = Expression.Lambda(
             Expression.Call(null, method, _ctxParam, source, predicate, builderParam),
-            $"QueryMethod_GenerateListSelect_{originalPredicate}",
             false,
-            [builderParam]);
+            builderParam)
+            .WithName($"QueryMethod_GenerateListSelect_{originalPredicate}");
 
         return TryExecuteWithBuilder(callLambda, resultInfo);
     }
@@ -344,9 +343,9 @@ public class BufferTransformVisitor : ExpressionVisitorNarrow<Expression, Lambda
         ParameterExpression builderParam = Expression.Parameter(resultInfo.BuilderType, "builder");
         LambdaExpression callLambda = Expression.Lambda(
             Expression.Call(null, method, _ctxParam, source, predicate, valueCopier, builderParam),
-            $"QueryMethod_GenerateListWhere_{originalPredicate}",
             false,
-            [builderParam]);
+            builderParam)
+            .WithName($"QueryMethod_GenerateListWhere_{originalPredicate}");
 
         return TryExecuteWithBuilder(callLambda, resultInfo);
     }
@@ -362,9 +361,10 @@ public class BufferTransformVisitor : ExpressionVisitorNarrow<Expression, Lambda
         LambdaExpression all = (ExecutionContext ctx, RangedInput input, BooleanArrayBuilder builder) =>
             HideBuilderReturnGeneric(builder.Append(ArrowCompute.All((BooleanArray)input.Array, input.Range)));
 
+
         return ExecuteElementWiseListOp(
             map,
-            all,
+            all.WithName("All"),
             ArrowTypeUtils.ForCSharpType(typeof(bool)));
     }
 
@@ -381,7 +381,7 @@ public class BufferTransformVisitor : ExpressionVisitorNarrow<Expression, Lambda
 
         return ExecuteElementWiseListOp(
             map,
-            any,
+            any.WithName("Any"),
             ArrowTypeUtils.ForCSharpType(typeof(bool)));
     }
 
@@ -416,7 +416,7 @@ public class BufferTransformVisitor : ExpressionVisitorNarrow<Expression, Lambda
     {
         LambdaExpression expr = (ExecutionContext ctx, TInput input, TBuilder builder) =>
             HideBuilderReturnGeneric(ArrowCompute.CopyPrimitive<TInput, TArray, TValue, TBuilder>(ctx, input, builder));
-        return expr;
+        return expr.WithName("PrimitiveCopy");
     }
 
     private static LambdaExpression GenerateListCopy<TInput, TValueBuilder>(LambdaExpression valueCopier)
@@ -426,12 +426,12 @@ public class BufferTransformVisitor : ExpressionVisitorNarrow<Expression, Lambda
         var compiled = (Action<ExecutionContext, TInput, TValueBuilder>)valueCopier.Compile();
         LambdaExpression expr = (ExecutionContext ctx, TInput input, ListArrayBuilder builder) =>
             HideBuilderReturnGeneric(
-                ArrowCompute.CopyList<TInput, TValueBuilder>(
+                ArrowCompute.CopyList(
                     ctx,
                     input,
                     builder,
                     compiled));
-        return expr;
+        return expr.WithName("ListCopy");
     }
 
     private static LambdaExpression GenerateCopy(Type inputType, ArrowTypeInfo typeInfo)
@@ -486,11 +486,10 @@ public class BufferTransformVisitor : ExpressionVisitorNarrow<Expression, Lambda
         ParameterExpression builderParam = Expression.Parameter(resultInfo.BuilderType, "builder");
         LambdaExpression callLambda = Expression.Lambda(
             Expression.Call(null, method, _ctxParam, source, op, builderParam),
-            "QueryMethod_ExecuteElementWiseListOp",
             false,
-            [builderParam]);
+            builderParam);
 
-        return TryExecuteWithBuilder(callLambda, resultInfo);
+        return TryExecuteWithBuilder(callLambda.WithName("QueryMethod_ExecuteElementWiseListOp"), resultInfo);
     }
 
     protected override Expression MakeBinary(
@@ -606,9 +605,9 @@ public class BufferTransformVisitor : ExpressionVisitorNarrow<Expression, Lambda
             : body;
         LambdaExpression lambda = Expression.Lambda(
             EnsureNoReturnValue(body),
-            $"QueryMethod_{node}",
             false,
-            lambdaParams);
+            lambdaParams)
+            .WithName($"QueryMethod_{node}");
         return lambda;
     }
 

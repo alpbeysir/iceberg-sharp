@@ -14,6 +14,11 @@ public static class ExpressionUtilities
         return Expression.Call(null, instantiated, args);
     }
 
+    public static LambdaExpression WithName(this LambdaExpression lambda, string name)
+    {
+        return Expression.Lambda(lambda.Body, name, lambda.TailCall, lambda.Parameters);
+    }
+
     public static void EnableAsmPrint()
     {
         Environment.SetEnvironmentVariable("DOTNET_JitDisasm", "QueryMethod_*");
