@@ -1,4 +1,4 @@
-﻿using System.Diagnostics;
+using System.Diagnostics;
 using System.Linq.Expressions;
 using System.Numerics;
 using System.Runtime.CompilerServices;
@@ -8,58 +8,199 @@ using Apache.Arrow.Memory;
 using Apache.Arrow.Types;
 using Iceberg.Net.Query.FastArrow;
 using Varena;
-using ZLinq.Simd;
 using BitUtility = Apache.Arrow.BitUtility;
 
 namespace Iceberg.Net.Query.Expressions;
 
+public enum MemoryConfig
+{
+    /// <summary>Allocate new memory for the result.</summary>
+    None,
+
+    /// <summary>Reuse the left operand's memory for the result.</summary>
+    Left,
+
+    /// <summary>Reuse the right operand's memory for the result.</summary>
+    Right
+}
+
+/// <summary>
+///     A span-backed bitmap with a known logical bit count.
+///     The <see cref="Bytes" /> span contains packed bits (1 bit per boolean),
+///     and <see cref="Length" /> tracks the exact number of logical bits,
+///     which may be less than <c>Bytes.Length * 8</c>.
+/// </summary>
+public readonly ref struct Bitmap
+{
+    public readonly Span<byte> Bytes;
+    public readonly int Length; // logical bit count
+
+    public Bitmap(Span<byte> bytes, int length)
+    {
+        Bytes = bytes;
+        Length = length;
+    }
+
+    public bool IsEmpty => Length == 0 || Bytes.IsEmpty;
+    public static Bitmap Empty => default;
+}
+
 public static class ArrowCompute
 {
+    /// <summary>
+    ///     Creates a writable <see cref="Span{T}" /> from a <see cref="ReadOnlySpan{T}" />.
+    ///     Use this only when the underlying memory is known to be mutable (e.g., arena-allocated buffers).
+    /// </summary>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public static Span<T> AsWritable<T>(ReadOnlySpan<T> span)
+    {
+        return Unsafe.BitCast<ReadOnlySpan<T>, Span<T>>(span);
+    }
+
+    /// <summary>
+    ///     Converts a <see cref="Span{T}" /> to <see cref="ReadOnlySpan{T}" />.
+    ///     Exists so expression trees can perform the implicit conversion explicitly.
+    /// </summary>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public static ReadOnlySpan<T> AsReadOnlySpan<T>(Span<T> span)
+    {
+        return span;
+    }
+
+    /// <summary>
+    ///     Wraps raw bitmap bytes with a known logical bit count into a <see cref="Bitmap" />.
+    /// </summary>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public static Bitmap AsBitmap(Span<byte> bytes, int bitLength)
+    {
+        return new Bitmap(bytes, bitLength);
+    }
+
     // TODO this will not handle nulls properly
-    public static ReadOnlySpan<T> Zip<T>(
+    public static Span<T> Zip<T>(
         ExecutionContext ctx,
-        ReadOnlySpan<T> l,
-        ReadOnlySpan<T> r,
-        ExpressionType expressionType)
+        Span<T> l,
+        Span<T> r,
+        ExpressionType expressionType,
+        MemoryConfig memConfig = MemoryConfig.None)
         where T : unmanaged, INumber<T>
     {
-        if (l.IsEmpty) return ReadOnlySpan<T>.Empty;
-        // TODO precompute these switches
-        Func<Vector<T>, Vector<T>, Vector<T>> vectorSelector = expressionType switch
+        if (l.IsEmpty) return Span<T>.Empty;
+
+        var len = l.Length;
+        Span<T> result = memConfig switch
         {
-            ExpressionType.Add => Vector.Add,
-            ExpressionType.Subtract => Vector.Subtract,
-            ExpressionType.Multiply => Vector.Multiply,
-            ExpressionType.Divide => Vector.Divide,
-            ExpressionType.GreaterThan => Vector.GreaterThan,
-            ExpressionType.LessThan => Vector.LessThan,
-            ExpressionType.And => Vector.BitwiseAnd,
-            ExpressionType.AndAlso => Vector.BitwiseAnd,
-            ExpressionType.Equal => Vector.Equals,
-            _ => throw new ArgumentOutOfRangeException(nameof(expressionType), expressionType, null)
+            MemoryConfig.Left => l[..len],
+            MemoryConfig.Right => r[..len],
+            _ => ArenaAllocate<T>(ctx.Arena, len)
         };
-        Func<T, T, T> selector = expressionType switch
+
+        Func<Vector<T>, Vector<T>, Vector<T>> vectorSelector = GetVectorOp<T>(expressionType);
+        Func<T, T, T> scalarSelector = GetScalarOp<T>(expressionType);
+
+        var i = 0;
+        var vecSize = Vector<T>.Count;
+
+        if (Vector.IsHardwareAccelerated && len >= vecSize)
         {
-            ExpressionType.Add => (n1, n2) => n1 + n2,
-            ExpressionType.Subtract => (n1, n2) => n1 - n2,
-            ExpressionType.Multiply => (n1, n2) => n1 * n2,
-            ExpressionType.Divide => (n1, n2) => n1 / n2,
-            ExpressionType.GreaterThan => (n1, n2) => FromBoolMask<T>(n1 > n2),
-            ExpressionType.LessThan => (n1, n2) => FromBoolMask<T>(n1 < n2),
-            ExpressionType.And => (n1, n2) => UnsafeBitwise(n1, n2, (i, i1) => i & i1, (l1, l2) => l1 & l2),
-            ExpressionType.AndAlso => (n1, n2) => UnsafeBitwise(n1, n2, (i, i1) => i & i1, (l1, l2) => l1 & l2),
-            ExpressionType.Equal => (n1, n2) => FromBoolMask<T>(n1 == n2),
-            _ => throw new ArgumentOutOfRangeException(nameof(expressionType), expressionType, null)
-        };
-        ZipVectorizable<T, T> zip = l.AsVectorizable().Zip(
-            r,
-            vectorSelector,
-            selector);
-        Span<T> result = ArenaAllocate<T>(ctx.Arena, l.Length);
-        zip.CopyTo(result);
+            var vecEnd = len - len % vecSize;
+            for (; i < vecEnd; i += vecSize)
+            {
+                Vector<T> vl = new(l.Slice(i, vecSize));
+                Vector<T> vr = new(r.Slice(i, vecSize));
+                vectorSelector(vl, vr).CopyTo(result.Slice(i, vecSize));
+            }
+        }
+
+        for (; i < len; i++) result[i] = scalarSelector(l[i], r[i]);
+
         return result;
     }
-    
+
+    /// <summary>
+    ///     Binary operation where the left operand is a scalar and the right is a span.
+    /// </summary>
+    public static Span<T> ZipScalarLeft<T>(
+        ExecutionContext ctx,
+        T left,
+        Span<T> right,
+        ExpressionType expressionType,
+        MemoryConfig memConfig = MemoryConfig.None)
+        where T : unmanaged, INumber<T>
+    {
+        if (right.IsEmpty) return Span<T>.Empty;
+
+        var len = right.Length;
+        Span<T> result = memConfig switch
+        {
+            MemoryConfig.Right => right[..len],
+            _ => ArenaAllocate<T>(ctx.Arena, len)
+        };
+
+        Func<Vector<T>, Vector<T>, Vector<T>> vectorSelector = GetVectorOp<T>(expressionType);
+        Func<T, T, T> scalarSelector = GetScalarOp<T>(expressionType);
+        Vector<T> scalarVec = new(left);
+
+        var i = 0;
+        var vecSize = Vector<T>.Count;
+
+        if (Vector.IsHardwareAccelerated && right.Length >= vecSize)
+        {
+            var vecEnd = right.Length - right.Length % vecSize;
+            for (; i < vecEnd; i += vecSize)
+            {
+                Vector<T> vr = new(right.Slice(i, vecSize));
+                vectorSelector(scalarVec, vr).CopyTo(result.Slice(i, vecSize));
+            }
+        }
+
+        for (; i < right.Length; i++) result[i] = scalarSelector(left, right[i]);
+
+        return result;
+    }
+
+    /// <summary>
+    ///     Binary operation where the left operand is a span and the right is a scalar.
+    /// </summary>
+    public static Span<T> ZipScalarRight<T>(
+        ExecutionContext ctx,
+        Span<T> left,
+        T right,
+        ExpressionType expressionType,
+        MemoryConfig memConfig = MemoryConfig.None)
+        where T : unmanaged, INumber<T>
+    {
+        if (left.IsEmpty) return Span<T>.Empty;
+
+        var len = left.Length;
+        Span<T> result = memConfig switch
+        {
+            MemoryConfig.Left => left[..len],
+            _ => ArenaAllocate<T>(ctx.Arena, len)
+        };
+
+        Func<Vector<T>, Vector<T>, Vector<T>> vectorSelector = GetVectorOp<T>(expressionType);
+        Func<T, T, T> scalarSelector = GetScalarOp<T>(expressionType);
+        Vector<T> scalarVec = new(right);
+
+        var i = 0;
+        var vecSize = Vector<T>.Count;
+
+        if (Vector.IsHardwareAccelerated && left.Length >= vecSize)
+        {
+            var vecEnd = left.Length - left.Length % vecSize;
+            for (; i < vecEnd; i += vecSize)
+            {
+                Vector<T> vl = new(left.Slice(i, vecSize));
+                vectorSelector(vl, scalarVec).CopyTo(result.Slice(i, vecSize));
+            }
+        }
+
+        for (; i < left.Length; i++) result[i] = scalarSelector(left[i], right);
+
+        return result;
+    }
+
     // Used by generated expression trees to read from ReadOnlySpan<int> by index
     // (expression trees can't handle ref returns from get_Item)
     public static int ReadOffset(ReadOnlySpan<int> offsets, int index) => offsets[index];
@@ -96,7 +237,7 @@ public static class ArrowCompute
         where TResultArray : class, IArrowArray
     {
         Debug.Assert(typeof(TInput) == typeof(IdentityInput));
-        
+
         builder.Reserve(input.Length);
         ListArray l = (ListArray)input.Array;
         ListArrayBuilder? asListBuilder = builder as ListArrayBuilder;
@@ -132,7 +273,7 @@ public static class ArrowCompute
 
         // TODO use input type here
         builder.InitializeOffsetsFromList(l, 0, l.Length);
-        
+
         return builder;
     }
 
@@ -146,7 +287,7 @@ public static class ArrowCompute
         where TInput : IInput<TInput>
     {
         Debug.Assert(typeof(TInput) == typeof(IdentityInput));
-        
+
         BooleanArrayBuilder maskBuilder = new(ctx.ArrowAllocator);
         ListArray l = (ListArray)input.Array;
 
@@ -154,7 +295,7 @@ public static class ArrowCompute
         op(ctx, subInput, maskBuilder);
 
         using BooleanArray mask = maskBuilder.Build(ctx.ArrowAllocator);
-        
+
         Debug.Assert(mask.Length == l.Values.Length);
         Debug.Assert(mask.NullCount == 0);
 
@@ -172,7 +313,7 @@ public static class ArrowCompute
                 copier(ctx, indexedInput, builder);
             }
         }
-        
+
         return builder;
     }
 
@@ -181,7 +322,7 @@ public static class ArrowCompute
     {
         return (TResultBuilder)MakeBuilderFor(arrowType, allocator);
     }
-    
+
     public static IArrowArrayBuilder<IArrowArray> MakeBuilderFor(IArrowType arrowType, MemoryAllocator? allocator)
     {
         return arrowType switch
@@ -196,37 +337,51 @@ public static class ArrowCompute
         };
     }
 
-    public static ReadOnlySpan<byte> BitmapOps(
+    public static Bitmap BitmapOps(
         ExecutionContext ctx,
-        ReadOnlySpan<byte> l,
-        ReadOnlySpan<byte> r,
-        ExpressionType expressionType)
+        Bitmap l,
+        Bitmap r,
+        ExpressionType expressionType,
+        MemoryConfig memConfig = MemoryConfig.None)
     {
-        // TODO precompute these switches
-        Func<Vector<byte>, Vector<byte>, Vector<byte>> vectorSelector = expressionType switch
+        var byteLen = l.Bytes.Length;
+
+        Span<byte> resultBytes = memConfig switch
         {
-            ExpressionType.And => Vector.BitwiseAnd,
-            ExpressionType.AndAlso => Vector.BitwiseAnd,
-            _ => throw new ArgumentOutOfRangeException(nameof(expressionType), expressionType, null)
+            MemoryConfig.Left => l.Bytes,
+            MemoryConfig.Right => r.Bytes,
+            _ => ArenaAllocate<byte>(ctx.Arena, byteLen)
         };
-        Func<byte, byte, byte> selector = expressionType switch
+
+        // Slice to exact byte length in case the reused span is larger
+        resultBytes = resultBytes[..byteLen];
+
+        Func<Vector<byte>, Vector<byte>, Vector<byte>> vectorSelector = GetByteVectorOp(expressionType);
+        Func<byte, byte, byte> scalarSelector = GetByteScalarOp(expressionType);
+
+        var i = 0;
+        var vecSize = Vector<byte>.Count;
+
+        if (Vector.IsHardwareAccelerated && byteLen >= vecSize)
         {
-            ExpressionType.And or ExpressionType.AndAlso => (n1, n2) => (byte)(n1 & n2),
-            _ => throw new ArgumentOutOfRangeException(nameof(expressionType), expressionType, null)
-        };
-        ZipVectorizable<byte, byte> zip = l.AsVectorizable().Zip(
-            r,
-            vectorSelector,
-            selector);
-        Span<byte> result = ArenaAllocate<byte>(ctx.Arena, l.Length);
-        zip.CopyTo(result);
-        return result;
+            var vecEnd = byteLen - byteLen % vecSize;
+            for (; i < vecEnd; i += vecSize)
+            {
+                Vector<byte> vl = new(l.Bytes.Slice(i, vecSize));
+                Vector<byte> vr = new(r.Bytes.Slice(i, vecSize));
+                vectorSelector(vl, vr).CopyTo(resultBytes.Slice(i, vecSize));
+            }
+        }
+
+        for (; i < byteLen; i++) resultBytes[i] = scalarSelector(l.Bytes[i], r.Bytes[i]);
+
+        return new Bitmap(resultBytes, l.Length);
     }
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     private static T FromBoolMask<T>(bool value) where T : struct, INumber<T>
     {
-        // If you need a SIMD-style mask (all bits set for true), 
+        // If you need a SIMD-style mask (all bits set for true),
         // we subtract 1 from 0 (results in -1, or all bits set in two's complement).
         T val = value ? T.One : T.Zero;
 
@@ -240,13 +395,20 @@ public static class ArrowCompute
         return MemoryMarshal.Cast<byte, T>(buffer.AllocateRange(Unsafe.SizeOf<T>() * amount));
     }
 
-    public static ReadOnlySpan<TResult> ConvertLogical<T, TResult>(
+    public static Span<TResult> ConvertLogical<T, TResult>(
         ExecutionContext ctx,
-        ReadOnlySpan<T> buffer)
+        Span<T> buffer,
+        MemoryConfig memConfig = MemoryConfig.None)
         where T : struct, INumber<T>
         where TResult : struct, INumber<TResult>
     {
-        Span<TResult> result = ArenaAllocate<TResult>(ctx.Arena, buffer.Length);
+        // Note: memConfig reuse only meaningful when T == TResult (same size)
+        Span<TResult> result;
+        if (memConfig != MemoryConfig.None && typeof(T) == typeof(TResult))
+            result = MemoryMarshal.Cast<T, TResult>(buffer);
+        else
+            result = ArenaAllocate<TResult>(ctx.Arena, buffer.Length);
+
         // TODO optimize here by choosing unchecked if values are within range
         for (var i = 0; i < buffer.Length; i++) result[i] = TResult.CreateChecked(buffer[i]);
 
@@ -378,7 +540,7 @@ public static class ArrowCompute
             currentBit += bitsToRead;
             bitsRemaining -= bitsToRead;
         }
-        
+
         if (bitsRemaining <= 0) return false;
 
         var byteIndex = currentBit >> 3;
@@ -443,42 +605,106 @@ public static class ArrowCompute
             return value != 0;
     }
 
-    public static ReadOnlySpan<byte> BitmapFromMask<T>(ExecutionContext ctx, ReadOnlySpan<T> mask)
+    /// <summary>
+    ///     Converts a SIMD mask span (all-bits-set = true, zero = false) into a packed bitmap.
+    /// </summary>
+    /// <returns>A <see cref="Bitmap" /> whose <see cref="Bitmap.Length" /> equals <paramref name="mask" />.Length.</returns>
+    public static Bitmap BitmapFromMask<T>(
+        ExecutionContext ctx,
+        Span<T> mask)
         where T : struct, INumber<T>
     {
-        ReadOnlySpan<T> source = mask;
-        Span<byte> destination = ArenaAllocate<byte>(ctx.Arena, mask.Length);
+        var bitLength = mask.Length;
+        var byteLength = (bitLength + 7) / 8;
+        Span<byte> destination = ArenaAllocate<byte>(ctx.Arena, byteLength);
 
-        var vectorSize = Vector<T>.Count;
+        var i = 0;
+        var vecSize = Vector<T>.Count;
 
-        for (var i = 0; i <= source.Length - vectorSize; i += vectorSize)
+        if (Vector.IsHardwareAccelerated && mask.Length >= vecSize)
         {
-            // Ensure destination is large enough
-            var bytesNeeded = (i + vectorSize + 7) / 8;
-            if (destination.Length < bytesNeeded)
-                throw new ArgumentException("Destination span is too small.");
-
-            Vector<T> vec = new(source[i..(i + vectorSize)]);
-
-            for (var j = 0; j < vectorSize; j++)
-                // In SIMD masks, 'True' means all bits set.
-                // We check if the lane is non-zero to treat it as 'True'.
-                if (vec[j] != T.Zero)
-                {
-                    var currentBit = i + j;
-                    BitUtility.SetBit(destination, currentBit);
-                    // destination[currentBit >> 3] |= (byte)(1 << (currentBit & 7));
-                }
+            var vecEnd = mask.Length - mask.Length % vecSize;
+            for (; i < vecEnd; i += vecSize)
+            {
+                Vector<T> vec = new(mask.Slice(i, vecSize));
+                for (var j = 0; j < vecSize; j++)
+                    if (vec[j] != T.Zero)
+                        BitUtility.SetBit(destination, i + j);
+            }
         }
 
-        var startIndex = source.Length - source.Length % vectorSize;
-        var remaining = source.Length % vectorSize;
+        for (; i < mask.Length; i++)
+            if (mask[i] != T.Zero)
+                BitUtility.SetBit(destination, i);
 
-        if (remaining > 0)
-            for (var i = 0; i < remaining; i++)
-                if (source[startIndex + i] != T.Zero)
-                    BitUtility.SetBit(destination, startIndex + i);
-
-        return destination;
+        return new Bitmap(destination, bitLength);
     }
+
+    #region Operation Dispatch Tables
+
+    private static Func<Vector<T>, Vector<T>, Vector<T>> GetVectorOp<T>(ExpressionType expressionType)
+        where T : unmanaged, INumber<T>
+    {
+        return expressionType switch
+        {
+            ExpressionType.Add => Vector.Add,
+            ExpressionType.Subtract => Vector.Subtract,
+            ExpressionType.Multiply => Vector.Multiply,
+            ExpressionType.Divide => Vector.Divide,
+            ExpressionType.GreaterThan => Vector.GreaterThan,
+            ExpressionType.LessThan => Vector.LessThan,
+            ExpressionType.GreaterThanOrEqual => (l, r) => Vector.GreaterThanOrEqual(l, r),
+            ExpressionType.LessThanOrEqual => (l, r) => Vector.LessThanOrEqual(l, r),
+            ExpressionType.Equal => Vector.Equals,
+            ExpressionType.NotEqual => (l, r) => ~Vector.Equals(l, r),
+            ExpressionType.And or ExpressionType.AndAlso => Vector.BitwiseAnd,
+            ExpressionType.Or or ExpressionType.OrElse => Vector.BitwiseOr,
+            _ => throw new ArgumentOutOfRangeException(nameof(expressionType), expressionType, null)
+        };
+    }
+
+    private static Func<T, T, T> GetScalarOp<T>(ExpressionType expressionType)
+        where T : unmanaged, INumber<T>
+    {
+        return expressionType switch
+        {
+            ExpressionType.Add => (n1, n2) => n1 + n2,
+            ExpressionType.Subtract => (n1, n2) => n1 - n2,
+            ExpressionType.Multiply => (n1, n2) => n1 * n2,
+            ExpressionType.Divide => (n1, n2) => n1 / n2,
+            ExpressionType.GreaterThan => (n1, n2) => FromBoolMask<T>(n1 > n2),
+            ExpressionType.LessThan => (n1, n2) => FromBoolMask<T>(n1 < n2),
+            ExpressionType.GreaterThanOrEqual => (n1, n2) => FromBoolMask<T>(n1 >= n2),
+            ExpressionType.LessThanOrEqual => (n1, n2) => FromBoolMask<T>(n1 <= n2),
+            ExpressionType.Equal => (n1, n2) => FromBoolMask<T>(n1 == n2),
+            ExpressionType.NotEqual => (n1, n2) => FromBoolMask<T>(n1 != n2),
+            ExpressionType.And or ExpressionType.AndAlso => (n1, n2) =>
+                UnsafeBitwise(n1, n2, (i, i1) => i & i1, (l1, l2) => l1 & l2),
+            ExpressionType.Or or ExpressionType.OrElse => (n1, n2) =>
+                UnsafeBitwise(n1, n2, (i, i1) => i | i1, (l1, l2) => l1 | l2),
+            _ => throw new ArgumentOutOfRangeException(nameof(expressionType), expressionType, null)
+        };
+    }
+
+    private static Func<Vector<byte>, Vector<byte>, Vector<byte>> GetByteVectorOp(ExpressionType expressionType)
+    {
+        return expressionType switch
+        {
+            ExpressionType.And or ExpressionType.AndAlso => Vector.BitwiseAnd,
+            ExpressionType.Or or ExpressionType.OrElse => Vector.BitwiseOr,
+            _ => throw new ArgumentOutOfRangeException(nameof(expressionType), expressionType, null)
+        };
+    }
+
+    private static Func<byte, byte, byte> GetByteScalarOp(ExpressionType expressionType)
+    {
+        return expressionType switch
+        {
+            ExpressionType.And or ExpressionType.AndAlso => (n1, n2) => (byte)(n1 & n2),
+            ExpressionType.Or or ExpressionType.OrElse => (n1, n2) => (byte)(n1 | n2),
+            _ => throw new ArgumentOutOfRangeException(nameof(expressionType), expressionType, null)
+        };
+    }
+
+    #endregion
 }

@@ -4,13 +4,13 @@ using System.Diagnostics.CodeAnalysis;
 using System.Linq.CompilerServices;
 using System.Linq.Expressions;
 using System.Reflection;
-using System.Runtime.CompilerServices;
 using Apache.Arrow;
 using Apache.Arrow.Types;
 using DotNext.Linq.Expressions;
 using Iceberg.Net.Misc;
 using Iceberg.Net.Query.FastArrow;
 using Varena;
+using Array = Apache.Arrow.Array;
 
 namespace Iceberg.Net.Query.Expressions;
 
@@ -104,16 +104,7 @@ public class BufferTransformVisitor : ExpressionVisitorNarrow<Expression, Lambda
     private readonly Dictionary<MemberInfo, int> _memberIndex = [];
     private readonly Stack<Expression?> _builderStack = new();
     private readonly Stack<InputType[]?> _inputTypes = new([[InputType.Identity]]);
-    private const int MaxBatchSize = 65536;
-
-    public void SetInitialInputTypes(InputType[] types)
-    {
-        if (_inputTypes.Count != 1) throw new InvalidOperationException();
-
-        _inputTypes.Pop();
-        _inputTypes.Push(types);
-    }
-
+    
     protected override Expression VisitLambda<T>(Expression<T> node)
     {
         Type returnType = Nullable.GetUnderlyingType(node.ReturnType) ?? node.ReturnType;
@@ -402,31 +393,34 @@ public class BufferTransformVisitor : ExpressionVisitorNarrow<Expression, Lambda
     private static LambdaExpression GenerateCopy(Type inputType, ArrowTypeInfo typeInfo)
     {
         IArrowType arrowType = typeInfo.ArrowType;
-        if (arrowType is ListType listType)
+        switch (arrowType)
         {
-            ArrowTypeInfo elementTypeInfo = ArrowTypeUtils.ForArrowType(listType.ValueDataType);
-            LambdaExpression valueCopier = GenerateCopy(inputType, elementTypeInfo);
-            MethodInfo method = typeof(BufferTransformVisitor).GetMethod(nameof(GenerateListCopy), BindingFlags.Static | BindingFlags.NonPublic)!.MakeGenericMethod(
-                inputType
-            );
-            return (LambdaExpression)method.Invoke(null, [valueCopier])!;
+            case ListType listType:
+            {
+                ArrowTypeInfo elementTypeInfo = ArrowTypeUtils.ForArrowType(listType.ValueDataType);
+                LambdaExpression valueCopier = GenerateCopy(inputType, elementTypeInfo);
+                MethodInfo method = typeof(BufferTransformVisitor).GetMethod(
+                    nameof(GenerateListCopy),
+                    BindingFlags.Static | BindingFlags.NonPublic)!.MakeGenericMethod(
+                    inputType
+                );
+                return (LambdaExpression)method.Invoke(null, [valueCopier])!;
+            }
+            case FixedWidthType:
+            {
+                MethodInfo method = typeof(BufferTransformVisitor).GetMethod(
+                    nameof(GeneratePrimitiveCopy),
+                    BindingFlags.Static | BindingFlags.NonPublic)!.MakeGenericMethod(
+                    inputType,
+                    typeInfo.ArrayType,
+                    typeInfo.CSharpType,
+                    typeInfo.BuilderType
+                );
+                return (LambdaExpression)method.Invoke(null, [])!;
+            }
+            default:
+                throw new NotImplementedException();
         }
-        else if (arrowType is FixedWidthType)
-        {
-            MethodInfo method = typeof(BufferTransformVisitor).GetMethod(nameof(GeneratePrimitiveCopy), BindingFlags.Static | BindingFlags.NonPublic)!.MakeGenericMethod(
-                inputType,
-                typeInfo.ArrayType,
-                typeInfo.CSharpType,
-                typeInfo.BuilderType
-            );
-            return (LambdaExpression)method.Invoke(null, [])!;
-        }
-        else
-        {
-            throw new NotImplementedException();
-        }
-
-        throw new NotImplementedException();
     }
 
     private Expression ExecuteElementWiseListOp(
@@ -459,20 +453,41 @@ public class BufferTransformVisitor : ExpressionVisitorNarrow<Expression, Lambda
         LambdaExpression conversion,
         Expression right)
     {
-        var leftIsScalar = !IsSpan(left) && !IsInput(left);
-        var rightIsScalar = !IsSpan(right) && !IsInput(right);
+        var leftIsSpanLike = IsSpanLike(left);
+        var rightIsSpanLike = IsSpanLike(right);
+        var leftIsScalarLike = IsScalarLike(left);
+        var rightIsScalarLike = IsScalarLike(right);
 
-        if (leftIsScalar || rightIsScalar || IsIndexedInput(left) || IsIndexedInput(right))
+        if (leftIsSpanLike && rightIsSpanLike)
         {
-            // At least one operand is (or derived from) an indexed input — use scalar path
-            Expression l = AsScalar(left, node.Left);
-            Expression r = AsScalar(right, node.Right);
-            return Expression.MakeBinary(node.NodeType, l, r);
+            // Both vectorized — use Zip<T> or BitmapOps
+            Expression leftSpan = ExtractRawSpan(left, node.Left);
+            Expression rightSpan = ExtractRawSpan(right, node.Right);
+            return ExecuteBinarySpan(node, leftSpan, rightSpan);
         }
 
-        Expression leftSpan = AsSpan(left, node.Left);
-        Expression rightSpan = AsSpan(right, node.Right);
-        return ExecuteBinarySpan(node, leftSpan, rightSpan);
+        if (leftIsSpanLike && rightIsScalarLike)
+        {
+            // Left span, right scalar
+            Expression leftSpan = ExtractRawSpan(left, node.Left);
+            Expression rightScalar = ExtractRawScalar(right, node.Right);
+            return ExecuteBinarySpanScalarRight(node, leftSpan, rightScalar);
+        }
+
+        if (leftIsScalarLike && rightIsSpanLike)
+        {
+            // Left scalar, right span
+            Expression leftScalar = ExtractRawScalar(left, node.Left);
+            Expression rightSpan = ExtractRawSpan(right, node.Right);
+            return ExecuteBinarySpanScalarLeft(node, leftScalar, rightSpan);
+        }
+
+        // Both scalar — use standard C# binary expression
+        {
+            Expression l = ExtractRawScalar(left, node.Left);
+            Expression r = ExtractRawScalar(right, node.Right);
+            return Expression.MakeBinary(node.NodeType, l, r);
+        }
     }
     
     protected override Expression MakeConditional(
@@ -486,7 +501,9 @@ public class BufferTransformVisitor : ExpressionVisitorNarrow<Expression, Lambda
 
     protected override Expression MakeConstant(ConstantExpression node)
     {
-        return ArrowUtilities.MakeConstantArray(node.Type, node.Value, MaxBatchSize);
+        // Return the constant value directly — it will be used as a scalar operand
+        // in binary expressions, or bulk-repeated when it's the entire lambda body.
+        return node;
     }
 
     protected override Expression MakeDefault(DefaultExpression node)
@@ -521,6 +538,7 @@ public class BufferTransformVisitor : ExpressionVisitorNarrow<Expression, Lambda
         lambdaParams.Add(builderParam!);
 
         body = IsSpan(body) ? AppendSpanToBuilder(body, builderParam!)
+            : IsBitmap(body) ? AppendBitmapToBuilder(body, builderParam!)
             : !body.Type.Name.Contains("Builder") ? AppendScalarToBuilder(body, builderParam!)
             : body;
         LambdaExpression lambda = Expression.Lambda(
@@ -534,6 +552,9 @@ public class BufferTransformVisitor : ExpressionVisitorNarrow<Expression, Lambda
     [DynamicDependency(DynamicallyAccessedMemberTypes.AllMethods, typeof(IArrowArrayBuilder<,,>))]
     private static Expression AppendSpanToBuilder(Expression span, Expression builder)
     {
+        // If span is Span<T>, convert to ReadOnlySpan<T> for the builder's Append/AppendMask
+        span = AsReadOnlySpanExpr(span);
+
         if (IsBooleanBuilder(builder))
         {
             MethodInfo method = typeof(BooleanArrayBuilder).GetMethod(nameof(BooleanArrayBuilder.AppendMask))!
@@ -544,6 +565,22 @@ public class BufferTransformVisitor : ExpressionVisitorNarrow<Expression, Lambda
         {
             return builder.Call(nameof(IArrowArrayBuilder<,,>.Append), span);
         }
+    }
+
+    private static Expression AppendBitmapToBuilder(Expression bitmap, Expression builder)
+    {
+        if (!IsBooleanBuilder(builder))
+            throw new InvalidOperationException("Bitmap results can only be appended to BooleanArrayBuilder");
+
+        // Extract Bitmap.Bytes (Span<byte>) and Bitmap.Length (int)
+        Expression bytes = Expression.Field(bitmap, nameof(Bitmap.Bytes));
+        Expression length = Expression.Field(bitmap, nameof(Bitmap.Length));
+
+        // Convert Span<byte> to ReadOnlySpan<byte> for the builder method
+        bytes = AsReadOnlySpanExpr(bytes);
+
+        MethodInfo method = typeof(BooleanArrayBuilder).GetMethod(nameof(BooleanArrayBuilder.AppendBitmap))!;
+        return builder.Call(method, bytes, length);
     }
 
     private static Expression AppendScalarToBuilder(Expression scalar, Expression builder)
@@ -804,22 +841,23 @@ public class BufferTransformVisitor : ExpressionVisitorNarrow<Expression, Lambda
                 if (IsIndexedInput(operand))
                 {
                     // For indexed input, convert scalar using normal operators
-                    Expression scalar = AsScalar(operand, node.Operand);
+                    Expression scalar = ExtractRawScalar(operand, node.Operand);
                     Type targetType = Nullable.GetUnderlyingType(node.Type) ?? node.Type;
                     if (scalar.Type == targetType) return scalar;
                     return Expression.Convert(scalar, node.Type);
                 }
 
-                Expression asSpan = AsSpan(operand, node.Operand);
-                Type elemType = SpanElementType(asSpan);
+                // IdentityInput or RangedInput — convert via ArrowCompute.ConvertLogical
+                Expression rawSpan = ExtractRawSpan(operand, node.Operand);
+                Type elemType = SpanElementType(rawSpan);
                 Type resultUnderlyingType = Nullable.GetUnderlyingType(node.Type) ?? node.Type;
-                if (elemType == resultUnderlyingType) return operand;
+                if (elemType == resultUnderlyingType) return rawSpan;
                 MethodInfo convertMethod = typeof(ArrowCompute).GetMethod(nameof(ArrowCompute.ConvertLogical))!
                     .MakeGenericMethod(elemType, resultUnderlyingType);
                 return Expression.Call(
                     null,
                     convertMethod,
-                    [_ctxParam, asSpan]);
+                    [_ctxParam, rawSpan, Expression.Constant(MemoryConfig.None)]);
             }
             else if (IsSpan(operand))
             {
@@ -831,7 +869,14 @@ public class BufferTransformVisitor : ExpressionVisitorNarrow<Expression, Lambda
                 return Expression.Call(
                     null,
                     convertMethod2,
-                    [_ctxParam, AsSpan(operand, node)]);
+                    [_ctxParam, operand, Expression.Constant(MemoryConfig.None)]);
+            }
+            else
+            {
+                // Scalar operand (constant or already-converted value)
+                Type targetType = Nullable.GetUnderlyingType(node.Type) ?? node.Type;
+                if (operand.Type == targetType) return operand;
+                return Expression.Convert(operand, node.Type);
             }
         }
 
@@ -874,7 +919,8 @@ public class BufferTransformVisitor : ExpressionVisitorNarrow<Expression, Lambda
             return InputType.Identity;
         else if (IsRangedInput(input))
             return InputType.Ranged;
-        else if (IsIndexedInput(input)) return InputType.Masked;
+        else if (IsIndexedInput(input))
+            return InputType.Masked;
 
         throw new NotImplementedException();
     }
@@ -962,6 +1008,11 @@ public class BufferTransformVisitor : ExpressionVisitorNarrow<Expression, Lambda
         return expression.Type.Name.Contains("Span");
     }
 
+    private static bool IsBitmap(Expression expression)
+    {
+        return expression.Type.Name == "Bitmap";
+    }
+
     private static bool IsInput(Expression expression)
     {
         return expression.Type.ImplementsInterface(typeof(IInput<>));
@@ -1007,58 +1058,146 @@ public class BufferTransformVisitor : ExpressionVisitorNarrow<Expression, Lambda
     {
     }
 
-    private static Expression AsSpan(Expression input, Expression original)
+    /// <summary>
+    ///     Extracts a writable <see cref="Span{T}" /> from a span-like input expression
+    ///     (IdentityInput, RangedInput, or an already-span expression).
+    ///     Always returns a <see cref="Span{T}" /> typed expression.
+    /// </summary>
+    private static Expression ExtractRawSpan(Expression input, Expression original)
     {
-        if (IsSpan(input)) return input;
+        if (IsSpan(input)) return EnsureWritableSpan(input);
+
+        if (IsBitmap(input)) return input; // Already a Bitmap
 
         if (IsIdentityInput(input))
         {
-            return AccessValues(AccessArray(input, original));
+            // For BooleanArray (bool type), extract as Bitmap to preserve logical bit count
+            Type underlying = Nullable.GetUnderlyingType(original.Type) ?? original.Type;
+            if (underlying == typeof(bool))
+            {
+                Expression array = AccessArray(input, original);
+                Expression roSpan = AccessValuesReadOnly(array);
+                Expression writable = EnsureWritableSpan(roSpan);
+                Expression length = Expression.Property(
+                    Expression.Convert(array, typeof(Array)),
+                    nameof(Array.Length));
+                return typeof(ArrowCompute).GetMethod(nameof(ArrowCompute.AsBitmap))!
+                    .CallStatic([], [writable, length]);
+            }
+
+            return AccessWritableSpan(input, original);
         }
-        else if (IsRangedInput(input))
+
+        if (IsRangedInput(input))
         {
-            Expression span = AccessValues(AccessArray(input, original));
-            return Expression.Call(
+            Expression array = AccessArray(input, original);
+            Expression roSpan = AccessValuesReadOnly(array);
+            // RangedInput.Slice takes ReadOnlySpan<T> and returns ReadOnlySpan<T>
+            Expression sliced = Expression.Call(
                 input,
                 nameof(RangedInput.Slice),
-                [SpanElementType(span)],
-                span);
-        }
-        else if (IsIndexedInput(input))
-        {
-            Expression span = AccessValues(AccessArray(input, original));
-            return Expression.Call(
-                input,
-                nameof(IndexedInput.ValueAt),
-                [SpanElementType(span)],
-                span);
+                [roSpan.Type.GetGenericArguments()[0]],
+                roSpan);
+            return EnsureWritableSpan(sliced);
         }
 
-        throw new InvalidOperationException();
+        throw new InvalidOperationException($"Cannot extract span from: {input.Type.Name}");
     }
 
-    private static Expression AsScalar(Expression input, Expression original)
+    /// <summary>
+    ///     Extracts a scalar value from a scalar-like input expression
+    ///     (IndexedInput, ConstantExpression, or already-scalar).
+    /// </summary>
+    private static Expression ExtractRawScalar(Expression input, Expression original)
     {
         if (IsIndexedInput(input))
         {
-            Expression span = AccessValues(AccessArray(input, original));
+            // For IndexedInput, we need the span element type. The ValueAt method
+            // on IndexedInput returns a scalar T. We compute that T from the original
+            // expression's type (unwrapping nullable if needed).
+            Type scalarType = Nullable.GetUnderlyingType(original.Type) ?? original.Type;
+            Expression array = AccessArray(input, original);
+            Expression roSpan = AccessValuesReadOnly(array);
             return Expression.Call(
                 input,
                 nameof(IndexedInput.ValueAt),
-                [SpanElementType(span)],
-                span);
+                [scalarType],
+                roSpan);
         }
 
-        if (original is ConstantExpression constExpr) return Expression.Constant(constExpr.Value, constExpr.Type);
-
+        // Constant or already a scalar (e.g., from MakeConstant or a prior Convert)
         if (!IsSpan(input) && !IsInput(input))
-            // Already a scalar (e.g., from a prior MakeUnary convert)
+        {
+            if (original is ConstantExpression constExpr)
+                return Expression.Constant(constExpr.Value, constExpr.Type);
             return input;
+        }
 
-        throw new InvalidOperationException($"Cannot convert to scalar: {input.Type.Name}");
+        throw new InvalidOperationException($"Cannot extract scalar from: {input.Type.Name}");
     }
 
-    private static Expression AccessValues(Expression array)
+    /// <summary>
+    ///     Returns true if the expression represents a scalar value
+    ///     (IndexedInput, constant, or plain scalar — not a span or array-wrapper input).
+    /// </summary>
+    private static bool IsScalarLike(Expression input)
+    {
+        return IsIndexedInput(input) || (!IsSpan(input) && !IsInput(input));
+    }
+
+    /// <summary>
+    ///     Returns true if the expression represents a span-like value
+    ///     (already a Span, IdentityInput, or RangedInput).
+    /// </summary>
+    private static bool IsSpanLike(Expression input)
+    {
+        return IsSpan(input) || IsBitmap(input) || IsIdentityInput(input) || IsRangedInput(input);
+    }
+
+    /// <summary>
+    ///     If the expression is a <see cref="Span{T}" />, converts it to <see cref="ReadOnlySpan{T}" />
+    ///     via <see cref="ArrowCompute.AsReadOnlySpan{T}" />. Otherwise returns as-is.
+    /// </summary>
+    private static Expression AsReadOnlySpanExpr(Expression spanExpr)
+    {
+        if (spanExpr.Type.IsGenericType && spanExpr.Type.GetGenericTypeDefinition() == typeof(Span<>))
+        {
+            Type elementType = spanExpr.Type.GetGenericArguments()[0];
+            return typeof(ArrowCompute).GetMethod(nameof(ArrowCompute.AsReadOnlySpan))!
+                .CallStatic([elementType], [spanExpr]);
+        }
+
+        return spanExpr; // Already ReadOnlySpan<T> or other
+    }
+
+    /// <summary>
+    ///     If the expression is a <see cref="ReadOnlySpan{T}" />, converts it to <see cref="Span{T}" />
+    ///     via <see cref="ArrowCompute.AsWritable{T}" />. Otherwisem returns as-is.
+    /// </summary>
+    private static Expression EnsureWritableSpan(Expression spanExpr)
+    {
+        if (spanExpr.Type.IsGenericType && spanExpr.Type.GetGenericTypeDefinition() == typeof(ReadOnlySpan<>))
+        {
+            Type elementType = spanExpr.Type.GetGenericArguments()[0];
+            return typeof(ArrowCompute).GetMethod(nameof(ArrowCompute.AsWritable))!
+                .CallStatic([elementType], [spanExpr]);
+        }
+
+        return spanExpr; // Already Span<T>
+    }
+
+    /// <summary>
+    ///     Produces a writable <see cref="Span{T}" /> from an IInput expression
+    ///     by accessing the underlying array's Values and converting to a mutable span.
+    /// </summary>
+    private static Expression AccessWritableSpan(Expression input, Expression original)
+    {
+        Expression array = AccessArray(input, original);
+        Expression roSpan = AccessValuesReadOnly(array);
+        return EnsureWritableSpan(roSpan);
+    }
+
+    private static Expression AccessValuesReadOnly(Expression array)
     {
         return array.Property(nameof(PrimitiveArray<>.Values));
     }
@@ -1132,40 +1271,82 @@ public class BufferTransformVisitor : ExpressionVisitorNarrow<Expression, Lambda
 
     private Expression ExecuteBinarySpan(BinaryExpression node, Expression left, Expression right)
     {
-        Type leftElementType = SpanElementType(left);
-        Type rightElementType = SpanElementType(right);
+        var leftIsBitmap = IsBitmap(left);
+        var rightIsBitmap = IsBitmap(right);
+        var leftIsSpan = IsSpan(left);
+        var rightIsSpan = IsSpan(right);
 
-        // if not equal, convert both to bitmap
-        if ((leftElementType == typeof(bool) && rightElementType == typeof(bool)) ||
-            leftElementType != rightElementType)
+        // If either side is a Bitmap, convert the other side and use BitmapOps
+        if (leftIsBitmap || rightIsBitmap)
         {
-            if (leftElementType != typeof(bool))
-                left = typeof(ArrowCompute).GetMethod(nameof(ArrowCompute.BitmapFromMask))!.CallStatic(
-                    [leftElementType],
-                    [_ctxParam, left]);
-
-            if (rightElementType != typeof(bool))
-                right = typeof(ArrowCompute).GetMethod(nameof(ArrowCompute.BitmapFromMask))!.CallStatic(
-                    [rightElementType],
-                    [_ctxParam, right]);
+            if (leftIsSpan)
+                left = ConvertSpanToBitmap(left);
+            if (rightIsSpan)
+                right = ConvertSpanToBitmap(right);
 
             return typeof(ArrowCompute).GetMethod(nameof(ArrowCompute.BitmapOps))!.CallStatic(
                 [],
-                [
-                    _ctxParam,
-                    left,
-                    right,
-                    node.NodeType.Quoted
-                ]);
+                [_ctxParam, left, right, node.NodeType.Quoted, Expression.Constant(MemoryConfig.None)]);
         }
 
-        return typeof(ArrowCompute).GetMethod(nameof(ArrowCompute.Zip))!.CallStatic(
-            [leftElementType],
-            [
-                _ctxParam,
-                left,
-                right,
-                node.NodeType.Quoted
-            ]);
+        // Both are spans — compare element types
+        Type leftElementType = SpanElementType(left);
+        Type rightElementType = SpanElementType(right);
+
+        if (leftElementType != rightElementType)
+        {
+            // Type mismatch — convert both to bitmaps
+            left = ConvertSpanToBitmap(left);
+            right = ConvertSpanToBitmap(right);
+
+            return typeof(ArrowCompute).GetMethod(nameof(ArrowCompute.BitmapOps))!.CallStatic(
+                [],
+                [_ctxParam, left, right, node.NodeType.Quoted, Expression.Constant(MemoryConfig.None)]);
+        }
+
+        // Same type — use Zip<T>
+        return typeof(ArrowCompute).GetMethod(nameof(ArrowCompute.Zip))!
+            .CallStatic(
+                [leftElementType],
+                [_ctxParam, left, right, node.NodeType.Quoted, Expression.Constant(MemoryConfig.None)]);
+    }
+
+    /// <summary>Converts a Span{T} expression to a Bitmap expression via BitmapFromMask{T}.</summary>
+    private Expression ConvertSpanToBitmap(Expression spanExpr)
+    {
+        Type elementType = SpanElementType(spanExpr);
+        return typeof(ArrowCompute).GetMethod(nameof(ArrowCompute.BitmapFromMask))!
+            .CallStatic(
+                [elementType],
+                [_ctxParam, spanExpr]);
+    }
+
+    private Expression ExecuteBinarySpanScalarRight(
+        BinaryExpression node,
+        Expression leftSpan,
+        Expression rightScalar)
+    {
+        Type elementType = SpanElementType(leftSpan);
+
+        // For boolean operations on masks, the scalar needs to be converted to the mask type
+        // Otherwise the element types should match (C# compiler inserts Convert nodes)
+
+        return typeof(ArrowCompute).GetMethod(nameof(ArrowCompute.ZipScalarRight))!
+            .CallStatic(
+                [elementType],
+                [_ctxParam, leftSpan, rightScalar, node.NodeType.Quoted, Expression.Constant(MemoryConfig.None)]);
+    }
+
+    private Expression ExecuteBinarySpanScalarLeft(
+        BinaryExpression node,
+        Expression leftScalar,
+        Expression rightSpan)
+    {
+        Type elementType = SpanElementType(rightSpan);
+
+        return typeof(ArrowCompute).GetMethod(nameof(ArrowCompute.ZipScalarLeft))!
+            .CallStatic(
+                [elementType],
+                [_ctxParam, leftScalar, rightSpan, node.NodeType.Quoted, Expression.Constant(MemoryConfig.None)]);
     }
 }

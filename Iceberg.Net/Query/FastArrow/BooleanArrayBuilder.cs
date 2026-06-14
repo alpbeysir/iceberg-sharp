@@ -33,10 +33,23 @@ public class BooleanArrayBuilder(MemoryAllocator? allocator = null)
         return this;
     }
 
+    /// <summary>
+    ///     Append a packed bitmap with a known logical bit count directly to the value buffer.
+    /// </summary>
+    public BooleanArrayBuilder AppendBitmap(ReadOnlySpan<byte> bitmap, int bitCount)
+    {
+        ValueBuffer.Append(bitmap, bitCount);
+        for (var i = 0; i < bitCount; i++)
+            ValidityBuffer.Append(true);
+        return this;
+    }
+
     public BooleanArrayBuilder AppendMask<TMask>(ReadOnlySpan<TMask> mask)
         where TMask : unmanaged, INumber<TMask>
     {
-        // TODO optimize this
+        if (typeof(TMask) == typeof(byte))
+            throw new InvalidOperationException(
+                "Use AppendBitmap for byte-packed bitmaps. AppendMask<byte> is for byte-sized mask values.");
         foreach (TMask value in mask)
         {
             var isTrue = value != TMask.Zero;

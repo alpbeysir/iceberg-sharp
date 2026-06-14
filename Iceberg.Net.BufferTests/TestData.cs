@@ -1,11 +1,9 @@
-﻿using Iceberg.Net.BufferTests;
-
-namespace Iceberg.Net.Tests;
+﻿namespace Iceberg.Net.BufferTests;
 
 public static class TestData
 {
     // 1. Configurable static variable for size
-    private static int RowCount => 256;
+    private static int RowCount => 267;
 
     // 2. Deterministic generator method
     public static List<TestRow> GenerateRows()
