@@ -267,14 +267,16 @@ public static class ArrowCompute
     }
 
     // fast path when result is a list and we can reuse the original offsets
-    public static ListArrayBuilder ExecuteListSelect<TInput, TValueInput>(
+    public static ListArrayBuilder ExecuteListSelect<TInput, TValueInput, TValueBuilder>(
         ExecutionContext ctx,
         TInput input,
-        Action<ExecutionContext, TValueInput, ListArrayBuilder> op,
+        Action<ExecutionContext, TValueInput, TValueBuilder> op,
         ListArrayBuilder builder)
         where TInput : IInput<TInput>
         where TValueInput : IInput<TValueInput>
+        where TValueBuilder : class, IArrowArrayBuilder
     {
+        TValueBuilder valueBuilder = (TValueBuilder)builder.ValueBuilder;
         ListArray l = (ListArray)input.Array;
 
         // IdentityInput: process all rows at once (columnar fast path)
@@ -284,7 +286,7 @@ public static class ArrowCompute
             builder.ValueBuilder.Reserve(l.Values.Length);
 
             TInput subInput = input.Apply(l.Values);
-            op(ctx, Unsafe.As<TInput, TValueInput>(ref subInput), builder);
+            op(ctx, Unsafe.As<TInput, TValueInput>(ref subInput), valueBuilder);
 
             builder.InitializeOffsetsFromList(l, 0, l.Length);
             return builder;
@@ -293,8 +295,6 @@ public static class ArrowCompute
         // IndexedInput: process a single row identified by the index
         if (typeof(TInput) == typeof(IndexedInput))
         {
-            Debug.Assert(typeof(TValueInput) == typeof(IndexedInput));
-            
             ref IndexedInput indexed = ref Unsafe.As<TInput, IndexedInput>(ref input);
             var start = l.ValueOffsets[indexed.Index];
             var end = start + l.GetValueLength(indexed.Index);
@@ -303,7 +303,7 @@ public static class ArrowCompute
             builder.ValueBuilder.Reserve(end - start);
 
             RangedInput subInput = new(l.Values, new Range(start, end));
-            op(ctx, Unsafe.As<RangedInput, TValueInput>(ref subInput), builder);
+            op(ctx, Unsafe.As<RangedInput, TValueInput>(ref subInput), valueBuilder);
 
             return builder;
         }
@@ -311,17 +311,18 @@ public static class ArrowCompute
         throw new InvalidOperationException($"Unsupported TInput: {typeof(TInput)}");
     }
 
-    public static ListArrayBuilder ExecuteListWhere<TInput>(
+    public static ListArrayBuilder ExecuteListWhere<TInput, TValueBuilder>(
         ExecutionContext ctx,
         TInput input,
-        // TODO allow this function to ask for another builder type
         Action<ExecutionContext, TInput, BooleanArrayBuilder> op,
-        Action<ExecutionContext, IndexedInput, ListArrayBuilder> copier,
+        Action<ExecutionContext, IndexedInput, TValueBuilder> copier,
         ListArrayBuilder builder)
         where TInput : IInput<TInput>
+        where TValueBuilder : class, IArrowArrayBuilder
     {
         Debug.Assert(typeof(TInput) == typeof(IdentityInput));
 
+        var valueBuilder = (TValueBuilder)(object)builder.ValueBuilder;
         BooleanArrayBuilder maskBuilder = new(ctx.ArrowAllocator);
         ListArray l = (ListArray)input.Array;
 
@@ -344,7 +345,7 @@ public static class ArrowCompute
                     continue;
 
                 IndexedInput indexedInput = new(l.Values, j);
-                copier(ctx, indexedInput, builder);
+                copier(ctx, indexedInput, valueBuilder);
             }
         }
 
@@ -469,20 +470,22 @@ public static class ArrowCompute
         return builder.Append(array.Values);
     }
 
-    public static ListArrayBuilder CopyList<TInput>(
+    public static ListArrayBuilder CopyList<TInput, TValueBuilder>(
         ExecutionContext ctx,
         TInput input,
         ListArrayBuilder builder,
-        Action<ExecutionContext, TInput, ListArrayBuilder> valueCopier)
+        Action<ExecutionContext, TInput, TValueBuilder> valueCopier)
         where TInput : IInput<TInput>
+        where TValueBuilder : class, IArrowArrayBuilder
     {
         // TODO switch by input type
         Debug.Assert(typeof(TInput) == typeof(IdentityInput));
 
+        var valueBuilder = (TValueBuilder)(object)builder.ValueBuilder;
         ListArray l = (ListArray)input.Array;
         builder.InitializeOffsetsFromList(l, 0, input.Length);
         TInput subInput = input.Apply(l.Values);
-        valueCopier(ctx, subInput, builder);
+        valueCopier(ctx, subInput, valueBuilder);
         return builder;
     }
 

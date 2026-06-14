@@ -276,42 +276,6 @@ public class BufferTransformVisitor : ExpressionVisitorNarrow<Expression, Lambda
         }
     }
 
-    private static LambdaExpression PassValueBuilderAndCall(
-        LambdaExpression arrowPredicate)
-    {
-        Type inputType = arrowPredicate.Parameters[1].Type;
-        Type resultType = GetResultBuilder(arrowPredicate).Type;
-
-        ParameterExpression ctxP = Expression.Parameter(typeof(ExecutionContext), "ctx");
-        ParameterExpression elemP = Expression.Parameter(inputType, "elem");
-        ParameterExpression builderP = Expression.Parameter(typeof(ListArrayBuilder), "builder");
-
-        List<Expression> invokeArgs =
-        [
-            ctxP,
-            elemP,
-            AccessValueBuilder(resultType, builderP)
-        ];
-        List<ParameterExpression> outerParams = [ctxP, elemP, builderP];
-        
-        return Expression.Lambda(
-            Expression.Invoke(arrowPredicate, invokeArgs),
-            "QueryMethodValueBuilderAccess",
-            false,
-            outerParams);
-
-        static Expression AccessValueBuilder(Type valueBuilderType, ParameterExpression listBuilder)
-        {
-#if DEBUG
-            return Expression.Convert(listBuilder.Property(nameof(ListArrayBuilder.ValueBuilder)), valueBuilderType);
-#else
-        return typeof(Unsafe).GetMethod(nameof(Unsafe.As), [typeof(object)])!.CallStatic(
-            [valueBuilderType],
-            [listBuilder.Property(nameof(ListArrayBuilder.ValueBuilder))]);
-#endif
-        }
-    }
-
     private static ParameterExpression GetResultBuilder(LambdaExpression arrowPredicate)
     {
         return arrowPredicate.Parameters[^1];
@@ -335,7 +299,6 @@ public class BufferTransformVisitor : ExpressionVisitorNarrow<Expression, Lambda
         LambdaExpression predicate = (LambdaExpression)Visit(originalPredicate);
         _inputTypes.Pop();
 
-        LambdaExpression op = PassValueBuilderAndCall(predicate);
         ArrowTypeInfo resultElementType = ArrowTypeUtils.ForCSharpType(originalPredicate.ReturnType);
         ArrowTypeInfo resultInfo = ArrowTypeUtils.ListOf(resultElementType);
 
@@ -345,13 +308,14 @@ public class BufferTransformVisitor : ExpressionVisitorNarrow<Expression, Lambda
             InputType.Ranged => typeof(RangedInput),
             _ => throw new InvalidOperationException()
         };
+        Type valueBuilderType = predicate.Parameters[^1].Type;
 
         MethodInfo method = typeof(ArrowCompute).GetMethod(nameof(ArrowCompute.ExecuteListSelect))!
-            .MakeGenericMethod(source.Type, valueInputType);
+            .MakeGenericMethod(source.Type, valueInputType, valueBuilderType);
 
         ParameterExpression builderParam = Expression.Parameter(resultInfo.BuilderType, "builder");
         LambdaExpression callLambda = Expression.Lambda(
-            Expression.Call(null, method, _ctxParam, source, op, builderParam),
+            Expression.Call(null, method, _ctxParam, source, predicate, builderParam),
             $"QueryMethod_GenerateListSelect_{originalPredicate}",
             false,
             [builderParam]);
@@ -371,15 +335,15 @@ public class BufferTransformVisitor : ExpressionVisitorNarrow<Expression, Lambda
         Type elementType = originalPredicate.Parameters[0].Type;
         ArrowTypeInfo elementTypeInfo = ArrowTypeUtils.ForCSharpType(elementType);
         LambdaExpression valueCopier = GenerateCopy(typeof(IndexedInput), elementTypeInfo);
-        LambdaExpression copier = PassValueBuilderAndCall(valueCopier);
 
         ArrowTypeInfo resultInfo = ArrowTypeUtils.ListOf(elementTypeInfo);
+        Type valueBuilderType = valueCopier.Parameters[^1].Type;
         MethodInfo method = typeof(ArrowCompute).GetMethod(nameof(ArrowCompute.ExecuteListWhere))!
-            .MakeGenericMethod(source.Type);
+            .MakeGenericMethod(source.Type, valueBuilderType);
 
         ParameterExpression builderParam = Expression.Parameter(resultInfo.BuilderType, "builder");
         LambdaExpression callLambda = Expression.Lambda(
-            Expression.Call(null, method, _ctxParam, source, predicate, copier, builderParam),
+            Expression.Call(null, method, _ctxParam, source, predicate, valueCopier, builderParam),
             $"QueryMethod_GenerateListWhere_{originalPredicate}",
             false,
             [builderParam]);
@@ -455,14 +419,14 @@ public class BufferTransformVisitor : ExpressionVisitorNarrow<Expression, Lambda
         return expr;
     }
 
-    private static LambdaExpression GenerateListCopy<TInput>(LambdaExpression valueCopier)
+    private static LambdaExpression GenerateListCopy<TInput, TValueBuilder>(LambdaExpression valueCopier)
         where TInput : IInput<TInput>
+        where TValueBuilder : class, IArrowArrayBuilder
     {
-        Action<ExecutionContext, TInput, ListArrayBuilder> compiled =
-            (Action<ExecutionContext, TInput, ListArrayBuilder>)PassValueBuilderAndCall(valueCopier).Compile();
+        var compiled = (Action<ExecutionContext, TInput, TValueBuilder>)valueCopier.Compile();
         LambdaExpression expr = (ExecutionContext ctx, TInput input, ListArrayBuilder builder) =>
             HideBuilderReturnGeneric(
-                ArrowCompute.CopyList(
+                ArrowCompute.CopyList<TInput, TValueBuilder>(
                     ctx,
                     input,
                     builder,
@@ -482,7 +446,7 @@ public class BufferTransformVisitor : ExpressionVisitorNarrow<Expression, Lambda
                 MethodInfo method = typeof(BufferTransformVisitor).GetMethod(
                     nameof(GenerateListCopy),
                     BindingFlags.Static | BindingFlags.NonPublic)!.MakeGenericMethod(
-                    inputType
+                    inputType, valueCopier.Parameters[^1].Type
                 );
                 return (LambdaExpression)method.Invoke(null, [valueCopier])!;
             }
