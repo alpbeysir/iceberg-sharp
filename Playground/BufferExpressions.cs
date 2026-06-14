@@ -1,4 +1,5 @@
-﻿using System.Linq.Expressions;
+﻿using System.Diagnostics;
+using System.Linq.Expressions;
 using System.Reflection;
 using Apache.Arrow;
 using Apache.Arrow.Memory;
@@ -18,17 +19,17 @@ namespace Playground;
 [ArrowSerializable]
 public partial record MyStruct
 {
-    public int? A { get; set; } = 3;
-    public double B { get; set; } = 5;
-    public List<int> L { get; set; } = [3, 3];
-    public List<List<int>> LNest { get; set; } = [[3, 3], [4, 4]];
-    public Nested N { get; set; } = new() { C = 9 };
+    public int? A { get; init; } = 3;
+    public double B { get; init; } = 5;
+    public List<int> L { get; init; } = [3, 3];
+    public List<List<int>> LNest { get; init; } = [[3, 3], [4, 4]];
+    public Nested N { get; init; } = new() { C = 9 };
 }
 
 [ArrowSerializable]
 public partial record Nested
 {
-    public int C { get; set; }
+    public int C { get; init; }
 }
 
 public class BufferExpressions
@@ -73,7 +74,7 @@ public class BufferExpressions
         // LambdaExpression test1000 = (int num) => num;
         // Run(test1000, list);
 
-        LambdaExpression test11 = (MyStruct str) => str.L.Select(n => str.N.C);
+        LambdaExpression test11 = (MyStruct str) => str.L.Select(n => str.A + 3);
         Run(test11, list);
 
         // LambdaExpression test10 = (MyStruct str) => str.LNest.Select(n => n.Where(n2 => n2 > str.N.C));

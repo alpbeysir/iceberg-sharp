@@ -76,6 +76,19 @@ public static class ArrowCompute
         return new Bitmap(bytes, bitLength);
     }
 
+    /// <summary>
+    ///     Allocates a span and fills it with <paramref name="value" /> repeated <paramref name="count" /> times.
+    /// </summary>
+    public static Span<T> FillSpan<T>(ExecutionContext ctx, T value, int count)
+        where T : struct
+    {
+        if (count == 0) return Span<T>.Empty;
+
+        Span<T> result = ArenaAllocate<T>(ctx.Arena, count);
+        result.Fill(value);
+        return result;
+    }
+
     // TODO this will not handle nulls properly
     public static Span<T> Zip<T>(
         ExecutionContext ctx,
@@ -280,6 +293,8 @@ public static class ArrowCompute
         // IndexedInput: process a single row identified by the index
         if (typeof(TInput) == typeof(IndexedInput))
         {
+            Debug.Assert(typeof(TValueInput) == typeof(IndexedInput));
+            
             ref IndexedInput indexed = ref Unsafe.As<TInput, IndexedInput>(ref input);
             var start = l.ValueOffsets[indexed.Index];
             var end = start + l.GetValueLength(indexed.Index);
