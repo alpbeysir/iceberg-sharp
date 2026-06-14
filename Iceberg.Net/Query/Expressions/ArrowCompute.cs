@@ -59,12 +59,10 @@ public static class ArrowCompute
         zip.CopyTo(result);
         return result;
     }
-
-    public static ReadOnlySpan<T> SliceSpan<T>(ReadOnlySpan<T> span, Range range)
-    {
-        (int Offset, int Length) offsetAndLength = range.GetOffsetAndLength(span.Length);
-        return span.Slice(offsetAndLength.Offset, offsetAndLength.Length);
-    }
+    
+    // Used by generated expression trees to read from ReadOnlySpan<int> by index
+    // (expression trees can't handle ref returns from get_Item)
+    public static int ReadOffset(ReadOnlySpan<int> offsets, int index) => offsets[index];
 
     private static T UnsafeBitwise<T>(T l, T r, Func<int, int, int> func, Func<long, long, long> func2)
         where T : unmanaged, INumber<T>

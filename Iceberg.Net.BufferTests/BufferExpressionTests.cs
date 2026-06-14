@@ -53,8 +53,11 @@ public class BufferExpressionTests
         TheoryData<TestCase> data = [];
         data.AddRange(
             new TestCase(
-                L((TestRow str) => new { b = str.B, c = str.N.C }),
+                L((TestRow str) => new { b = str.B, a = str.A + str.B, Z = str.N.C }),
                 "simple projection"),
+            new TestCase(
+                L((TestRow str) => new { b = str.B, c = str.N.C }),
+                "simple projection 2"),
             new TestCase(
                 L((TestRow str) => new { b = str.B, nested = new { c = str.N.C + 3 } }),
                 "nested struct"),

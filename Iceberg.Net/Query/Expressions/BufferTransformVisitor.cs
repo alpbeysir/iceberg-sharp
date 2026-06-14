@@ -99,7 +99,7 @@ public readonly record struct IndexedInput(IArrowArray Array, int Index)
 public class BufferTransformVisitor : ExpressionVisitorNarrow<Expression, LambdaExpression, Expression,
     NewExpression, ElementInit, MemberBinding, MemberAssignment, MemberListBinding, MemberMemberBinding>
 {
-    private readonly Dictionary<ParameterExpression, ParameterExpression> _bindings = [];
+    private readonly Stack<(ParameterExpression original, ParameterExpression mapped)> _bindings = [];
     private readonly ParameterExpression _ctxParam = Expression.Parameter(typeof(ExecutionContext), "ctx");
     private readonly Dictionary<MemberInfo, int> _memberIndex = [];
     private readonly Stack<Expression?> _builderStack = new();
@@ -122,16 +122,21 @@ public class BufferTransformVisitor : ExpressionVisitorNarrow<Expression, Lambda
             "builder");
 
         _builderStack.Push(resultBuilderParam);
-        
+
+        // Create bindings for local params (based on current _inputTypes)
         foreach ((var index, ParameterExpression expression) in node.Parameters.Index())
-            _bindings.Add(
+        {
+            _bindings.Push(
+                (
                 expression,
-                Expression.Parameter(MakeInputTypeForArray(GetBufferType(expression.Type), index), expression.Name));
+                Expression.Parameter(
+                    MakeInputTypeForArray(GetBufferType(expression.Type), index),
+                    expression.Name)));
+        }
 
         Expression? expr = base.VisitLambda(node);
 
         _builderStack.Pop();
-
         return expr;
     }
 
@@ -178,15 +183,50 @@ public class BufferTransformVisitor : ExpressionVisitorNarrow<Expression, Lambda
 
     protected override Expression VisitMethodCall(MethodCallExpression node)
     {
-        Expression source = Visit(node.Object);
-        // Visit the enumerable source (first argument) but leave lambda arguments unvisited.
-        // Each Generate* method visits the lambda with the correct input type context.
-        List<Expression> args = new(node.Arguments.Count);
-        args.Add(Visit(node.Arguments[0]));
-        for (var i = 1; i < node.Arguments.Count; i++)
-            args.Add(node.Arguments[i]);
+        // TODO instance calls
+        Debug.Assert(node.Object == null);
 
-        return MakeMethodCall(node, source, args.AsReadOnly());
+        if (_builderStack.Count == 0)
+        {
+            throw new NotImplementedException("TODO top-level query operator");
+        }
+        else
+        {
+            // TODO replace this with 'function registry'
+            List<string> supportedTypes = ["Enumerable", "Queryable", "List"];
+            Type? declaringType = node.Method.DeclaringType;
+            if (declaringType == null && !supportedTypes.Any(name => declaringType!.Name.Contains(name)))
+                throw new NotImplementedException("this method can't be mapped yet");
+
+            var methodName = node.Method.Name;
+
+            Expression originalEnumerable = node.Arguments[0];
+            LambdaExpression originalPredicate = (LambdaExpression)node.Arguments[1];
+
+            List<(ParameterExpression, ParameterExpression)> closureParams = SetupClosureParameters(originalPredicate);
+            var hasClosures = closureParams.Count > 0;
+
+            Expression enumerable = Visit(originalEnumerable);
+
+            if (hasClosures)
+            {
+            }
+
+            closureParams.ForEach(pair => _bindings.Push(pair));
+
+            Expression result = methodName switch
+            {
+                "Select" => GenerateListSelect(enumerable, originalPredicate),
+                "All" => GenerateListAll(enumerable, originalPredicate),
+                "Any" => GenerateListAny(enumerable, originalPredicate),
+                "Where" => GenerateListWhere(enumerable, originalPredicate),
+                _ => throw new NotImplementedException("this method can't be mapped yet")
+            };
+
+            closureParams.ForEach(_ => _bindings.Pop());
+
+            return result;
+        }
     }
 
     private static LambdaExpression PassValueBuilderAndCall(
@@ -233,7 +273,8 @@ public class BufferTransformVisitor : ExpressionVisitorNarrow<Expression, Lambda
         Expression source,
         LambdaExpression originalPredicate)
     {
-        _inputTypes.Push([InputType.Identity]);
+        InputType inputType = GetInputType(source);
+        _inputTypes.Push([inputType]);
         LambdaExpression predicate = (LambdaExpression)Visit(originalPredicate);
         _inputTypes.Pop();
 
@@ -256,7 +297,8 @@ public class BufferTransformVisitor : ExpressionVisitorNarrow<Expression, Lambda
         Expression source,
         LambdaExpression originalPredicate)
     {
-        _inputTypes.Push([InputType.Identity]);
+        InputType inputType = GetInputType(source);
+        _inputTypes.Push([inputType]);
         LambdaExpression predicate = (LambdaExpression)Visit(originalPredicate);
         _inputTypes.Pop();
 
@@ -562,41 +604,106 @@ public class BufferTransformVisitor : ExpressionVisitorNarrow<Expression, Lambda
         return node;
     }
 
+    private Expression WrapWithClosureLoop(
+        Expression source,
+        LambdaExpression originalPredicate)
+    {
+        throw new NotImplementedException();
+        // Re-build the predicate with IndexedInput.
+        InputType[] saved = _inputTypes.Peek()!;
+        _inputTypes.Pop();
+        _inputTypes.Push([InputType.Indexed]);
+        LambdaExpression predicate = (LambdaExpression)Visit(originalPredicate);
+        _inputTypes.Pop();
+        _inputTypes.Push(saved);
+
+        ArrowTypeInfo resultInfo = ArrowTypeUtils.ListOf(
+            ArrowTypeUtils.ForCSharpType(originalPredicate.Parameters[0].Type));
+
+        Type elementType = originalPredicate.Parameters[0].Type;
+        ArrowTypeInfo elementTypeInfo = ArrowTypeUtils.ForCSharpType(elementType);
+        LambdaExpression valueCopier = GenerateCopy(typeof(IndexedInput), elementTypeInfo);
+        LambdaExpression copier = PassValueBuilderAndCall(valueCopier);
+
+        ParameterExpression builderParam = Expression.Parameter(resultInfo.BuilderType, "builder");
+
+        MethodInfo execMethod = typeof(ArrowCompute)
+            .GetMethod(nameof(ArrowCompute.ExecuteListWhere))!
+            .MakeGenericMethod(source.Type);
+
+        // For-loop call lambda: per-row iteration calling ExecuteListWhere
+        ParameterExpression listVar = Expression.Variable(typeof(ListArray), "list");
+        ParameterExpression rowVar = Expression.Variable(typeof(int), "row");
+        ParameterExpression startVar = Expression.Variable(typeof(int), "start");
+        ParameterExpression endVar = Expression.Variable(typeof(int), "end");
+        LabelTarget rowBreak = Expression.Label("rowEnd");
+
+        Expression listArray = Expression.Convert(
+            Expression.Property(source, nameof(IInput<>.Array)),
+            typeof(ListArray));
+        MemberExpression offsets = Expression.Property(listVar, nameof(ListArray.ValueOffsets));
+        MethodInfo readOff = typeof(ArrowCompute).GetMethod(nameof(ArrowCompute.ReadOffset))!;
+        MethodCallExpression getLen = Expression.Call(listVar, nameof(ListArray.GetValueLength), null, rowVar);
+
+        // Per-row source: RangedInput on list values
+        NewExpression rowSource = Expression.New(
+            typeof(RangedInput).GetConstructor([typeof(IArrowArray), typeof(Range)])!,
+            Expression.Property(listVar, nameof(ListArray.Values)),
+            Expression.New(
+                typeof(Range).GetConstructor([typeof(int), typeof(int)])!,
+                startVar,
+                endVar));
+
+        // Call: ExecuteListWhere(ctx, rowSource, predicate, copier, builder, outerIdx0, ...)
+        // List<Expression> execArgs = [_ctxParam, rowSource, predicate, copier, builderParam];
+        // execArgs.AddRange(outerIdxExprs);
+        // Expression rowCall = Expression.Call(null, execMethod, execArgs);
+
+        // Loop body
+        Expression rowBody = Expression.Block(
+            [startVar, endVar],
+            Expression.Assign(startVar, Expression.Call(null, readOff, offsets, rowVar)),
+            Expression.Assign(endVar, Expression.Add(startVar, getLen)),
+            null);
+
+        // for (int r = 0; r < list.Length; r++)
+        Expression loop = Expression.Loop(
+            Expression.IfThenElse(
+                Expression.LessThan(rowVar, Expression.Property(listVar, nameof(IArrowArray.Length))),
+                Expression.Block(rowBody, Expression.PostIncrementAssign(rowVar)),
+                Expression.Break(rowBreak)),
+            rowBreak);
+
+        Expression callBody = Expression.Block(
+            [listVar, rowVar],
+            Expression.Assign(listVar, listArray),
+            Expression.Assign(rowVar, Expression.Constant(0)),
+            loop);
+
+        LambdaExpression callLambda = Expression.Lambda(callBody, builderParam);
+        return TryExecuteWithBuilder(callLambda, resultInfo);
+    }
+
+    private List<(ParameterExpression, ParameterExpression)> SetupClosureParameters(LambdaExpression predicate)
+    {
+        List<ParameterExpression> capturedParams = FreeVariableScanner.Scan(predicate).ToList();
+        if (capturedParams.Count == 0) return [];
+
+        // TODO handle different existing input types
+        return capturedParams
+            .Where(param => !_bindings.First(pair => pair.original == param).mapped.Name!.Contains("_closure"))
+            .Select(param => (param,
+                Expression.Parameter(
+                    typeof(IndexedInput),
+                    param.Name + "_closure"))).ToList();
+    }
+
     protected override Expression MakeMethodCall(
         MethodCallExpression node,
         Expression @object,
         ReadOnlyCollection<Expression> arguments)
     {
-        if (_builderStack.Count == 0)
-        {
-            throw new NotImplementedException("TODO top-level query operator");
-        }
-        else
-        {
-            // TODO replace this with 'function registry'
-            List<string> supportedTypes = ["Enumerable", "Queryable", "List"];
-            Type? declaringType = node.Method.DeclaringType;
-            if (declaringType == null && !supportedTypes.Any(name => declaringType!.Name.Contains(name)))
-                throw new NotImplementedException("this method can't be mapped yet");
-
-            var methodName = node.Method.Name;
-
-            Expression enumerable = arguments[0];
-
-            if (methodName == "Contains")
-                return GenerateListContains(enumerable, node.Arguments[0]);
-
-            LambdaExpression originalPredicate = (LambdaExpression)node.Arguments[1];
-
-            return methodName switch
-            {
-                "Select" => GenerateListSelect(enumerable, originalPredicate),
-                "All" => GenerateListAll(enumerable, originalPredicate),
-                "Any" => GenerateListAny(enumerable, originalPredicate),
-                "Where" => GenerateListWhere(enumerable, originalPredicate),
-                _ => throw new NotImplementedException("this method can't be mapped yet")
-            };
-        }
+        throw new InvalidOperationException("Must have done everything with VisitMethodCall");
     }
 
     protected override Expression MakeNew(NewExpression node, ReadOnlyCollection<Expression> arguments)
@@ -680,7 +787,7 @@ public class BufferTransformVisitor : ExpressionVisitorNarrow<Expression, Lambda
 
     protected override Expression MakeParameter(ParameterExpression node)
     {
-        return _bindings[node];
+        return _bindings.First(tuple => tuple.original == node).mapped;
     }
 
     protected override Expression MakeTypeBinary(TypeBinaryExpression node, Expression expression)
@@ -703,7 +810,7 @@ public class BufferTransformVisitor : ExpressionVisitorNarrow<Expression, Lambda
                     return Expression.Convert(scalar, node.Type);
                 }
 
-                Expression asSpan = AsSpan(operand, node);
+                Expression asSpan = AsSpan(operand, node.Operand);
                 Type elemType = SpanElementType(asSpan);
                 Type resultUnderlyingType = Nullable.GetUnderlyingType(node.Type) ?? node.Type;
                 if (elemType == resultUnderlyingType) return operand;
@@ -758,6 +865,18 @@ public class BufferTransformVisitor : ExpressionVisitorNarrow<Expression, Lambda
             InputType.Indexed => typeof(IndexedInput),
             _ => throw new ArgumentOutOfRangeException()
         };
+    }
+
+    private static InputType GetInputType(Expression input)
+    {
+        Debug.Assert(input.Type.ImplementsInterface(typeof(IInput<>)));
+        if (IsIdentityInput(input))
+            return InputType.Identity;
+        else if (IsRangedInput(input))
+            return InputType.Ranged;
+        else if (IsIndexedInput(input)) return InputType.Masked;
+
+        throw new NotImplementedException();
     }
 
     private Type GetBufferType(Type type)
