@@ -16,10 +16,8 @@ public enum MemoryConfig
 {
     /// <summary>Allocate new memory for the result.</summary>
     None,
-
     /// <summary>Reuse the left operand's memory for the result.</summary>
     Left,
-
     /// <summary>Reuse the right operand's memory for the result.</summary>
     Right
 }
@@ -229,10 +227,6 @@ public static class ArrowCompute
         return result;
     }
 
-    // Used by generated expression trees to read from ReadOnlySpan<int> by index
-    // (expression trees can't handle ref returns from get_Item)
-    public static int ReadOffset(ReadOnlySpan<int> offsets, int index) => offsets[index];
-
     private static T UnsafeBitwise<T>(T l, T r, Func<int, int, int> func, Func<long, long, long> func2)
         where T : unmanaged, INumber<T>
     {
@@ -255,212 +249,7 @@ public static class ArrowCompute
         throw new UnreachableException();
     }
 
-    public static TResultBuilder ExecuteElementWiseListOp<TInput, TResultArray, TResultBuilder>(
-        ExecutionContext ctx,
-        TInput input,
-        Action<ExecutionContext, RangedInput, TResultBuilder> op,
-        TResultBuilder builder)
-        where TResultBuilder : IArrowArrayBuilder<TResultArray, TResultBuilder>
-        where TInput : IInput<TInput>
-        where TResultArray : class, IArrowArray
-    {
-        builder.Reserve(input.Length);
-        ListArray l = (ListArray)input.Array;
-        ListArrayBuilder? asListBuilder = builder as ListArrayBuilder;
-
-        // IdentityInput: iterate all rows
-        if (typeof(TInput) == typeof(IdentityInput))
-        {
-            for (var i = 0; i < l.Length; i++)
-            {
-                asListBuilder?.Append();
-                var start = l.ValueOffsets[i];
-                var end = start + l.GetValueLength(i);
-                op(ctx, new RangedInput(l.Values, new Range(start, end)), builder);
-            }
-            return builder;
-        }
-
-        // IndexedInput: process a single row
-        if (typeof(TInput) == typeof(IndexedInput))
-        {
-            ref IndexedInput indexed = ref Unsafe.As<TInput, IndexedInput>(ref input);
-            asListBuilder?.Append();
-            var start = l.ValueOffsets[indexed.Index];
-            var end = start + l.GetValueLength(indexed.Index);
-            op(ctx, new RangedInput(l.Values, new Range(start, end)), builder);
-            return builder;
-        }
-
-        // RangedInput: iterate rows within the range
-        if (typeof(TInput) == typeof(RangedInput))
-        {
-            ref RangedInput ranged = ref Unsafe.As<TInput, RangedInput>(ref input);
-            (int offset, int length) = ranged.Range.GetOffsetAndLength(l.Length);
-            for (var i = offset; i < offset + length; i++)
-            {
-                asListBuilder?.Append();
-                var start = l.ValueOffsets[i];
-                var end = start + l.GetValueLength(i);
-                op(ctx, new RangedInput(l.Values, new Range(start, end)), builder);
-            }
-            return builder;
-        }
-
-        throw new InvalidOperationException($"Unsupported TInput: {typeof(TInput)}");
-    }
-
-    // fast path when result is a list and we can reuse the original offsets
-    public static ListArrayBuilder ExecuteListSelect<TInput, TValueInput, TValueBuilder>(
-        ExecutionContext ctx,
-        TInput input,
-        Action<ExecutionContext, TValueInput, TValueBuilder> op,
-        ListArrayBuilder builder)
-        where TInput : IInput<TInput>
-        where TValueInput : IInput<TValueInput>
-        where TValueBuilder : class, IArrowArrayBuilder
-    {
-        TValueBuilder valueBuilder = (TValueBuilder)builder.ValueBuilder;
-        ListArray l = (ListArray)input.Array;
-
-        // IdentityInput: process all rows at once (columnar fast path)
-        if (typeof(TInput) == typeof(IdentityInput))
-        {
-            builder.Reserve(l.Length);
-            builder.ValueBuilder.Reserve(l.Values.Length);
-
-            builder.InitializeOffsetsFromList(l, 0, l.Length);
-            TInput subInput = input.Apply(l.Values);
-            op(ctx, Unsafe.As<TInput, TValueInput>(ref subInput), valueBuilder);
-
-            return builder;
-        }
-
-        if (typeof(TInput) == typeof(RangedInput))
-        {
-            ref RangedInput ranged = ref Unsafe.As<TInput, RangedInput>(ref input);
-            Range range = ranged.Range;
-            var (offset, length) = range.GetOffsetAndLength(l.Length);
-
-            var start = l.ValueOffsets[offset];
-            var end = l.ValueOffsets[offset + length];
-
-            builder.InitializeOffsetsFromList(l, offset, length);
-            RangedInput subInput = new(l.Values, new Range(start, end));
-            op(ctx, Unsafe.As<RangedInput, TValueInput>(ref subInput), valueBuilder);
-
-            return builder;
-        }
-
-        // IndexedInput: process a single row identified by the index
-        if (typeof(TInput) == typeof(IndexedInput))
-        {
-            ref IndexedInput indexed = ref Unsafe.As<TInput, IndexedInput>(ref input);
-            var start = l.ValueOffsets[indexed.Index];
-            var end = start + l.GetValueLength(indexed.Index);
-
-            builder.Append();
-            builder.ValueBuilder.Reserve(end - start);
-
-            RangedInput subInput = new(l.Values, new Range(start, end));
-            op(ctx, Unsafe.As<RangedInput, TValueInput>(ref subInput), valueBuilder);
-
-            return builder;
-        }
-
-        throw new InvalidOperationException($"Unsupported TInput: {typeof(TInput)}");
-    }
-
-    public static ListArrayBuilder ExecuteListWhere<TInput, TValueBuilder>(
-        ExecutionContext ctx,
-        TInput input,
-        Action<ExecutionContext, TInput, BooleanArrayBuilder> op,
-        Action<ExecutionContext, IndexedInput, TValueBuilder> copier,
-        ListArrayBuilder builder)
-        where TInput : IInput<TInput>
-        where TValueBuilder : class, IArrowArrayBuilder
-    {
-        TValueBuilder valueBuilder = (TValueBuilder)builder.ValueBuilder;
-        ListArray l = (ListArray)input.Array;
-
-        // IdentityInput: process all rows at once
-        if (typeof(TInput) == typeof(IdentityInput))
-        {
-            BooleanArrayBuilder maskBuilder = new(ctx.ArrowAllocator);
-            TInput subInput = input.Apply(l.Values);
-            op(ctx, subInput, maskBuilder);
-            using BooleanArray mask = maskBuilder.Build(ctx.ArrowAllocator);
-
-            for (var i = 0; i < l.Length; i++)
-            {
-                builder.Append();
-                var start = l.ValueOffsets[i];
-                var end = start + l.GetValueLength(i);
-                for (var j = start; j < end; j++)
-                {
-                    if (!mask.GetValue(j)!.Value)
-                        continue;
-                    copier(ctx, new IndexedInput(l.Values, j), valueBuilder);
-                }
-            }
-            return builder;
-        }
-
-        // IndexedInput: process a single row, scalar per-element
-        if (typeof(TInput) == typeof(IndexedInput))
-        {
-            ref IndexedInput indexed = ref Unsafe.As<TInput, IndexedInput>(ref input);
-            var start = l.ValueOffsets[indexed.Index];
-            var end = start + l.GetValueLength(indexed.Index);
-
-            BooleanArrayBuilder maskBuilder = new(ctx.ArrowAllocator);
-            for (var j = start; j < end; j++)
-            {
-                IndexedInput el = new(l.Values, j);
-                op(ctx, Unsafe.As<IndexedInput, TInput>(ref el), maskBuilder);
-            }
-            using BooleanArray mask = maskBuilder.Build(ctx.ArrowAllocator);
-
-            builder.Append();
-            for (var j = 0; j < end - start; j++)
-            {
-                if (!mask.GetValue(j)!.Value)
-                    continue;
-                copier(ctx, new IndexedInput(l.Values, start + j), valueBuilder);
-            }
-            return builder;
-        }
-
-        // RangedInput: process rows within the range, vectorized
-        if (typeof(TInput) == typeof(RangedInput))
-        {
-            ref RangedInput ranged = ref Unsafe.As<TInput, RangedInput>(ref input);
-            var (offset, length) = ranged.Range.GetOffsetAndLength(l.Length);
-            var valStart = l.ValueOffsets[offset];
-            var valEnd = l.ValueOffsets[offset + length];
-
-            BooleanArrayBuilder maskBuilder = new(ctx.ArrowAllocator);
-            RangedInput rangeInput = new(l.Values, new Range(valStart, valEnd));
-            op(ctx, Unsafe.As<RangedInput, TInput>(ref rangeInput), maskBuilder);
-            using BooleanArray mask = maskBuilder.Build(ctx.ArrowAllocator);
-
-            for (var i = offset; i < offset + length; i++)
-            {
-                builder.Append();
-                var start = l.ValueOffsets[i];
-                var end = start + l.GetValueLength(i);
-                for (var j = start; j < end; j++)
-                {
-                    if (!mask.GetValue(j - valStart)!.Value)
-                        continue;
-                    copier(ctx, new IndexedInput(l.Values, j), valueBuilder);
-                }
-            }
-            return builder;
-        }
-
-        throw new InvalidOperationException($"Unsupported TInput: {typeof(TInput)}");
-    }
+   
 
     public static TResultBuilder MakeBuilderForGeneric<TResultBuilder>(IArrowType arrowType, MemoryAllocator? allocator)
         where TResultBuilder : class, IArrowArrayBuilder
@@ -472,6 +261,7 @@ public static class ArrowCompute
     {
         return arrowType switch
         {
+            // TODO make our versions of these builders that don't waste memory
             DoubleType => new DoubleArray.Builder(),
             Int32Type => new Int32Array.Builder(),
             BooleanType => new BooleanArrayBuilder(allocator),
@@ -563,43 +353,6 @@ public static class ArrowCompute
     }
 
     private static readonly int VectorSize = Vector<byte>.Count;
-
-    public static TBuilder CopyPrimitive<TInput, TArray, TValue, TBuilder>(
-        ExecutionContext ctx,
-        TInput input,
-        TBuilder builder)
-        where TInput : IInput<TInput>
-        where TArray : PrimitiveArray<TValue>
-        where TBuilder : PrimitiveArrayBuilder<TValue, TArray, TBuilder>
-        where TValue : struct, IEquatable<TValue>
-    {
-        TArray array = (TArray)input.Array;
-
-        if (input is IndexedInput indexed)
-            return builder.Append(array.Values[indexed.Index]);
-
-        Debug.Assert(typeof(TInput) == typeof(IdentityInput));
-        return builder.Append(array.Values);
-    }
-
-    public static ListArrayBuilder CopyList<TInput, TValueBuilder>(
-        ExecutionContext ctx,
-        TInput input,
-        ListArrayBuilder builder,
-        Action<ExecutionContext, TInput, TValueBuilder> valueCopier)
-        where TInput : IInput<TInput>
-        where TValueBuilder : class, IArrowArrayBuilder
-    {
-        // TODO switch by input type
-        Debug.Assert(typeof(TInput) == typeof(IdentityInput));
-
-        var valueBuilder = (TValueBuilder)builder.ValueBuilder;
-        ListArray l = (ListArray)input.Array;
-        builder.InitializeOffsetsFromList(l, 0, input.Length);
-        TInput subInput = input.Apply(l.Values);
-        valueCopier(ctx, subInput, valueBuilder);
-        return builder;
-    }
 
     public static bool All(BooleanArray array, Range range)
     {
@@ -802,8 +555,8 @@ public static class ArrowCompute
             ExpressionType.Divide => Vector.Divide,
             ExpressionType.GreaterThan => Vector.GreaterThan,
             ExpressionType.LessThan => Vector.LessThan,
-            ExpressionType.GreaterThanOrEqual => (l, r) => Vector.GreaterThanOrEqual(l, r),
-            ExpressionType.LessThanOrEqual => (l, r) => Vector.LessThanOrEqual(l, r),
+            ExpressionType.GreaterThanOrEqual => Vector.GreaterThanOrEqual,
+            ExpressionType.LessThanOrEqual => Vector.LessThanOrEqual,
             ExpressionType.Equal => Vector.Equals,
             ExpressionType.NotEqual => (l, r) => ~Vector.Equals(l, r),
             ExpressionType.And or ExpressionType.AndAlso => Vector.BitwiseAnd,

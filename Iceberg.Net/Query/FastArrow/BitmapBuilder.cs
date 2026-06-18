@@ -124,9 +124,10 @@ public class BitmapBuilder
         var targetByteIndex = (Length - _stagingCount) / 8;
         var tempBuffer = _stagingBuffer;
 
+        Span<byte> span = Span;
         for (var i = 0; i < bytesToWrite; i++)
         {
-            Span[targetByteIndex + i] = (byte)(tempBuffer & 0xFF);
+            span[targetByteIndex + i] = (byte)(tempBuffer & 0xFF);
             tempBuffer >>= 8;
         }
 

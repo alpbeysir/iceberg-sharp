@@ -7,7 +7,7 @@ using ListType = Apache.Arrow.Types.ListType;
 
 namespace Iceberg.Net.Query.Expressions;
 
-internal record ArrowTypeInfo(IArrowType ArrowType, Type ArrayType, Type BuilderType, Type CSharpType);
+public record ArrowTypeInfo(IArrowType ArrowType, Type ArrayType, Type BuilderType, Type CSharpType);
 
 public static class ArrowTypeUtils
 {

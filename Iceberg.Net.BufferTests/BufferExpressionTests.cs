@@ -1,15 +1,5 @@
 using System.Linq.Expressions;
-using System.Reflection;
-using Apache.Arrow;
-using Apache.Arrow.Types;
-using AwesomeAssertions;
-using Iceberg.Net.Misc;
-using Iceberg.Net.Query.Arrow;
-using Iceberg.Net.Query.Expressions;
-using Iceberg.Net.Query.FastArrow;
-using Iceberg.Net.Schemas;
-using Varena;
-using ExecutionContext = Iceberg.Net.Query.Expressions.ExecutionContext;
+using Xunit;
 
 [assembly: CollectionBehavior(DisableTestParallelization = true)]
 
@@ -31,21 +21,14 @@ public partial record TestRow
 
 public record TestCase(LambdaExpression Expr, string Desc)
 {
-    public override string ToString()
-    {
-        return Desc;
-    }
+    public override string ToString() => Desc;
 }
-
 
 public class BufferExpressionTests
 {
     private static readonly List<TestRow> Rows = TestData.GenerateRows();
-    
-    private static LambdaExpression L<T, T2>(Expression<Func<T, T2>> expr)
-    {
-        return expr;
-    }
+
+    private static LambdaExpression L<T, T2>(Expression<Func<T, T2>> expr) => expr;
 
     public static TheoryData<TestCase> Expressions()
     {
@@ -139,66 +122,6 @@ public class BufferExpressionTests
     [MemberData(nameof(Expressions))]
     public void Execute_arrow_matches_linq(TestCase testCase)
     {
-        Console.WriteLine(testCase.Desc);
-        Run(testCase.Expr, Rows);
-    }
-
-    private static void Run(LambdaExpression expr, List<TestRow> list)
-    {
-        Console.WriteLine($"{expr}");
-
-        Delegate arrow = CompileArrow(expr);
-        Delegate linq = CompileLinq(expr);
-        using StructArray inputBatch = ArrowFfiBridge.BuildRecordBatch(list).AsStructArray();
-        MethodInfo method = typeof(BufferExpressionTests).GetMethod(nameof(Execute))!
-            .MakeGenericMethod(typeof(TestRow), expr.ReturnType);
-        for (var i = 0; i < 2; i++) method.Invoke(null, [linq, arrow, list, inputBatch]);
-    }
-
-    public static void Execute<T, T2>(
-        Delegate linqCompiled,
-        Delegate arrowCompiled,
-        List<T> input,
-        StructArray structArray)
-    {
-        using VirtualArenaManager manager = new();
-        using VirtualBuffer buffer = manager.CreateBuffer("default", 4_000_000_000);
-        UnsafeArenaMemoryAllocator allocator = new(buffer);
-        ExecutionContext ctx = new() { Arena = buffer, ArrowAllocator = allocator };
-
-        IArrowType outputType = ArrowSchema.FromIcebergType(CSharpSchema.ToIcebergType(typeof(T2), s => -1, ""));
-
-        IArrowArrayBuilder<IArrowArray> builder = ArrowCompute.MakeBuilderFor(outputType, allocator);
-        using (new MeasureTime("arrow"))
-        {
-            arrowCompiled.DynamicInvoke(ctx, new IdentityInput(structArray), builder);
-        }
-
-        Console.WriteLine($"arena used: {Utils.ToFileSize(buffer.AllocatedBytes)}");
-
-        using IArrowArray output = ((dynamic)builder).Build();
-
-        Func<T, T2> linqRunner = (Func<T, T2>)linqCompiled;
-        List<T2> linqResult;
-        using (new MeasureTime("linq"))
-        {
-            linqResult = input.Select(linqRunner).ToList();
-        }
-
-        IEnumerable<T2> arrowResult = ArrowReader.ReadRecordBatch<T2>(output);
-        arrowResult.Should().BeEquivalentTo(linqResult);
-    }
-
-    private static Delegate CompileLinq(LambdaExpression expr)
-    {
-        return expr.Compile();
-    }
-
-    private static Delegate CompileArrow(LambdaExpression expr)
-    {
-        BufferTransformVisitor visitor = new();
-        Expression? result = visitor.Visit(expr);
-        Delegate? compiled = ((LambdaExpression)result).Compile();
-        return compiled;
+        BufferTestHelpers.RunTest(testCase.Expr, Rows);
     }
 }

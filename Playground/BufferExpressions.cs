@@ -1,10 +1,12 @@
-﻿using System.Diagnostics;
-using System.Linq.Expressions;
+﻿using System.Linq.Expressions;
 using System.Reflection;
 using Apache.Arrow;
 using Apache.Arrow.Memory;
 using Apache.Arrow.Serialization;
 using Apache.Arrow.Types;
+using DotNext.Linq.Expressions;
+using DotNext.Metaprogramming;
+using FastExpressionCompiler;
 using Iceberg.Net.Misc;
 using Iceberg.Net.Query.Arrow;
 using Iceberg.Net.Query.Expressions;
@@ -36,8 +38,17 @@ public class BufferExpressions
 {
     public static void Main()
     {
+        Expression<Action<IdentityInput, ListArrayBuilder>> test =
+            CodeGenerator.Lambda<Action<IdentityInput, ListArrayBuilder>>(context =>
+            {
+                var input = context[0].AsDynamic();
+                ParameterExpression builder = context[1];
+                CodeGenerator.Call(builder, "Reserve", [input.Length]);
+            });
+        test.Compile();
+        
         // ExpressionUtilities.EnableAsmPrint();
-        var size = (int)Math.Pow(2, 20);
+        var size = (int)Math.Pow(2, 18);
         Console.WriteLine($"size: {size}");
         List<MyStruct> list = Enumerable.Range(0, size).Select(_ => CreateRandom()).ToList();
 
@@ -46,8 +57,8 @@ public class BufferExpressions
         //
         // LambdaExpression test4 = (MyStruct str) => str.L.Select(n => n + 3);
         // Run(test4, list);
-
-        // LambdaExpression test5 = (MyStruct str) => str.LNest.Any(n => n.Any(n2 => n2 > 0));
+        //
+        // LambdaExpression test5 = (MyStruct str) => str.LNest.All(n => n.All(n2 => n2 > 0));
         // Run(test5, list);
         
         // LambdaExpression test6 = (MyStruct str) => str.L.Contains(65);
@@ -56,8 +67,8 @@ public class BufferExpressions
         // LambdaExpression test7 = (MyStruct str) => str.L.Contains(str.N.C);
         // Run(test7, list);
 
-        LambdaExpression test8 = (MyStruct str) => str.LNest.Any(n => n.All(n2 => n2 > str.N.C));
-        Run(test8, list);
+        // LambdaExpression test8 = (MyStruct str) => str.LNest.All(n => n.All(n2 => n2 <= str.N.C));
+        // Run(test8, list);
 
         // LambdaExpression test9 = (MyStruct str) => new
         // {
@@ -74,23 +85,23 @@ public class BufferExpressions
         // LambdaExpression test1000 = (int num) => num;
         // Run(test1000, list);
 
-        LambdaExpression test11 = (MyStruct str) => str.L.Select(n => str.A + 3);
-        Run(test11, list);
+        // LambdaExpression test11 = (MyStruct str) => str.L.Select(n => str.A + 3);
+        // Run(test11, list);
 
-        // LambdaExpression test10 = (MyStruct str) => str.LNest.Select(n => n.Where(n2 => n2 > str.N.C));
-        // Run(test10, list);
+        LambdaExpression test10 = (MyStruct str) => str.LNest.Select(n => n.Where(n2 => n2 > str.N.C));
+        Run(test10, list);
     }
 
     private static void Run(LambdaExpression expr, List<MyStruct> list)
     {
         Console.WriteLine($"{expr}");
-
+        
         Delegate arrow = CompileArrow(expr);
         Delegate linq = CompileLinq(expr);
         using StructArray inputBatch = ArrowFfiBridge.BuildRecordBatch(list).AsStructArray();
         MethodInfo method = typeof(BufferExpressions).GetMethod(nameof(Execute))!
             .MakeGenericMethod(typeof(MyStruct), expr.ReturnType);
-        for (var i = 0; i < 50; i++)
+        for (var i = 0; i < 100; i++)
         {
             Console.WriteLine($"Run {i}");
             method.Invoke(null, [linq, arrow, list, inputBatch]);
@@ -104,9 +115,9 @@ public class BufferExpressions
             A = Random.Shared.Next() % 1000,
             B = Random.Shared.NextDouble() * 1000,
             L = Enumerable.Range(0, Random.Shared.Next() % 10).Select(_ => Random.Shared.Next() % 1000).ToList(),
-            N = new Nested { C = Random.Shared.Next() % 10000 },
-            LNest = Enumerable.Range(0, Random.Shared.Next() % 5)
-                .Select(_ => Enumerable.Range(0, Random.Shared.Next() % 5).ToList()).ToList()
+            N = new Nested { C = Random.Shared.Next() % 10000 + 1000 },
+            LNest = Enumerable.Range(0, Random.Shared.Next() % 10)
+                .Select(_ => Enumerable.Range(0, Random.Shared.Next() % 10).ToList()).ToList()
         };
     }
 
@@ -122,39 +133,39 @@ public class BufferExpressions
         ExecutionContext ctx = new() { Arena = buffer, ArrowAllocator = allocator };
 
         IArrowType outputType = ArrowSchema.FromIcebergType(CSharpSchema.ToIcebergType(typeof(T2), s => -1, ""));
-
+        
         IArrowArrayBuilder<IArrowArray> builder = ArrowCompute.MakeBuilderFor(outputType, allocator);
         using (new MeasureHeap("arrow"))
         using (new MeasureTime("arrow"))
         {
             arrowCompiled.DynamicInvoke(ctx, new IdentityInput(structArray), builder);
         }
-
+        
         using IArrowArray output = builder.Build(MemoryAllocator.Default.Value);
-
+        
         Console.WriteLine($"--- arrow arena: {Utils.ToFileSize(buffer.CommittedBytes)}");
 
-        Func<T, T2> linqRunner = (Func<T, T2>)linqCompiled;
-        List<T2> linqResult;
-        using (new MeasureHeap("linq"))
-        using (new MeasureTime("linq"))
-        {
-            linqResult = input.Select(linqRunner).ToList();
-        }
-
-        IEnumerable<T2> arrowResult = ArrowReader.ReadRecordBatch<T2>(output);
-        Debug.Assert(linqResult.Count == arrowResult.Count());
+        // Func<T, T2> linqRunner = (Func<T, T2>)linqCompiled;
+        // List<T2> linqResult;
+        // using (new MeasureHeap("linq"))
+        // using (new MeasureTime("linq"))
+        // {
+        //     linqResult = input.Select(linqRunner).ToList();
+        // }
+        //
+        // IEnumerable<T2> arrowResult = ArrowReader.ReadRecordBatch<T2>(output);
+        // Debug.Assert(linqResult.Count == arrowResult.Count());
     }
 
     private static Delegate CompileLinq(LambdaExpression expr)
     {
-        return expr.Compile();
+        return expr.CompileFast();
     }
 
     private static Delegate CompileArrow(LambdaExpression expr)
     {
         BufferTransformVisitor visitor = new();
-        ExpressionOptimizer optimizer = new(new DefaultSemanticProvider(), new DefaultEvaluatorFactory());
+        ExpressionOptimizer optimizer = new(new SemanticProvider(), new EvaluatorFactory());
         Expression visited = visitor.Visit(expr);
         Expression result = optimizer.Visit(visited)!;
         Delegate compiled = ((LambdaExpression)result).Compile();

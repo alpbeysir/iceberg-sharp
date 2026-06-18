@@ -52,9 +52,9 @@ public static class ArrowUtilities
     public static T AccessStructField<T>(StructArray arr, int index) where T : class, IArrowArray
     {
 #if DEBUG
-        return (T)arr.Fields[index];
+        return (T)arr.FastFields()[index];
 #else
-        return Unsafe.As<T>(arr.Fields[index]);
+        return Unsafe.As<T>(arr.FastFields()[index]);
 #endif
     }
 
