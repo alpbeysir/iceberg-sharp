@@ -3,7 +3,7 @@ using Xunit;
 
 [assembly: CollectionBehavior(DisableTestParallelization = true)]
 
-namespace Iceberg.Net.BufferTests;
+namespace Iceberg.Net.QueryTests;
 
 public partial record TestNested
 {

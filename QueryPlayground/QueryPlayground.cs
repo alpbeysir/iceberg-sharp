@@ -1,4 +1,5 @@
-﻿using System.Diagnostics.CodeAnalysis;
+﻿using System.Diagnostics;
+using System.Diagnostics.CodeAnalysis;
 using System.Linq.Expressions;
 using System.Reflection;
 using Apache.Arrow;
@@ -36,8 +37,7 @@ public partial record Nested
     public int C { get; init; }
 }
 
-
-public class BufferExpressions
+public class QueryPlayground
 {
     public static void Main()
     {
@@ -96,7 +96,7 @@ public class BufferExpressions
         Delegate arrow = CompileArrow(expr);
         Delegate linq = CompileLinq(expr);
         using StructArray inputBatch = ArrowFfiBridge.BuildRecordBatch(list).AsStructArray();
-        MethodInfo method = typeof(BufferExpressions).GetMethod(nameof(Execute))!
+        MethodInfo method = typeof(QueryPlayground).GetMethod(nameof(Execute))!
             .MakeGenericMethod(typeof(MyStruct), expr.ReturnType);
         for (var i = 0; i < 100; i++)
         {
@@ -114,7 +114,8 @@ public class BufferExpressions
             L = Enumerable.Range(0, Random.Shared.Next() % 10).Select(_ => Random.Shared.Next() % 1000).ToList(),
             N = new Nested { C = Random.Shared.Next() % 10000 + 1000 },
             LNest = Enumerable.Range(0, Random.Shared.Next() % 10)
-                .Select(_ => Enumerable.Range(0, Random.Shared.Next() % 10).ToList()).ToList()
+                .Select(_ => Enumerable.Range(0, Random.Shared.Next() % 10).ToList())
+                .ToList()
         };
     }
 
@@ -142,16 +143,16 @@ public class BufferExpressions
 
         Console.WriteLine($"--- arrow arena: {Utils.ToFileSize(buffer.CommittedBytes)}");
 
-        // Func<T, T2> linqRunner = (Func<T, T2>)linqCompiled;
-        // List<T2> linqResult;
-        // using (new MeasureHeap("linq"))
-        // using (new MeasureTime("linq"))
-        // {
-        //     linqResult = input.Select(linqRunner).ToList();
-        // }
-        //
-        // IEnumerable<T2> arrowResult = ArrowReader.ReadRecordBatch<T2>(output);
-        // Debug.Assert(linqResult.Count == arrowResult.Count());
+        Func<T, T2> linqRunner = (Func<T, T2>)linqCompiled;
+        List<T2> linqResult;
+        using (new MeasureHeap("linq"))
+        using (new MeasureTime("linq"))
+        {
+            linqResult = input.Select(linqRunner).ToList();
+        }
+
+        IEnumerable<T2> arrowResult = ArrowReader.ReadRecordBatch<T2>(output);
+        Debug.Assert(linqResult.Count == arrowResult.Count());
     }
 
     private static Delegate CompileLinq(LambdaExpression expr)

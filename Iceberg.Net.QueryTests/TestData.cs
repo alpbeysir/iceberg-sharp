@@ -1,4 +1,4 @@
-﻿namespace Iceberg.Net.BufferTests;
+﻿namespace Iceberg.Net.QueryTests;
 
 public static class TestData
 {
@@ -21,7 +21,8 @@ public static class TestData
                     L = Enumerable.Range(0, rand.Next() % 10).Select(_ => rand.Next() % 1000).ToList(),
                     N = new TestNested { C = rand.Next() % 10000 },
                     LNest = Enumerable.Range(0, rand.Next() % 32)
-                        .Select(_ => Enumerable.Range(0, rand.Next() % 32).ToList()).ToList()
+                        .Select(_ => Enumerable.Range(0, rand.Next() % 32).ToList())
+                        .ToList()
                 });
 
         return list;

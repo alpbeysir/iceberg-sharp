@@ -12,7 +12,7 @@ using Iceberg.Net.Schemas;
 using Varena;
 using ExecutionContext = Iceberg.Net.Query.Expressions.ExecutionContext;
 
-namespace Iceberg.Net.BufferTests;
+namespace Iceberg.Net.QueryTests;
 
 public static class BufferTestHelpers
 {

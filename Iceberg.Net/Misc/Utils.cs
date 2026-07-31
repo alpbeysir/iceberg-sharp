@@ -110,7 +110,7 @@ public static class Utils
             .ToDictionary(info => info.Name);
     }
 
-    internal static Type PropertyOrFieldType(MemberInfo member)
+    public static Type PropertyOrFieldType(MemberInfo member)
     {
         return member is PropertyInfo p1 ? p1.PropertyType : ((FieldInfo)member).FieldType;
     }
@@ -135,9 +135,10 @@ public static class Utils
         Type iface)
     {
         return type.IsAssignableTo(iface) || (type.IsGenericType && type.GetGenericTypeDefinition() == iface) || type
-            .GetInterfaces().Any(x => x.IsAssignableTo(iface) || (
-            x.IsGenericType &&
-            x.GetGenericTypeDefinition() == iface));
+            .GetInterfaces()
+            .Any(x => x.IsAssignableTo(iface) || (
+                x.IsGenericType &&
+                x.GetGenericTypeDefinition() == iface));
     }
 
     public static string PrettyPrint<T>(this T[] array, int edgeItems = 3)

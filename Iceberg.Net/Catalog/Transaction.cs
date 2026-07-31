@@ -33,17 +33,6 @@ public sealed class Transaction(Table table, bool commitOnDispose = false) : IAs
             await Commit();
     }
 
-    public async Task<IQueryable<TRow>> ReadQueryable<
-        [DynamicallyAccessedMembers(
-            DynamicallyAccessedMemberTypes.AllFields | DynamicallyAccessedMemberTypes.AllProperties |
-            DynamicallyAccessedMemberTypes.AllNestedTypes)]
-        TRow>(
-        long? snapshotId = null) where TRow : IArrowSerializer<TRow>
-    {
-        IcebergQueryProvider<TRow> provider = new(this);
-        return new IcebergQueryable<TRow>(provider, null);
-    }
-
     private IEnumerable<PathAndStream> AllFiles(long? snapshotId)
     {
         Snapshot snapshot = GetSnapshotOrLatest(snapshotId);

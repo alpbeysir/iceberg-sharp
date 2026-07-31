@@ -4,7 +4,7 @@ using AwesomeAssertions;
 using Iceberg.Net.Query.Expressions;
 using Xunit;
 
-namespace Iceberg.Net.BufferTests;
+namespace Iceberg.Net.QueryTests;
 
 public class BufferExpressionFuzzTests
 {
@@ -20,8 +20,15 @@ public class BufferExpressionFuzzTests
             {
                 LambdaExpression expr = GenerateRandomExpr(rng);
                 // Pre-flight: skip expressions the visitor can't handle
-                try { new BufferTransformVisitor().Visit(expr); }
-                catch (NotImplementedException) { continue; }
+                try
+                {
+                    new BufferTransformVisitor().Visit(expr);
+                }
+                catch (NotImplementedException)
+                {
+                    continue;
+                }
+
                 data.Add(new TestCase(expr, $"fuzz_{i}: {expr}"));
             }
             catch
@@ -29,6 +36,7 @@ public class BufferExpressionFuzzTests
                 // skip unconstructable expressions
             }
         }
+
         return data;
     }
 
@@ -91,10 +99,10 @@ public class BufferExpressionFuzzTests
     {
         return rng.Next(4) switch
         {
-            0 => Expression.Property(row, "A"),                                     // int?
-            1 => Expression.Property(row, "B"),                                     // double
-            2 => Expression.Property(Expression.Property(row, "N"), "C"),           // int (struct field)
-            _ => Expression.Property(row, "L"),                                     // List<int>
+            0 => Expression.Property(row, "A"), // int?
+            1 => Expression.Property(row, "B"), // double
+            2 => Expression.Property(Expression.Property(row, "N"), "C"), // int (struct field)
+            _ => Expression.Property(row, "L"), // List<int>
         };
     }
 
@@ -130,8 +138,14 @@ public class BufferExpressionFuzzTests
             2 => ExpressionType.Multiply,
             _ => ExpressionType.Divide,
         };
-        try { return Expression.MakeBinary(op, left, right); }
-        catch { return left; }
+        try
+        {
+            return Expression.MakeBinary(op, left, right);
+        }
+        catch
+        {
+            return left;
+        }
     }
 
     private static Expression Comparison(Random rng, ParameterExpression row, int depth)
@@ -147,8 +161,14 @@ public class BufferExpressionFuzzTests
             4 => ExpressionType.GreaterThanOrEqual,
             _ => ExpressionType.LessThanOrEqual,
         };
-        try { return Expression.MakeBinary(op, left, right); }
-        catch { return Expression.Constant(false); }
+        try
+        {
+            return Expression.MakeBinary(op, left, right);
+        }
+        catch
+        {
+            return Expression.Constant(false);
+        }
     }
 
     private static Expression BooleanCombinator(Random rng, ParameterExpression row, int depth)
@@ -170,6 +190,7 @@ public class BufferExpressionFuzzTests
             var val = GenerateBody(rng, row, depth + 1, wantBool: false);
             members.Add(($"f{i}", val));
         }
+
         // build anonymous type via constructor
         var types = members.Select(m => m.value.Type).ToArray();
         var ctor = GetAnonCtor(types);
@@ -198,12 +219,12 @@ public class BufferExpressionFuzzTests
         // Generate a predicate body. Sometimes use a closure (capturing 'row').
         var body = rng.Next(3) switch
         {
-            0 => GenerateBody(rng, elemParam, depth + 1, wantBool: false),  // uses element param
-            1 => GenerateBody(rng, row, depth + 1, wantBool: false),       // closure: captures outer row
+            0 => GenerateBody(rng, elemParam, depth + 1, wantBool: false), // uses element param
+            1 => GenerateBody(rng, row, depth + 1, wantBool: false), // closure: captures outer row
             _ => Expression.MakeBinary(
-                    rng.Next(2) == 0 ? ExpressionType.GreaterThan : ExpressionType.LessThan,
-                    elemParam,
-                    Expression.Property(Expression.Property(row, "N"), "C")), // element vs struct field
+                rng.Next(2) == 0 ? ExpressionType.GreaterThan : ExpressionType.LessThan,
+                elemParam,
+                Expression.Property(Expression.Property(row, "N"), "C")), // element vs struct field
         };
 
         var pred = Expression.Lambda(body, elemParam);
@@ -219,18 +240,18 @@ public class BufferExpressionFuzzTests
         {
             "Select" => Expression.Call(
                 typeof(Enumerable).GetMethod(nameof(Enumerable.Select),
-                    [typeof(IEnumerable<>), typeof(Func<,>)])!
-                .MakeGenericMethod(elemType, body.Type),
+                        [typeof(IEnumerable<>), typeof(Func<,>)])!
+                    .MakeGenericMethod(elemType, body.Type),
                 listAccess, pred),
             "Where" => Expression.Call(
                 typeof(Enumerable).GetMethod(nameof(Enumerable.Where),
-                    [typeof(IEnumerable<>), typeof(Func<,>)])!
-                .MakeGenericMethod(elemType),
+                        [typeof(IEnumerable<>), typeof(Func<,>)])!
+                    .MakeGenericMethod(elemType),
                 listAccess, pred),
             _ => Expression.Call(
                 typeof(Enumerable).GetMethod(nameof(Enumerable.Any),
-                    [typeof(IEnumerable<>), typeof(Func<,>)])!
-                .MakeGenericMethod(elemType),
+                        [typeof(IEnumerable<>), typeof(Func<,>)])!
+                    .MakeGenericMethod(elemType),
                 listAccess, pred),
         };
     }
