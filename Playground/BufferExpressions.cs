@@ -1,4 +1,5 @@
-﻿using System.Linq.Expressions;
+﻿using System.Diagnostics.CodeAnalysis;
+using System.Linq.Expressions;
 using System.Reflection;
 using Apache.Arrow;
 using Apache.Arrow.Memory;
@@ -7,6 +8,7 @@ using Apache.Arrow.Types;
 using DotNext.Linq.Expressions;
 using DotNext.Metaprogramming;
 using FastExpressionCompiler;
+using FastExpressionCompiler.ImTools;
 using Iceberg.Net.Misc;
 using Iceberg.Net.Query.Arrow;
 using Iceberg.Net.Query.Expressions;
@@ -34,19 +36,14 @@ public partial record Nested
     public int C { get; init; }
 }
 
+
 public class BufferExpressions
 {
     public static void Main()
     {
-        Expression<Action<IdentityInput, ListArrayBuilder>> test =
-            CodeGenerator.Lambda<Action<IdentityInput, ListArrayBuilder>>(context =>
-            {
-                var input = context[0].AsDynamic();
-                ParameterExpression builder = context[1];
-                CodeGenerator.Call(builder, "Reserve", [input.Length]);
-            });
-        test.Compile();
-        
+        var a = new UsableExpression<int>(Expression.Parameter(typeof(int), "a"));
+        var b = new UsableExpression<int>(Expression.Parameter(typeof(int), "b"));
+        Expression test = ExpressionUtilities.Use(() => a.Value + b.Value);
         // ExpressionUtilities.EnableAsmPrint();
         var size = (int)Math.Pow(2, 18);
         Console.WriteLine($"size: {size}");
@@ -60,7 +57,7 @@ public class BufferExpressions
         //
         // LambdaExpression test5 = (MyStruct str) => str.LNest.All(n => n.All(n2 => n2 > 0));
         // Run(test5, list);
-        
+
         // LambdaExpression test6 = (MyStruct str) => str.L.Contains(65);
         // Run(test6, list);
         //
@@ -95,7 +92,7 @@ public class BufferExpressions
     private static void Run(LambdaExpression expr, List<MyStruct> list)
     {
         Console.WriteLine($"{expr}");
-        
+
         Delegate arrow = CompileArrow(expr);
         Delegate linq = CompileLinq(expr);
         using StructArray inputBatch = ArrowFfiBridge.BuildRecordBatch(list).AsStructArray();
@@ -133,16 +130,16 @@ public class BufferExpressions
         ExecutionContext ctx = new() { Arena = buffer, ArrowAllocator = allocator };
 
         IArrowType outputType = ArrowSchema.FromIcebergType(CSharpSchema.ToIcebergType(typeof(T2), s => -1, ""));
-        
+
         IArrowArrayBuilder<IArrowArray> builder = ArrowCompute.MakeBuilderFor(outputType, allocator);
         using (new MeasureHeap("arrow"))
         using (new MeasureTime("arrow"))
         {
             arrowCompiled.DynamicInvoke(ctx, new IdentityInput(structArray), builder);
         }
-        
+
         using IArrowArray output = builder.Build(MemoryAllocator.Default.Value);
-        
+
         Console.WriteLine($"--- arrow arena: {Utils.ToFileSize(buffer.CommittedBytes)}");
 
         // Func<T, T2> linqRunner = (Func<T, T2>)linqCompiled;
@@ -179,4 +176,3 @@ public class BufferExpressions
         foreach (T l in list) Console.WriteLine(l);
     }
 }
-

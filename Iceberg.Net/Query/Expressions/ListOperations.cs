@@ -142,12 +142,25 @@ public static class ListOperations
 
     private static readonly ConstructorInfo s_maskBuilderCtor = typeof(BooleanArrayBuilder)
         .GetConstructor([typeof(MemoryAllocator)])!;
+
     private static readonly ConstructorInfo s_indexedInputCtor = typeof(IndexedInput)
         .GetConstructor([typeof(IArrowArray), typeof(int)])!;
+
     private static readonly MethodInfo s_booleanGetValue = typeof(BooleanArray)
         .GetMethod(nameof(BooleanArray.GetValue), [typeof(int)])!;
+
     private static readonly MethodInfo s_getValueRangeMethod = typeof(ListOperations)
         .GetMethod(nameof(GetValueRange), BindingFlags.Public | BindingFlags.Static)!;
+
+    private static readonly MethodInfo s_getOffsetMethod = typeof(ListOperations)
+        .GetMethod(nameof(GetOffset), BindingFlags.Public | BindingFlags.Static)!;
+
+    private static readonly MethodInfo s_getLengthMethod = typeof(ListOperations)
+        .GetMethod(nameof(GetLength), BindingFlags.Public | BindingFlags.Static)!;
+
+    private static readonly MethodInfo s_readSpanMethod = typeof(ListOperations)
+        .GetMethod(nameof(ReadSpan), BindingFlags.Public | BindingFlags.Static)!;
+
     private static readonly MethodInfo s_valueRangeForRangedMethod = typeof(ListOperations)
         .GetMethod(nameof(ValueRangeForRangedInput), BindingFlags.Public | BindingFlags.Static)!;
 
@@ -159,7 +172,7 @@ public static class ListOperations
 
     private static Expression CopierInvoke(
         LambdaExpression copier, ParameterExpression ctx,
-        ParameterExpression l, Expression valueIndex, ParameterExpression valueBuilder)
+        Expression l, Expression valueIndex, ParameterExpression valueBuilder)
     {
         return Expression.Invoke(
             copier, ctx,
@@ -169,7 +182,7 @@ public static class ListOperations
 
     /// <summary>Builds the nested copy loop: for each list element, for each value, check mask and invoke copier.</summary>
     private static Expression BuildCopyLoop(
-        ParameterExpression l, ParameterExpression mask,
+        Expression l, ParameterExpression mask,
         Expression listStart, Expression listCount, Expression maskBase,
         ParameterExpression valueBuilder, LambdaExpression copier, ParameterExpression ctx,
         ParameterExpression builder)
@@ -205,7 +218,7 @@ public static class ListOperations
 
     /// <summary>Builds the predicate loop for IndexedInput: for each value in the element, call predicateFactory.</summary>
     private static Expression BuildIndexedPredicateLoop(
-        ParameterExpression l, Expression valueRange,
+        Expression l, Expression valueRange,
         Func<ParameterExpression, ParameterExpression, Expression> predicateFactory,
         ParameterExpression maskBuilder)
     {
@@ -230,7 +243,7 @@ public static class ListOperations
 
     /// <summary>Builds the copy loop for IndexedInput: for each value 0..(end-start), check mask and invoke copier.</summary>
     private static Expression BuildIndexedCopyLoop(
-        ParameterExpression l, ParameterExpression mask, Expression valueRange,
+        Expression l, ParameterExpression mask, Expression valueRange,
         ParameterExpression valueBuilder, LambdaExpression copier, ParameterExpression ctx)
     {
         ParameterExpression jVar = Expression.Variable(typeof(int), "j");
@@ -267,9 +280,10 @@ public static class ListOperations
             ParameterExpression valueBuilder = CodeGenerator.DeclareVariable(
                 "valueBuilder",
                 builder.Property("ValueBuilder").Convert(valueBuilderType));
-            ParameterExpression l = CodeGenerator.DeclareVariable(
+            var lVar = CodeGenerator.DeclareVariable(
                 "l",
                 input.Property("Array").Convert<ListArray>());
+            var l = lVar.AsUsable<ListArray>();
 
             if (input.Type == typeof(IdentityInput))
             {
@@ -278,7 +292,7 @@ public static class ListOperations
                     Expression.New(s_maskBuilderCtor, ctx.Property("ArrowAllocator")));
                 ParameterExpression whereInput = CodeGenerator.DeclareVariable(
                     "whereInput",
-                    input.Call(nameof(IInput<>.Apply), l.Property("Values")));
+                    input.Call(nameof(IInput<>.Apply), lVar.Property("Values")));
                 CodeGenerator.Statement(predicateFactory(whereInput, maskBuilder));
                 ParameterExpression mask = CodeGenerator.DeclareVariable(
                     "mask",
@@ -287,22 +301,19 @@ public static class ListOperations
                         ctx.Property("ArrowAllocator")));
 
                 CodeGenerator.Statement(
-                    BuildCopyLoop(l, mask, 0.Quoted, l.Property("Length"), 0.Quoted,
+                    BuildCopyLoop(lVar, mask, 0.Quoted, lVar.Property("Length"), 0.Quoted,
                         valueBuilder, copier, ctx, builder));
                 CodeGenerator.Call(mask, nameof(IDisposable.Dispose));
             }
             else if (input.Type == typeof(RangedInput))
             {
-                ParameterExpression ranged = CodeGenerator.DeclareVariable(
-                    "ranged",
-                    input.Convert<RangedInput>());
-
                 ParameterExpression maskBuilder = CodeGenerator.DeclareVariable(
                     "maskBuilder",
                     Expression.New(s_maskBuilderCtor, ctx.Property("ArrowAllocator")));
                 ParameterExpression whereInput = CodeGenerator.DeclareVariable(
                     "whereInput",
-                    Expression.Call(null, s_valueRangeForRangedMethod, l, ranged));
+                    ExpressionUtilities.Use(() =>
+                        ValueRangeForRangedInput(l, input.As<RangedInput>())));
                 CodeGenerator.Statement(predicateFactory(whereInput, maskBuilder));
                 ParameterExpression mask = CodeGenerator.DeclareVariable(
                     "mask",
@@ -312,17 +323,17 @@ public static class ListOperations
 
                 ParameterExpression offsetAndLength = CodeGenerator.DeclareVariable(
                     "offsetAndLength",
-                    ranged.Property("Range").Call(
+                    input.Property("Range").Call(
                         nameof(Range.GetOffsetAndLength),
-                        l.Property("Length")));
+                        lVar.Property("Length")));
                 ParameterExpression valStart = CodeGenerator.DeclareVariable(
                     "valStart",
-                    l.Property("ValueOffsets").Call(
+                    lVar.Property("ValueOffsets").Call(
                         "get_Item",
                         offsetAndLength.Property("Item1")));
 
                 CodeGenerator.Statement(
-                    BuildCopyLoop(l, mask, offsetAndLength.Property("Item1"),
+                    BuildCopyLoop(lVar, mask, offsetAndLength.Property("Item1"),
                         offsetAndLength.Property("Item2"), valStart,
                         valueBuilder, copier, ctx, builder));
                 CodeGenerator.Call(mask, nameof(IDisposable.Dispose));
@@ -338,10 +349,10 @@ public static class ListOperations
                     Expression.New(s_maskBuilderCtor, ctx.Property("ArrowAllocator")));
                 ParameterExpression valueRange = CodeGenerator.DeclareVariable(
                     "valueRange",
-                    Expression.Call(null, s_getValueRangeMethod, l, indexed.Property("Index")));
+                    Expression.Call(null, s_getValueRangeMethod, lVar, indexed.Property("Index")));
 
                 CodeGenerator.Statement(
-                    BuildIndexedPredicateLoop(l, valueRange, predicateFactory, maskBuilder));
+                    BuildIndexedPredicateLoop(lVar, valueRange, predicateFactory, maskBuilder));
 
                 ParameterExpression mask = CodeGenerator.DeclareVariable(
                     "mask",
@@ -351,7 +362,7 @@ public static class ListOperations
                 CodeGenerator.Call(builder, nameof(ListArrayBuilder.Append));
 
                 CodeGenerator.Statement(
-                    BuildIndexedCopyLoop(l, mask, valueRange, valueBuilder, copier, ctx));
+                    BuildIndexedCopyLoop(lVar, mask, valueRange, valueBuilder, copier, ctx));
                 CodeGenerator.Call(mask, nameof(IDisposable.Dispose));
             }
             else
@@ -435,7 +446,6 @@ public static class ListOperations
         else if (typeof(TInput) == typeof(RangedInput))
         {
             RangedInput ranged = Unsafe.As<TInput, RangedInput>(ref input);
-            var (offset, length) = ranged.Range.GetOffsetAndLength(l.Length);
             RangedInput subInput = ValueRangeForRangedInput(l, ranged);
             op(ctx, Unsafe.As<RangedInput, TInput>(ref subInput), maskBuilder);
         }
@@ -522,5 +532,20 @@ public static class ListOperations
         var start = l.ValueOffsets[offset];
         var end = l.ValueOffsets[offset + length];
         return new RangedInput(l.Values, new Range(start, end));
+    }
+
+    public static int GetOffset((int offset, int length) ol)
+    {
+        return ol.offset;
+    }
+
+    public static int GetLength((int offset, int length) ol)
+    {
+        return ol.length;
+    }
+
+    public static T ReadSpan<T>(ReadOnlySpan<T> span, int index) where T : unmanaged
+    {
+        return span[index];
     }
 }
