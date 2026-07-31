@@ -20,6 +20,7 @@ public record UserConfig
 public record TypedCatalogConfig(CatalogConfig CatalogConfig, UserConfig UserConfig)
 {
     public string? Prefix => Resolve("prefix");
+    public string NamespaceSeparator => Uri.UnescapeDataString(Resolve("namespace-separator") ?? "%1F");
 
     private string? Resolve(string key)
     {
@@ -55,6 +56,11 @@ public sealed class RestCatalog : ICatalog
                                            throw new InvalidOperationException(
                                                "Storage credentials are not configured for the catalog");
 
+    private string EncodeNamespace(Identifier identifier)
+    {
+        return identifier.GetEncoded(CatalogConfig.NamespaceSeparator);
+    }
+
     async Task<Table> ICatalog.CreateTableInternalAsync(
         Identifier identifier,
         Schema schema,
@@ -73,7 +79,7 @@ public sealed class RestCatalog : ICatalog
         };
         LoadTableResult response = await ApiClient.CreateTableAsync(
             request,
-            identifier.GetParent().GetEncoded(),
+            EncodeNamespace(identifier.GetParent()),
             cancellationToken: cancellationToken);
         Table table = new(identifier, this);
         table.Initialize(response.Metadata, response.StorageCredentials);
@@ -93,7 +99,7 @@ public sealed class RestCatalog : ICatalog
                 Requirements = requirements,
                 Updates = updates
             },
-            identifier.GetParent().GetEncoded(),
+            EncodeNamespace(identifier.GetParent()),
             identifier.GetTableName(),
             cancellationToken: cancellationToken);
         Table table = new(identifier, this);
@@ -107,7 +113,7 @@ public sealed class RestCatalog : ICatalog
         CancellationToken cancellationToken = default)
     {
         LoadTableResult response = await ApiClient.LoadTableAsync(
-            identifier.GetParent().GetEncoded(),
+            EncodeNamespace(identifier.GetParent()),
             identifier.GetTableName(),
             snapshots: snapshots,
             cancellationToken: cancellationToken);
@@ -138,7 +144,7 @@ public sealed class RestCatalog : ICatalog
     {
         try
         {
-            await ApiClient.NamespaceExistsAsync(identifier.GetEncoded(), cancellationToken);
+            await ApiClient.NamespaceExistsAsync(EncodeNamespace(identifier), cancellationToken);
             return true;
         }
         catch (IcebergRestException exception)
@@ -175,7 +181,11 @@ public sealed class RestCatalog : ICatalog
         do
         {
             ListNamespacesResponse resp =
-                await ApiClient.ListNamespacesAsync(pageToken, PageSize, parent?.GetEncoded(), cancellationToken);
+                await ApiClient.ListNamespacesAsync(
+                    pageToken,
+                    PageSize,
+                    parent is { } parentIdentifier ? EncodeNamespace(parentIdentifier) : null,
+                    cancellationToken);
             foreach (Rest.Namespace ns in resp.Namespaces)
             {
                 Identifier identifier = new(ns);
@@ -194,7 +204,7 @@ public sealed class RestCatalog : ICatalog
         do
         {
             ListTablesResponse resp =
-                await ApiClient.ListTablesAsync(ns.GetEncoded(), pageToken, PageSize, cancellationToken);
+                await ApiClient.ListTablesAsync(EncodeNamespace(ns), pageToken, PageSize, cancellationToken);
             foreach (TableIdentifier table in resp.Identifiers)
                 yield return new Table(Identifier.FromTableIdentifier(table), this);
 
@@ -208,7 +218,7 @@ public sealed class RestCatalog : ICatalog
         ListNamespacesResponse nsResponse = await ApiClient.ListNamespacesAsync(
             null,
             null,
-            parent?.GetEncoded(),
+            parent is { } parentIdentifier ? EncodeNamespace(parentIdentifier) : null,
             cancellationToken);
         foreach (Rest.Namespace ns in nsResponse.Namespaces)
         {
@@ -245,7 +255,7 @@ public sealed class RestCatalog : ICatalog
                     case Table childTable:
                         // TODO replace with own implementation
                         await ApiClient.DropTableAsync(
-                            ns.Identifier.GetEncoded(),
+                            EncodeNamespace(ns.Identifier),
                             childTable.Identifier.GetTableName(),
                             null,
                             purgeData,
@@ -256,7 +266,7 @@ public sealed class RestCatalog : ICatalog
                 }
         }
 
-        await ApiClient.DropNamespaceAsync(identifier.GetEncoded(), null, cancellationToken);
+        await ApiClient.DropNamespaceAsync(EncodeNamespace(identifier), null, cancellationToken);
     }
 
     public static async Task<RestCatalog> Create(UserConfig userConfig, CancellationToken cancellationToken = default)

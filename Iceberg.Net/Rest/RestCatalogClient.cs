@@ -5111,11 +5111,12 @@ public sealed partial class RestCatalogClient(HttpClient httpClient)
     private async Task<ObjectResponseResult<T>> ReadObjectResponseAsync<T>(
         HttpResponseMessage response,
         IReadOnlyDictionary<string, IEnumerable<string>> headers,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        bool retainResponseText = false)
     {
         if (response == null || response.Content == null) return new ObjectResponseResult<T>(default, string.Empty);
 
-        if (ReadResponseAsString)
+        if (ReadResponseAsString || retainResponseText)
         {
             var responseText = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
             try
@@ -5154,7 +5155,7 @@ public sealed partial class RestCatalogClient(HttpClient httpClient)
         CancellationToken cancellationToken)
     {
         ObjectResponseResult<T> objectResponse =
-            await ReadObjectResponseAsync<T>(response, headers, cancellationToken)
+            await ReadObjectResponseAsync<T>(response, headers, cancellationToken, true)
                 .ConfigureAwait(false);
         if (objectResponse.Object == null)
             throw new IcebergRestException(
@@ -5164,12 +5165,47 @@ public sealed partial class RestCatalogClient(HttpClient httpClient)
                 headers,
                 null);
         return new IcebergRestException<T>(
-            message,
+            GetErrorMessage(objectResponse.Text) ?? message,
             status,
             objectResponse.Text,
             headers,
             objectResponse.Object,
             null);
+    }
+
+    private static string? GetErrorMessage(string responseText)
+    {
+        if (string.IsNullOrWhiteSpace(responseText)) return null;
+
+        try
+        {
+            using JsonDocument document = JsonDocument.Parse(responseText);
+            JsonElement root = document.RootElement;
+            if (TryGetMessage(root, out var errorMessage)) return errorMessage;
+
+            if (root.ValueKind == JsonValueKind.Object &&
+                root.TryGetProperty("error", out JsonElement error) &&
+                TryGetMessage(error, out errorMessage))
+                return errorMessage;
+        }
+        catch (JsonException)
+        {
+            // The generated status-specific message remains the fallback for non-JSON responses.
+        }
+
+        return null;
+    }
+
+    private static bool TryGetMessage(JsonElement element, out string? message)
+    {
+        message = null;
+        if (element.ValueKind != JsonValueKind.Object ||
+            !element.TryGetProperty("message", out JsonElement messageElement) ||
+            messageElement.ValueKind != JsonValueKind.String)
+            return false;
+
+        message = messageElement.GetString();
+        return !string.IsNullOrWhiteSpace(message);
     }
 
     private string ConvertToString(object value, CultureInfo cultureInfo)

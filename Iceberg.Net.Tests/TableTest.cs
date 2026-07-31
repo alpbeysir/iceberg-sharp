@@ -6,7 +6,7 @@ namespace Iceberg.Net.Tests;
 
 public class TableTest(RestCatalogFixture fixture)
 {
-    protected readonly ICatalog Catalog = fixture.GetCatalog();
+    private readonly ICatalog Catalog = fixture.GetCatalog();
 
     protected async Task<Identifier> Write<T>(List<T> rows)
     {
@@ -31,6 +31,6 @@ public class TableTest(RestCatalogFixture fixture)
     {
         var tableName =
             $"{TestContext.Current.Test?.TestCase?.TestMethod?.MethodName}";
-        return [..fixture.BaseNamespace, tableName];
+        return [.. fixture.BaseNamespace, tableName];
     }
 }

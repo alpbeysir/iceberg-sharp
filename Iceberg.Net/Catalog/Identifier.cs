@@ -37,6 +37,11 @@ public readonly struct Identifier : IEnumerable<string>, IEquatable<Identifier>
         return string.Join(separator, Parts);
     }
 
+    public string GetEncoded(string separator)
+    {
+        return string.Join(separator, Parts);
+    }
+
     public static Identifier FromEncoded(string encoded, char separator = DefaultNamespaceSeparator)
     {
         return new Identifier(encoded.Split(separator));
