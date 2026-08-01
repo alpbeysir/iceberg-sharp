@@ -10,4 +10,7 @@ riderModule.iml
 Playground/Properties/launchSettings.json
 /Apache.Arrow
 /.claude
-Iceberg.Net/rest-catalog-open-api.yaml
+**/.kiota.log
+QueryPlayground/Properties/.DS_Store
+Apache.Arrow.Serialization/.DS_Store
+Iceberg.Net.QueryTests/.DS_Store

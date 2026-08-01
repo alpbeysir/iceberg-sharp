@@ -23,8 +23,10 @@ public class RestCatalogClientTests
         identifier.GetEncoded(config.NamespaceSeparator).Should().Be("test.test_child");
     }
 
-    [Fact]
-    public async Task ErrorResponseMessageIsIncludedInException()
+    [Theory]
+    [InlineData(HttpStatusCode.BadRequest)]
+    [InlineData((HttpStatusCode)418)]
+    public async Task ErrorResponseMessageIsIncludedInExceptionForEveryErrorPath(HttpStatusCode statusCode)
     {
         const string responseBody =
             """
@@ -34,23 +36,24 @@ public class RestCatalogClientTests
               "status": "400"
             }
             """;
-        using HttpClient httpClient = new(new ErrorResponseHandler(responseBody));
+        using HttpClient httpClient = new(new ErrorResponseHandler(responseBody, statusCode));
         RestCatalogClient client = new(httpClient) { BaseUrl = "http://localhost:8181/v1/" };
 
         Func<Task> request = () => client.ListTablesAsync("test\u001ftest_child", pageSize: 10);
 
         var assertion = await request.Should().ThrowAsync<IcebergRestException>();
-        assertion.Which.Message.Should().Contain("Suspicious Path Character");
+        assertion.Which.Message.Should().StartWith("Suspicious Path Character");
+        assertion.Which.ServerMessage.Should().Be("Suspicious Path Character");
         assertion.Which.Response.Should().Be(responseBody);
     }
 
-    private sealed class ErrorResponseHandler(string responseBody) : HttpMessageHandler
+    private sealed class ErrorResponseHandler(string responseBody, HttpStatusCode statusCode) : HttpMessageHandler
     {
         protected override Task<HttpResponseMessage> SendAsync(
             HttpRequestMessage request,
             CancellationToken cancellationToken)
         {
-            HttpResponseMessage response = new(HttpStatusCode.BadRequest)
+            HttpResponseMessage response = new(statusCode)
             {
                 Content = new StringContent(responseBody, Encoding.UTF8, "application/json"),
                 RequestMessage = request

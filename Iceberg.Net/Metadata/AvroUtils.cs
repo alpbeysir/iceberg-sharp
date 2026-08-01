@@ -43,7 +43,7 @@ internal static class AvroUtils
             return builder.ToImmutable();
         }
 
-        internal ImmutableDictionary<TKey, TValue>? ReadMap<TKey, TValue>(
+        internal ImmutableDictionary<TKey, TValue> ReadMap<TKey, TValue>(
             Func<Decoder, TKey> readKey,
             Func<Decoder, TValue> readValue) where TKey : notnull
         {
@@ -81,24 +81,6 @@ internal static class AvroUtils
                 encoder.WriteUnionIndex(1);
                 writeValue(encoder, value);
             }
-        }
-
-        private void WriteIntLongMap(ImmutableDictionary<int, long> map)
-        {
-            if (map == null) return;
-            encoder.WriteMap(
-                map,
-                static (e, k) => e.WriteInt(k),
-                static (e, v) => e.WriteLong(v));
-        }
-
-        private void WriteIntBytesMap(ImmutableDictionary<int, byte[]> map)
-        {
-            if (map == null) return;
-            encoder.WriteMap(
-                map,
-                static (e, k) => e.WriteInt(k),
-                static (e, v) => e.WriteBytes(v));
         }
 
         internal void WriteMap<TKey, TValue>(

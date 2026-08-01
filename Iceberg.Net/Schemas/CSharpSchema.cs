@@ -16,7 +16,7 @@ public static class CSharpSchema
         .DefineDynamicModule("MainModule");
 
     [RequiresDynamicCode("This method requires creating new types at runtime.")]
-    public static Type FromIcebergSchema(Schema schema)
+    private static Type FromIcebergSchema(Schema schema)
     {
         return FromIcebergType(schema, "IcebergRow", true);
     }
@@ -46,7 +46,8 @@ public static class CSharpSchema
             });
     }
 
-    internal static Type FromIcebergType(IIcebergType icebergType, string path, bool required)
+    [RequiresDynamicCode("Calls System.Type.MakeGenericType(params Type[])")]
+    private static Type FromIcebergType(IIcebergType icebergType, string path, bool required)
     {
         if (icebergType is PrimitiveType primitiveType) icebergType = PrimitiveType.Parse(primitiveType.Name);
         Type initialType = icebergType switch
@@ -94,14 +95,15 @@ public static class CSharpSchema
         return new Schema(structType.Fields, schemaId);
     }
 
-    internal static StructType
+    private static StructType
         ToIcebergStruct(
             Type type,
             Func<string, int> fieldIdProvider,
             string pathPrefix = "")
     {
         List<MemberInfo> members = type.GetMembers(BindingFlags.Public | BindingFlags.Instance)
-            .Where(m => m is PropertyInfo or FieldInfo).ToList();
+            .Where(m => m is PropertyInfo or FieldInfo)
+            .ToList();
 
         IEnumerable<(Type type, string name, string path, int id, MemberInfo memberInfo)> infos = from member in members
             let memberType = Utils.PropertyOrFieldType(member)
@@ -130,7 +132,10 @@ public static class CSharpSchema
         return new StructType(fields.ToList());
     }
 
-    public static IIcebergType ToIcebergType(Type type, Func<string, int> fieldIdProvider, string currentPath)
+    public static IIcebergType ToIcebergType(
+        [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.Interfaces)]
+        Type type,
+        Func<string, int> fieldIdProvider, string currentPath)
     {
         if (type == typeof(string)) return new PrimitiveType.String();
         if (type == typeof(bool)) return new PrimitiveType.Boolean();
@@ -207,7 +212,9 @@ public static class CSharpSchema
         throw new NotSupportedException($"Type {type.Name} at {currentPath} is not supported.");
     }
 
-    private static bool IsEnumerableType(Type type)
+    private static bool IsEnumerableType(
+        [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.Interfaces)]
+        Type type)
     {
         if (type == typeof(string)) return false;
         if (type.IsArray) return true;

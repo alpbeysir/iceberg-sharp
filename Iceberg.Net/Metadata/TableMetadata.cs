@@ -14,7 +14,7 @@ using Iceberg.Net.Schemas;
 
 namespace Iceberg.Net.Metadata;
 
-public partial record TableMetadata
+public record TableMetadata
 {
     private Dictionary<long, Snapshot> _snapshotsById
     {
@@ -151,34 +151,6 @@ public partial record TableMetadata
 
     public IReadOnlyDictionary<long, Snapshot> SnapshotsById => _snapshotsById;
     public IReadOnlyDictionary<int, Schema> SchemasById => _schemasById;
-
-    [GeneratedRegex(@"^(\d+)-(.+)\.gz\.metadata\.json$")]
-    private static partial Regex MetadataFileNameRegex();
-
-    public static (int Version, Guid Guid) ParseMetadataLogFileName(string fileName)
-    {
-        Match match = MetadataFileNameRegex().Match(fileName);
-
-        if (!match.Success)
-            throw new FormatException($"Filename '{fileName}' is not a valid Iceberg metadata file name.");
-
-        var version = int.Parse(match.Groups[1].Value);
-        Guid guid = Guid.Parse(match.Groups[2].Value);
-
-        return (version, guid);
-    }
-
-    public static string GetMetadataLogFileName(int version, Guid guid)
-    {
-        return $"{version:D5}-{guid}.gz.metadata.json";
-    }
-
-    public static void WriteToMetadataFile(Stream stream, TableMetadata tableMetadata)
-    {
-        using GZipStream gzip = new(stream, CompressionMode.Compress, true);
-        var json = JsonSerializer.SerializeToUtf8Bytes(tableMetadata, SourceGenerationContext.Default.TableMetadata);
-        gzip.Write(json);
-    }
 
     public void Apply(IEnumerable<ITableUpdate> updates)
     {

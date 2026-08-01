@@ -269,7 +269,7 @@ public sealed class RestCatalog : ICatalog
         await ApiClient.DropNamespaceAsync(EncodeNamespace(identifier), null, cancellationToken);
     }
 
-    public static async Task<RestCatalog> Create(UserConfig userConfig, CancellationToken cancellationToken = default)
+    public static async Task<ICatalog> Create(UserConfig userConfig, CancellationToken cancellationToken = default)
     {
         HttpClient httpClient = new();
         RestCatalogClient client = new(httpClient)

@@ -7,7 +7,6 @@ namespace Iceberg.Net.Schemas;
 [JsonConverter(typeof(IcebergTypeConverter))]
 public interface IIcebergType;
 
-// --- Complex Types ---
 public record StructType(
     [property: JsonPropertyName("fields")] List<StructField> Fields
 ) : IIcebergType

@@ -5165,47 +5165,12 @@ public sealed partial class RestCatalogClient(HttpClient httpClient)
                 headers,
                 null);
         return new IcebergRestException<T>(
-            GetErrorMessage(objectResponse.Text) ?? message,
+            message,
             status,
             objectResponse.Text,
             headers,
             objectResponse.Object,
             null);
-    }
-
-    private static string? GetErrorMessage(string responseText)
-    {
-        if (string.IsNullOrWhiteSpace(responseText)) return null;
-
-        try
-        {
-            using JsonDocument document = JsonDocument.Parse(responseText);
-            JsonElement root = document.RootElement;
-            if (TryGetMessage(root, out var errorMessage)) return errorMessage;
-
-            if (root.ValueKind == JsonValueKind.Object &&
-                root.TryGetProperty("error", out JsonElement error) &&
-                TryGetMessage(error, out errorMessage))
-                return errorMessage;
-        }
-        catch (JsonException)
-        {
-            // The generated status-specific message remains the fallback for non-JSON responses.
-        }
-
-        return null;
-    }
-
-    private static bool TryGetMessage(JsonElement element, out string? message)
-    {
-        message = null;
-        if (element.ValueKind != JsonValueKind.Object ||
-            !element.TryGetProperty("message", out JsonElement messageElement) ||
-            messageElement.ValueKind != JsonValueKind.String)
-            return false;
-
-        message = messageElement.GetString();
-        return !string.IsNullOrWhiteSpace(message);
     }
 
     private string ConvertToString(object value, CultureInfo cultureInfo)

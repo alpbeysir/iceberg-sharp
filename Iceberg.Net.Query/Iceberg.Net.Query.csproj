@@ -11,4 +11,14 @@
         <ProjectReference Include="..\Iceberg.Net\Iceberg.Net.csproj"/>
     </ItemGroup>
 
+    <ItemGroup>
+        <PackageReference Include="FastExpressionCompiler"/>
+        <PackageReference Include="Nuqleon.Linq.CompilerServices"/>
+        <PackageReference Include="Nuqleon.Linq.CompilerServices.Optimizers"/>
+        <PackageReference Include="Nuqleon.Linq.Expressions.Optimizers"/>
+        <PackageReference Include="DotNext.Metaprogramming"/>
+        <PackageReference Include="Varena"/>
+        <PackageReference Include="ZLinq"/>
+    </ItemGroup>
+
 </Project>

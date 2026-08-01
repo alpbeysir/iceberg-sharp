@@ -9,4 +9,9 @@
         <InvariantGlobalization>true</InvariantGlobalization>
     </PropertyGroup>
 
+    <ItemGroup>
+        <ProjectReference Include="..\Iceberg.Net\Iceberg.Net.csproj"/>
+        <ProjectReference Include="..\Apache.Arrow.Serialization.Generator\Apache.Arrow.Serialization.Generator.csproj" OutputItemType="Analyzer"/>
+    </ItemGroup>
+
 </Project>

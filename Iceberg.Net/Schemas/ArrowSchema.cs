@@ -3,7 +3,7 @@ using Apache.Arrow.Types;
 
 namespace Iceberg.Net.Schemas;
 
-public class ArrowSchema
+public static class ArrowSchema
 {
     public static Apache.Arrow.Schema FromSchema(Schema schema)
     {

@@ -56,7 +56,7 @@ public sealed class Transaction(Table table, bool commitOnDispose = false) : IAs
                 FullMode = BoundedChannelFullMode.Wait
             });
 
-        Read(snapshotId, columnBuffers).ContinueWith(_ => columnBuffers.Writer.TryComplete());
+        ReadArrow(snapshotId, columnBuffers).ContinueWith(_ => columnBuffers.Writer.TryComplete());
 
         foreach (RecordBatch batch in columnBuffers.Reader.ReadAllAsync().ToBlockingEnumerable())
         {
@@ -66,7 +66,7 @@ public sealed class Transaction(Table table, bool commitOnDispose = false) : IAs
         }
     }
 
-    public async Task Read(
+    public async Task ReadArrow(
         long? snapshotId,
         Channel<RecordBatch> results,
         CancellationToken cancellationToken = default)
@@ -142,7 +142,7 @@ public sealed class Transaction(Table table, bool commitOnDispose = false) : IAs
             },
             cancellationToken);
 
-        Task append = Append(channel, schema, cancellationToken);
+        Task append = AppendArrow(channel, schema, cancellationToken);
 
         await convertToArrow;
         channel.Writer.TryComplete();
@@ -174,14 +174,14 @@ public sealed class Transaction(Table table, bool commitOnDispose = false) : IAs
             },
             cancellationToken);
 
-        Task append = Append(channel, schema, cancellationToken);
+        Task append = AppendArrow(channel, schema, cancellationToken);
 
         await convertToArrow;
         channel.Writer.TryComplete();
         await append;
     }
 
-    internal async Task Append(
+    internal async Task AppendArrow(
         Channel<RecordBatch> data,
         Schema schema,
         CancellationToken cancellationToken = default)
@@ -200,23 +200,11 @@ public sealed class Transaction(Table table, bool commitOnDispose = false) : IAs
                 FullMode = BoundedChannelFullMode.Wait
             });
 
-        ParallelOptions parallelOptions = new()
-        {
-            CancellationToken = cancellationToken,
-            MaxDegreeOfParallelism = 32
-        };
-
-        Task dataFileWrite = Parallel.ForEachAsync(
-            Enumerable.Range(0, 1),
-            parallelOptions,
-            async (i, token) =>
-            {
-                await WriteDataFileAsync(
-                    data,
-                    schema,
-                    dataFiles,
-                    token);
-            });
+        Task dataFileWrite = WriteDataFileAsync(
+            data,
+            schema,
+            dataFiles,
+            cancellationToken);
 
         var snapshotId = Utils.GenerateSnapshotId();
 
@@ -290,7 +278,6 @@ public sealed class Transaction(Table table, bool commitOnDispose = false) : IAs
         CancellationToken cancellationToken)
     {
         await using PathAndStream dataFileStream = await OpenFile(dataFile.FilePath, cancellationToken);
-        // using var faucet = CreateFaucet(dataFileStream.Stream, schema);
 
         using ArrowReaderProperties arrowReaderProperties = ArrowReaderProperties.GetDefault();
         using ReaderProperties parquetReaderProperties = ReaderProperties.GetDefaultReaderProperties();
@@ -560,11 +547,11 @@ public sealed class Transaction(Table table, bool commitOnDispose = false) : IAs
         var success = Uri.TryCreate(path, UriKind.RelativeOrAbsolute, out Uri? uri);
         if (!success) throw new ArgumentException($"Invalid URI: {path}");
 
-        Stream manifestListStream = await Table.ObjectStorage.Open(
+        Stream stream = await Table.ObjectStorage.Open(
             uri!,
             FileMode.Open,
             cancellationToken);
-        return new PathAndStream(uri!, manifestListStream);
+        return new PathAndStream(uri!, stream);
     }
 
     private async Task EnsureTableInitialized(
@@ -625,19 +612,17 @@ public sealed class Transaction(Table table, bool commitOnDispose = false) : IAs
     {
         if (snapshotId is not null)
         {
-            if (Table.Metadata!.SnapshotsById.TryGetValue(snapshotId.Value, out Snapshot? result))
-                return result;
-            else
-                throw new ArgumentOutOfRangeException(nameof(snapshotId));
+            return Table.Metadata!.SnapshotsById.TryGetValue(snapshotId.Value, out Snapshot? result)
+                ? result
+                : throw new ArgumentOutOfRangeException(nameof(snapshotId));
         }
         else
         {
             var currentSnapshotId = Table.Metadata!.CurrentSnapshotId ??
                                     throw new InvalidOperationException("Table doesn't have any snapshots");
-            if (Table.Metadata.SnapshotsById.TryGetValue(currentSnapshotId, out Snapshot? result))
-                return result;
-            else
-                throw new UnreachableException("Could not find the current snapshot");
+            return Table.Metadata.SnapshotsById.TryGetValue(currentSnapshotId, out Snapshot? result)
+                ? result
+                : throw new UnreachableException("Could not find the current snapshot");
         }
     }
 
