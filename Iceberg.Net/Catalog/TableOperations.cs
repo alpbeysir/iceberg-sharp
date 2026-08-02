@@ -6,6 +6,7 @@ using Apache.Arrow.Ipc;
 using Apache.Arrow.Serialization;
 using Avro.File;
 using Avro.Generic;
+using EngineeredWood.Avro;
 using Iceberg.Net.Metadata;
 using Iceberg.Net.Misc;
 using Iceberg.Net.Query;
@@ -20,7 +21,7 @@ using SortOrder = Iceberg.Net.Metadata.SortOrder;
 
 namespace Iceberg.Net.Catalog;
 
-public sealed class Transaction(Table table)
+public sealed class TableOperations(Table table)
 {
     private Table Table { get; set; } = table;
 
@@ -126,6 +127,8 @@ public sealed class Transaction(Table table)
         await append;
     }
 
+    [RequiresUnreferencedCode(
+        "Uses reflection to inspect properties. Use AppendRowsAot for AOT-safe serialization.")]
     public async Task AppendRows<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.AllProperties)] TRow>(
         IEnumerable<TRow> rows,
         CancellationToken cancellationToken = default)
@@ -261,6 +264,7 @@ public sealed class Transaction(Table table)
         await using PathAndStream dataFileStream = await OpenFile(dataFile.FilePath, cancellationToken);
 
         using ArrowReaderProperties arrowReaderProperties = ArrowReaderProperties.GetDefault();
+        ParquetTableProperties.ApplyReaderProperties(arrowReaderProperties, Table.Properties);
         using ReaderProperties parquetReaderProperties = ReaderProperties.GetDefaultReaderProperties();
         using FileReader arrowReader = new(
             dataFileStream.Stream,
@@ -284,17 +288,15 @@ public sealed class Transaction(Table table)
         Channel<DataFileWriteResult> results,
         CancellationToken cancellationToken)
     {
+        using WriterProperties parquetWriterProperties =
+            ParquetTableProperties.CreateWriterProperties(Table.Properties);
         await using PathAndStream dataFile = await NewDataFile(cancellationToken);
         using ArrowWriterProperties arrowWriterProperties = ArrowWriterProperties.GetDefault();
-        using WriterPropertiesBuilder parquetWriterPropertiesBuilder = new();
-        parquetWriterPropertiesBuilder.Compression(Compression.Zstd);
-        parquetWriterPropertiesBuilder.MaxRowGroupLength(256 * 1024);
-        parquetWriterPropertiesBuilder.EnableStoreDecimalAsInteger();
         Apache.Arrow.Schema arrowSchema = ArrowSchema.FromSchema(schema);
         using FileWriter arrowWriter = new(
             dataFile.Stream,
             arrowSchema,
-            parquetWriterPropertiesBuilder.Build(),
+            parquetWriterProperties,
             arrowWriterProperties,
             true);
 

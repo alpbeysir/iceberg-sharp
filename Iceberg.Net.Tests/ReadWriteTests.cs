@@ -1,5 +1,6 @@
 ﻿using Apache.Arrow.Serialization;
 using Iceberg.Net.Catalog;
+using Iceberg.Net.Schemas;
 using Iceberg.Net.Tests.DataGeneration;
 
 namespace Iceberg.Net.Tests;
@@ -38,6 +39,37 @@ public class ReadWriteTests(RestCatalogFixture fixture) : TableTest(fixture)
     public async Task SqlDecimals()
     {
         await Run(DecimalRow.TestRows().ToList());
+    }
+
+    [Theory]
+    [AutoIcebergData]
+    public async Task ParquetTablePropertiesAreApplied(List<MySimpleRow> rows)
+    {
+        Identifier identifier = GetTableName<MySimpleRow>();
+        int nextFieldId = 1;
+        Schema schema = CSharpSchema.ToIcebergSchema(typeof(MySimpleRow), 0, _ => nextFieldId++);
+        var properties = new Dictionary<string, string>
+        {
+            [TableProperties.DefaultFileFormat] = "parquet",
+            [TableProperties.ParquetCompression] = "gzip",
+            [TableProperties.ParquetCompressionLevel] = "1",
+            [TableProperties.ParquetPageSizeBytes] = "65536",
+            [TableProperties.ParquetPageVersion] = "v2",
+            [TableProperties.ParquetDictSizeBytes] = "32768",
+            [TableProperties.ParquetDictEncodingEnabledColumnPrefix + nameof(MySimpleRow.Str)] = "false",
+            [TableProperties.ParquetColumnStatsEnabledPrefix + nameof(MySimpleRow.Num)] = "false",
+            [TableProperties.ParquetBatchSize] = "2"
+        };
+        Table table = await Catalog.CreateTableAsync(
+            identifier,
+            schema,
+            properties,
+            TestContext.Current.CancellationToken);
+
+        TableOperations tableOperations = new(table);
+        await tableOperations.AppendRowsAot(rows, TestContext.Current.CancellationToken);
+
+        await Verify(identifier, rows);
     }
 
     // [Theory]

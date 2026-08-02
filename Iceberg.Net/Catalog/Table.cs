@@ -14,6 +14,8 @@ public sealed record Table(Identifier Identifier, ICatalog Catalog) : INode
 
     public IReadOnlyList<StorageCredential> StorageCredentials { get; init; } = [];
 
+    public TablePropertyResolver Properties => new(Metadata?.Properties);
+
     private Uri BaseFolderUri
     {
         get
@@ -23,9 +25,13 @@ public sealed record Table(Identifier Identifier, ICatalog Catalog) : INode
         }
     }
 
-    public Uri MetadataFolderUri => new(BaseFolderUri, "metadata/");
+    public Uri MetadataFolderUri => ResolveFolderUri(
+        TableProperties.WriteMetadataLocation,
+        "metadata/");
 
-    public Uri DataFolderUri => new(BaseFolderUri, "data/");
+    public Uri DataFolderUri => ResolveFolderUri(
+        TableProperties.WriteDataLocation,
+        "data/");
 
     internal ValueTask<Stream> Open(
         Uri uri,
@@ -39,5 +45,19 @@ public sealed record Table(Identifier Identifier, ICatalog Catalog) : INode
     private string? Resolve(string key)
     {
         return PropertyResolver?.Invoke(key) ?? Catalog.Resolve(key);
+    }
+
+    private Uri ResolveFolderUri(string property, string defaultFolder)
+    {
+        string? configuredLocation = Properties.GetString(property);
+        if (configuredLocation is null) return new Uri(BaseFolderUri, defaultFolder);
+
+        if (!Uri.TryCreate(configuredLocation, UriKind.Absolute, out Uri? location))
+            throw new FormatException(
+                $"Table property '{property}' must be an absolute URI, but was '{configuredLocation}'.");
+
+        return location.AbsoluteUri.EndsWith('/')
+            ? location
+            : new Uri(location.AbsoluteUri + '/', UriKind.Absolute);
     }
 }

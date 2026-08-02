@@ -6,14 +6,14 @@ namespace Iceberg.Net.Tests;
 
 public class TableTest(RestCatalogFixture fixture)
 {
-    private readonly ICatalog Catalog = fixture.GetCatalog();
+    protected readonly ICatalog Catalog = fixture.GetCatalog();
 
     protected async Task<Identifier> Write<T>(List<T> rows)
     {
         Identifier identifier = GetTableName<T>();
 
-        Transaction transaction = new(new Table(identifier, Catalog));
-        await transaction.AppendRows(rows, TestContext.Current.CancellationToken);
+        TableOperations tableOperations = new(new Table(identifier, Catalog));
+        await tableOperations.AppendRows(rows, TestContext.Current.CancellationToken);
 
         return identifier;
     }
@@ -21,7 +21,7 @@ public class TableTest(RestCatalogFixture fixture)
     protected async Task Verify<T>(Identifier identifier, List<T> original) where T : IArrowSerializer<T>
     {
         Table loadedTable = await Catalog.LoadTableAsync(identifier);
-        Transaction readTx = new(loadedTable);
+        TableOperations readTx = new(loadedTable);
         var readRows = readTx.ReadRows<T>().ToList();
         readRows.Should()
             .BeEquivalentTo(
@@ -36,7 +36,7 @@ public class TableTest(RestCatalogFixture fixture)
                     .WithStrictOrdering());
     }
 
-    private Identifier GetTableName<T>()
+    protected Identifier GetTableName<T>()
     {
         string tableName =
             $"{GetType().Name}_{TestContext.Current.Test?.TestCase?.TestMethod?.MethodName}";

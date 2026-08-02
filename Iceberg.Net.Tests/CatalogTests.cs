@@ -11,7 +11,7 @@ public class CatalogTests(RestCatalogFixture fixture)
     [Fact]
     public async Task TestCreateListDropNamespace()
     {
-        Identifier identifier = [..fixture.BaseNamespace, "test_child"];
+        Identifier identifier = [.. fixture.BaseNamespace, "test_child"];
         await _catalog.CreateNamespaceAsync(identifier, cancellationToken: TestContext.Current.CancellationToken);
         var namespaces = _catalog.ListNamespacesAsync(fixture.BaseNamespace, TestContext.Current.CancellationToken);
         bool contains = await namespaces.AnyAsync(
@@ -24,9 +24,22 @@ public class CatalogTests(RestCatalogFixture fixture)
     [Fact]
     public async Task TestCreateTable()
     {
-        Identifier identifier = [..fixture.BaseNamespace, "test_table"];
-        Schema schema = new Schemas.Schema([]);
-        await _catalog.CreateTableAsync(identifier, schema, TestContext.Current.CancellationToken);
+        Identifier identifier = [.. fixture.BaseNamespace, "test_table"];
+        Schema schema = new([]);
+        var properties = new Dictionary<string, string>
+        {
+            [TableProperties.FormatVersion] = "1",
+            [TableProperties.Comment] = "created with table properties"
+        };
+
+        Table table = await _catalog.CreateTableAsync(
+            identifier,
+            schema,
+            properties,
+            TestContext.Current.CancellationToken);
+
+        table.Metadata!.FormatVersion.Should().Be(1);
+        table.Metadata.Properties[TableProperties.Comment].Should().Be("created with table properties");
         var namespaces = _catalog.ListTablesAsync(fixture.BaseNamespace, TestContext.Current.CancellationToken);
         bool contains = await namespaces.AnyAsync(
             x => x.Identifier == identifier,

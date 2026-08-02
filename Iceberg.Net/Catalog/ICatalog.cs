@@ -17,11 +17,34 @@ public interface ICatalog : IDisposable
         return await CreateTableAsync(identifier, schema, false, cancellationToken);
     }
 
+    public async Task<Table> CreateTableAsync(
+        Identifier identifier,
+        Schemas.Schema schema,
+        IReadOnlyDictionary<string, string> properties,
+        CancellationToken cancellationToken = default)
+    {
+        return await CreateTableAsync(identifier, schema, properties, false, cancellationToken);
+    }
+
     Task<Table> CreateTableAsync(
         Identifier identifier,
         Schemas.Schema schema,
         bool stage,
         CancellationToken cancellationToken = default);
+
+    public async Task<Table> CreateTableAsync(
+        Identifier identifier,
+        Schemas.Schema schema,
+        IReadOnlyDictionary<string, string>? properties,
+        bool stage,
+        CancellationToken cancellationToken = default)
+    {
+        if (properties is { Count: > 0 })
+            throw new NotSupportedException(
+                $"Catalog '{GetType().Name}' does not support table creation properties.");
+
+        return await CreateTableAsync(identifier, schema, stage, cancellationToken);
+    }
 
     Task<Table> UpdateTableAsync(
         Table table,

@@ -67,6 +67,21 @@ public sealed class RestCatalog : ICatalog
         bool stage,
         CancellationToken cancellationToken)
     {
+        return await CreateTableAsync(
+            identifier,
+            schema,
+            null,
+            stage,
+            cancellationToken);
+    }
+
+    public async Task<Table> CreateTableAsync(
+        Identifier identifier,
+        Schema schema,
+        IReadOnlyDictionary<string, string>? properties,
+        bool stage,
+        CancellationToken cancellationToken)
+    {
         CreateTableRequest request = new()
         {
             Name = identifier.GetTableName(),
@@ -75,7 +90,10 @@ public sealed class RestCatalog : ICatalog
             PartitionSpec = null,
             WriteOrder = null,
             StageCreate = stage,
-            Properties = null
+            Properties = properties?.ToDictionary(
+                property => property.Key,
+                property => property.Value,
+                StringComparer.Ordinal)
         };
         LoadTableResult response = await ApiClient.CreateTableAsync(
             request,
@@ -265,7 +283,11 @@ public sealed class RestCatalog : ICatalog
         if (recursive)
         {
             Namespace ns = GetNamespace(identifier, cancellationToken);
+            List<INode> children = [];
             await foreach (INode child in ns.Children.WithCancellation(cancellationToken))
+                children.Add(child);
+
+            foreach (INode child in children)
                 switch (child)
                 {
                     case Namespace childNamespace:

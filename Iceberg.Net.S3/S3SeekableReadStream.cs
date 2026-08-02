@@ -40,12 +40,6 @@ public sealed class S3SeekableReadStream : Stream
     private readonly AmazonS3Uri _s3Uri;
     private readonly long _segmentSize;
 
-    private int downloaded;
-
-    private int evict;
-
-    private int miss;
-
     private S3SeekableReadStream(
         AmazonS3Client client,
         AmazonS3Uri s3Uri,
@@ -105,8 +99,6 @@ public sealed class S3SeekableReadStream : Stream
 
             if (segment == null)
             {
-                miss++;
-
                 // Signal prefetch for subsequent segments
                 for (int i = 1; i <= _prefetchCount; i++)
                 {
@@ -124,7 +116,10 @@ public sealed class S3SeekableReadStream : Stream
             int availableInSegment = (int)(segment.End - Position);
             int toCopy = Math.Min(availableInSegment, bytesToRead - totalRead);
 
-            segment.Data.Memory.Span.Slice(offsetInSegment, toCopy)
+            segment.Data
+                .Memory
+                .Span
+                .Slice(offsetInSegment, toCopy)
                 .CopyTo(buffer.Slice(totalRead, toCopy));
 
             Position += toCopy;
@@ -161,8 +156,6 @@ public sealed class S3SeekableReadStream : Stream
         using GetObjectResponse? response = await _client.GetObjectAsync(request);
         IMemoryOwner<byte>? owner = _allocator.Allocate((int)response.ContentLength);
 
-        downloaded += (int)response.ContentLength;
-
         await response.ResponseStream.ReadExactlyAsync(owner.Memory[..(int)response.ContentLength]);
 
         StreamSegment newSegment = new(start, end, owner);
@@ -171,7 +164,6 @@ public sealed class S3SeekableReadStream : Stream
         {
             if (_cache.Count >= _maxSegments)
             {
-                evict++;
                 StreamSegment lru = _cache.OrderBy(s => s.LastAccess).First();
                 _cache.Remove(lru);
                 lru.Dispose();
