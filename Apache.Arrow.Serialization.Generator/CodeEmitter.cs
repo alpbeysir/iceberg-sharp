@@ -43,7 +43,7 @@ internal class CodeEmitter(StringBuilder sb, TypeModel model)
             Line();
         }
 
-        var typeKeyword = GetTypeKeyword();
+        string typeKeyword = GetTypeKeyword();
         Line($"partial {typeKeyword} {model.TypeName} : IArrowSerializer<{model.TypeName}>");
         Line("{");
         _indent++;
@@ -66,15 +66,15 @@ internal class CodeEmitter(StringBuilder sb, TypeModel model)
     {
         Line("private static readonly Apache.Arrow.Schema _arrowSchema = new Apache.Arrow.Schema.Builder()");
         _indent++;
-        foreach (var prop in model.Properties)
+        foreach (PropertyModel prop in model.Properties)
         {
-            var arrowType = prop.ConverterTypeName != null
+            string arrowType = prop.ConverterTypeName != null
                 ? $"new {prop.ConverterTypeName}().ArrowType"
                 : GetArrowTypeExpression(prop.Type);
-            var nullable = prop.IsNullable ? "true" : "false";
+            string nullable = prop.IsNullable ? "true" : "false";
             if (prop.Metadata.Count > 0)
             {
-                var metadataEntries = string.Join(
+                string metadataEntries = string.Join(
                     ", ",
                     prop.Metadata.ConvertAll(kv =>
                         $"new System.Collections.Generic.KeyValuePair<string, string>(\"{Escape(kv.Key)}\", \"{Escape(kv.Value)}\")"));
@@ -91,7 +91,7 @@ internal class CodeEmitter(StringBuilder sb, TypeModel model)
         Line(".Build();");
         _indent--;
         Line();
-        var newKw = model.HasArrowSerializableBase ? "new " : "";
+        string newKw = model.HasArrowSerializableBase ? "new " : "";
         Line($"public static {newKw}Apache.Arrow.Schema ArrowSchema => _arrowSchema;");
     }
 
@@ -113,9 +113,9 @@ internal class CodeEmitter(StringBuilder sb, TypeModel model)
         }
 
         // Build each column array
-        for (var i = 0; i < model.Properties.Count; i++)
+        for (int i = 0; i < model.Properties.Count; i++)
         {
-            var prop = model.Properties[i];
+            PropertyModel prop = model.Properties[i];
             EmitArrayBuilder(prop, i);
         }
 
@@ -124,9 +124,9 @@ internal class CodeEmitter(StringBuilder sb, TypeModel model)
         Line("return new RecordBatch(_arrowSchema, new IArrowArray[]");
         Line("{");
         _indent++;
-        for (var i = 0; i < model.Properties.Count; i++)
+        for (int i = 0; i < model.Properties.Count; i++)
         {
-            var comma = i < model.Properties.Count - 1 ? "," : "";
+            string comma = i < model.Properties.Count - 1 ? "," : "";
             Line($"arr_{i}{comma}");
         }
 
@@ -139,8 +139,8 @@ internal class CodeEmitter(StringBuilder sb, TypeModel model)
 
     private void EmitArrayBuilder(PropertyModel prop, int index)
     {
-        var varName = $"arr_{index}";
-        var access = $"value.{prop.PropertyName}";
+        string varName = $"arr_{index}";
+        string access = $"value.{prop.PropertyName}";
 
         if (prop.IsNullable)
         {
@@ -152,13 +152,13 @@ internal class CodeEmitter(StringBuilder sb, TypeModel model)
         {
             case TypeKind2.String:
             {
-                var si = GetStringArrayInfo(prop);
+                (string ArrayType, string BuilderType) si = GetStringArrayInfo(prop);
                 Line($"var {varName} = new {si.BuilderType}().Append({access}).Build();");
                 break;
             }
             case TypeKind2.Bool:
             {
-                var bl = GetBoolArrayInfo(prop);
+                (string ArrayType, string BuilderType) bl = GetBoolArrayInfo(prop);
                 Line($"var {varName} = new {bl.BuilderType}().Append({access}).Build();");
                 break;
             }
@@ -194,7 +194,7 @@ internal class CodeEmitter(StringBuilder sb, TypeModel model)
                 break;
             case TypeKind2.Binary:
             {
-                var bi = GetBinaryArrayInfo(prop);
+                (string ArrayType, string BuilderType) bi = GetBinaryArrayInfo(prop);
                 Line($"var {varName} = new {bi.BuilderType}().Append({BinaryToSpan(prop, access)}).Build();");
                 break;
             }
@@ -208,13 +208,13 @@ internal class CodeEmitter(StringBuilder sb, TypeModel model)
                 break;
             case TypeKind2.DateOnly:
             {
-                var di = GetDateArrayInfo(prop);
+                (string ArrayType, string BuilderType) di = GetDateArrayInfo(prop);
                 Line($"var {varName} = new {di.BuilderType}().Append({access}).Build();");
                 break;
             }
             case TypeKind2.TimeOnly:
             {
-                var ti = GetTimeArrayInfo(prop);
+                (string ArrayType, string BuilderType, string TypeExpr) ti = GetTimeArrayInfo(prop);
                 Line($"var {varName} = new {ti.BuilderType}({ti.TypeExpr}).Append({access}).Build();");
                 break;
             }
@@ -262,13 +262,13 @@ internal class CodeEmitter(StringBuilder sb, TypeModel model)
         {
             case TypeKind2.String:
             {
-                var si = GetStringArrayInfo(prop);
+                (string ArrayType, string BuilderType) si = GetStringArrayInfo(prop);
                 Line($"var {varName} = new {si.BuilderType}().Append({access}).Build();");
                 break;
             }
             case TypeKind2.Bool:
             {
-                var bl = GetBoolArrayInfo(prop);
+                (string ArrayType, string BuilderType) bl = GetBoolArrayInfo(prop);
                 Line($"var b_{index} = new {bl.BuilderType}();");
                 Line($"if ({access} is {{ }} v_{index}) b_{index}.Append(v_{index}); else b_{index}.AppendNull();");
                 Line($"var {varName} = b_{index}.Build();");
@@ -308,7 +308,7 @@ internal class CodeEmitter(StringBuilder sb, TypeModel model)
                 break;
             case TypeKind2.DateOnly:
             {
-                var di = GetDateArrayInfo(prop);
+                (string ArrayType, string BuilderType) di = GetDateArrayInfo(prop);
                 Line($"var b_{index} = new {di.BuilderType}();");
                 Line($"if ({access} is {{ }} v_{index}) b_{index}.Append(v_{index}); else b_{index}.AppendNull();");
                 Line($"var {varName} = b_{index}.Build();");
@@ -316,7 +316,7 @@ internal class CodeEmitter(StringBuilder sb, TypeModel model)
             }
             case TypeKind2.TimeOnly:
             {
-                var ti = GetTimeArrayInfo(prop);
+                (string ArrayType, string BuilderType, string TypeExpr) ti = GetTimeArrayInfo(prop);
                 Line($"var b_{index} = new {ti.BuilderType}({ti.TypeExpr});");
                 Line($"if ({access} is {{ }} v_{index}) b_{index}.Append(v_{index}); else b_{index}.AppendNull();");
                 Line($"var {varName} = b_{index}.Build();");
@@ -357,7 +357,7 @@ internal class CodeEmitter(StringBuilder sb, TypeModel model)
                 Line($"if ({access} != null)");
                 Line("{");
                 _indent++;
-                var tempVar = $"_nonnull_{index}";
+                string tempVar = $"_nonnull_{index}";
                 if (prop.Type.Kind == TypeKind2.Set)
                     EmitSetArrayBuilder(prop, index, tempVar, access);
                 else
@@ -380,7 +380,7 @@ internal class CodeEmitter(StringBuilder sb, TypeModel model)
                 Line($"if ({access} != null)");
                 Line("{");
                 _indent++;
-                var tempVar = $"_nonnull_{index}";
+                string tempVar = $"_nonnull_{index}";
                 EmitMapArrayBuilder(prop, index, tempVar, access);
                 Line($"{varName} = {tempVar};");
                 _indent--;
@@ -444,14 +444,14 @@ internal class CodeEmitter(StringBuilder sb, TypeModel model)
 
     private void EmitListArrayBuilder(PropertyModel prop, int index, string varName, string access)
     {
-        var elemType = prop.Type.ElementType!;
+        TypeInfo elemType = prop.Type.ElementType!;
         if (NeedsManualListBuilder(elemType))
         {
             EmitManualListArray(elemType, index, varName, access, prop.FieldName);
             return;
         }
 
-        var arrowElemType = GetArrowTypeExpression(elemType);
+        string arrowElemType = GetArrowTypeExpression(elemType);
 
         Line($"var lb_{index} = new ListArray.Builder({arrowElemType});");
         Line($"lb_{index}.Append();");
@@ -461,14 +461,14 @@ internal class CodeEmitter(StringBuilder sb, TypeModel model)
 
     private void EmitSetArrayBuilder(PropertyModel prop, int index, string varName, string access)
     {
-        var elemType = prop.Type.ElementType!;
+        TypeInfo elemType = prop.Type.ElementType!;
         if (NeedsManualListBuilder(elemType))
         {
             EmitManualListArray(elemType, index, varName, access, prop.FieldName);
             return;
         }
 
-        var arrowElemType = GetArrowTypeExpression(elemType);
+        string arrowElemType = GetArrowTypeExpression(elemType);
 
         Line($"var lb_{index} = new ListArray.Builder({arrowElemType});");
         Line($"lb_{index}.Append();");
@@ -503,7 +503,7 @@ internal class CodeEmitter(StringBuilder sb, TypeModel model)
     /// </summary>
     private void EmitManualListArray(TypeInfo elemType, int index, string varName, string access, string fieldName)
     {
-        var arrowElemType = GetArrowTypeExpression(elemType);
+        string arrowElemType = GetArrowTypeExpression(elemType);
         switch (elemType.Kind)
         {
             case TypeKind2.Guid:
@@ -541,7 +541,7 @@ internal class CodeEmitter(StringBuilder sb, TypeModel model)
             case TypeKind2.NestedRecord:
             {
                 // Nested record list elements: serialize via child's ToRecordBatch, wrap in StructArray
-                var typeName = elemType.FullTypeName;
+                string typeName = elemType.FullTypeName;
                 Line($"var nestedList_{index} = new System.Collections.Generic.List<{typeName}>({access});");
                 Line(
                     $"var nestedBatch_{index} = {typeName}.ToRecordBatch((IReadOnlyList<{typeName}>)nestedList_{index});");
@@ -566,7 +566,7 @@ internal class CodeEmitter(StringBuilder sb, TypeModel model)
         {
             case TypeKind2.String:
             {
-                var bt = GetArrayBuilderType(elemType);
+                string bt = GetArrayBuilderType(elemType);
                 Line($"foreach (var item_{index} in {access}) (({bt}){builderVar}.ValueBuilder).Append(item_{index});");
                 break;
             }
@@ -624,30 +624,30 @@ internal class CodeEmitter(StringBuilder sb, TypeModel model)
                 break;
             case TypeKind2.DateTime:
             {
-                var hasTz = TypeInfoHasTimezone(elemType);
-                var convert = hasTz ? "ToUtcDateTimeOffset" : "ToWallClockDateTimeOffset";
+                bool hasTz = TypeInfoHasTimezone(elemType);
+                string convert = hasTz ? "ToUtcDateTimeOffset" : "ToWallClockDateTimeOffset";
                 Line(
                     $"foreach (var item_{index} in {access}) ((TimestampArray.Builder){builderVar}.ValueBuilder).Append(Apache.Arrow.Serialization.ArrowArrayHelper.{convert}(item_{index}));");
                 break;
             }
             case TypeKind2.DateTimeOffset:
             {
-                var hasTz = TypeInfoHasTimezone(elemType);
-                var convert = hasTz ? "ToUtcDateTimeOffset" : "ToWallClockDateTimeOffset";
+                bool hasTz = TypeInfoHasTimezone(elemType);
+                string convert = hasTz ? "ToUtcDateTimeOffset" : "ToWallClockDateTimeOffset";
                 Line(
                     $"foreach (var item_{index} in {access}) ((TimestampArray.Builder){builderVar}.ValueBuilder).Append(Apache.Arrow.Serialization.ArrowArrayHelper.{convert}(item_{index}));");
                 break;
             }
             case TypeKind2.DateOnly:
             {
-                var arrayType = GetDateArrayBuilderType(elemType);
+                string arrayType = GetDateArrayBuilderType(elemType);
                 Line(
                     $"foreach (var item_{index} in {access}) (({arrayType}){builderVar}.ValueBuilder).Append(item_{index});");
                 break;
             }
             case TypeKind2.TimeOnly:
             {
-                var arrayType = GetTimeArrayBuilderType(elemType);
+                string arrayType = GetTimeArrayBuilderType(elemType);
                 Line(
                     $"foreach (var item_{index} in {access}) (({arrayType}){builderVar}.ValueBuilder).Append(item_{index});");
                 break;
@@ -674,9 +674,9 @@ internal class CodeEmitter(StringBuilder sb, TypeModel model)
             case TypeKind2.Array:
             {
                 // Nested list: ValueBuilder is itself a ListArray.Builder
-                var innerElemType = elemType.ElementType!;
-                var innerBuilderCast = $"((ListArray.Builder){builderVar}.ValueBuilder)";
-                var loopVar = depth == 0 ? $"inner_{index}" : $"inner_{index}_{depth}";
+                TypeInfo innerElemType = elemType.ElementType!;
+                string innerBuilderCast = $"((ListArray.Builder){builderVar}.ValueBuilder)";
+                string loopVar = depth == 0 ? $"inner_{index}" : $"inner_{index}_{depth}";
                 Line($"foreach (var {loopVar} in {access})");
                 Line("{");
                 _indent++;
@@ -689,11 +689,11 @@ internal class CodeEmitter(StringBuilder sb, TypeModel model)
             case TypeKind2.Dictionary:
             {
                 // Dict values inside a list: ValueBuilder is a MapArray.Builder
-                var keyType = elemType.KeyType!;
-                var valueType = elemType.ValueType!;
-                var innerMapBuilder = $"((MapArray.Builder){builderVar}.ValueBuilder)";
-                var loopVar = depth == 0 ? $"dictItem_{index}" : $"dictItem_{index}_{depth}";
-                var kvVar = depth == 0 ? $"mkv_{index}" : $"mkv_{index}_{depth}";
+                TypeInfo keyType = elemType.KeyType!;
+                TypeInfo valueType = elemType.ValueType!;
+                string innerMapBuilder = $"((MapArray.Builder){builderVar}.ValueBuilder)";
+                string loopVar = depth == 0 ? $"dictItem_{index}" : $"dictItem_{index}_{depth}";
+                string kvVar = depth == 0 ? $"mkv_{index}" : $"mkv_{index}_{depth}";
                 Line($"foreach (var {loopVar} in {access})");
                 Line("{");
                 _indent++;
@@ -728,8 +728,8 @@ internal class CodeEmitter(StringBuilder sb, TypeModel model)
 
     private void EmitMapArrayBuilder(PropertyModel prop, int index, string varName, string access)
     {
-        var keyType = prop.Type.KeyType!;
-        var valueType = prop.Type.ValueType!;
+        TypeInfo keyType = prop.Type.KeyType!;
+        TypeInfo valueType = prop.Type.ValueType!;
 
         if (NeedsManualMapBuilder(valueType))
         {
@@ -737,7 +737,7 @@ internal class CodeEmitter(StringBuilder sb, TypeModel model)
             return;
         }
 
-        var mapType = GetArrowTypeExpression(prop.Type);
+        string mapType = GetArrowTypeExpression(prop.Type);
         Line($"var mb_{index} = new MapArray.Builder({mapType});");
         Line($"mb_{index}.Append();");
         Line($"foreach (var kv_{index} in {access})");
@@ -755,12 +755,12 @@ internal class CodeEmitter(StringBuilder sb, TypeModel model)
     /// </summary>
     private void EmitManualMapArray(PropertyModel prop, int index, string varName, string access)
     {
-        var keyType = prop.Type.KeyType!;
-        var valueType = prop.Type.ValueType!;
-        var mapType = GetArrowTypeExpression(prop.Type);
+        TypeInfo keyType = prop.Type.KeyType!;
+        TypeInfo valueType = prop.Type.ValueType!;
+        string mapType = GetArrowTypeExpression(prop.Type);
 
         // Build keys
-        var keyBuilderType = GetArrayBuilderType(keyType);
+        string keyBuilderType = GetArrayBuilderType(keyType);
         Line($"var mk_{index} = new {keyBuilderType}();");
         Line($"foreach (var kv_{index} in {access}) mk_{index}.Append(kv_{index}.Key);");
         Line($"var mkArr_{index} = mk_{index}.Build();");
@@ -795,7 +795,7 @@ internal class CodeEmitter(StringBuilder sb, TypeModel model)
             }
             case TypeKind2.NestedRecord:
             {
-                var typeName = valueType.FullTypeName;
+                string typeName = valueType.FullTypeName;
                 Line($"var mvItems_{index} = new System.Collections.Generic.List<{typeName}>();");
                 Line($"foreach (var kv_{index}v in {access}) mvItems_{index}.Add(kv_{index}v.Value);");
                 Line($"IArrowArray mvArr_{index};");
@@ -827,8 +827,8 @@ internal class CodeEmitter(StringBuilder sb, TypeModel model)
 
     private void EmitMapKeyAppend(TypeInfo keyType, string builderVar, string access, int index, int depth = 0)
     {
-        var builderType = GetArrayBuilderType(keyType);
-        var appendExpr = GetMapAppendExpression(keyType, builderType, $"{builderVar}.KeyBuilder", access);
+        string builderType = GetArrayBuilderType(keyType);
+        string appendExpr = GetMapAppendExpression(keyType, builderType, $"{builderVar}.KeyBuilder", access);
         Line(appendExpr);
     }
 
@@ -841,7 +841,7 @@ internal class CodeEmitter(StringBuilder sb, TypeModel model)
             case TypeKind2.Set:
             {
                 // List value in map: ValueBuilder is a ListArray.Builder
-                var innerListBuilder = $"((ListArray.Builder){builderVar}.ValueBuilder)";
+                string innerListBuilder = $"((ListArray.Builder){builderVar}.ValueBuilder)";
                 Line($"{innerListBuilder}.Append();");
                 EmitListValuePopulation(valueType.ElementType!, innerListBuilder, access, index, depth + 1);
                 break;
@@ -849,8 +849,8 @@ internal class CodeEmitter(StringBuilder sb, TypeModel model)
             case TypeKind2.Dictionary:
             {
                 // Nested map value: ValueBuilder is a MapArray.Builder
-                var innerMapBuilder = $"((MapArray.Builder){builderVar}.ValueBuilder)";
-                var innerKvVar = depth == 0 ? $"mvkv_{index}" : $"mvkv_{index}_{depth}";
+                string innerMapBuilder = $"((MapArray.Builder){builderVar}.ValueBuilder)";
+                string innerKvVar = depth == 0 ? $"mvkv_{index}" : $"mvkv_{index}_{depth}";
                 Line($"{innerMapBuilder}.Append();");
                 Line($"foreach (var {innerKvVar} in {access})");
                 Line("{");
@@ -863,8 +863,8 @@ internal class CodeEmitter(StringBuilder sb, TypeModel model)
             }
             default:
             {
-                var builderType = GetArrayBuilderType(valueType);
-                var appendExpr = GetMapAppendExpression(valueType, builderType, $"{builderVar}.ValueBuilder", access);
+                string builderType = GetArrayBuilderType(valueType);
+                string appendExpr = GetMapAppendExpression(valueType, builderType, $"{builderVar}.ValueBuilder", access);
                 Line(appendExpr);
                 break;
             }
@@ -878,7 +878,7 @@ internal class CodeEmitter(StringBuilder sb, TypeModel model)
             case TypeKind2.DateTime:
             case TypeKind2.DateTimeOffset:
             {
-                var convert = TypeInfoHasTimezone(type) ? "ToUtcDateTimeOffset" : "ToWallClockDateTimeOffset";
+                string convert = TypeInfoHasTimezone(type) ? "ToUtcDateTimeOffset" : "ToWallClockDateTimeOffset";
                 return
                     $"(({builderType}){builderAccess}).Append(Apache.Arrow.Serialization.ArrowArrayHelper.{convert}({valueAccess}));";
             }
@@ -893,7 +893,7 @@ internal class CodeEmitter(StringBuilder sb, TypeModel model)
 
     private void EmitNestedRecordSerializer(PropertyModel prop, int index, string varName, string access)
     {
-        var typeName = prop.Type.FullTypeName;
+        string typeName = prop.Type.FullTypeName;
 
         if (prop.IsNullable)
         {
@@ -936,7 +936,7 @@ internal class CodeEmitter(StringBuilder sb, TypeModel model)
 
     private void EmitDeserialize()
     {
-        var newKw = model.HasArrowSerializableBase ? "new " : "";
+        string newKw = model.HasArrowSerializableBase ? "new " : "";
         Line($"public static {newKw}{model.TypeName} FromRecordBatch(RecordBatch batch)");
         Line("{");
         _indent++;
@@ -948,9 +948,9 @@ internal class CodeEmitter(StringBuilder sb, TypeModel model)
             "    throw new InvalidOperationException($\"Expected single-row RecordBatch, got {batch.Length} rows.\");");
         Line();
 
-        for (var i = 0; i < model.Properties.Count; i++)
+        for (int i = 0; i < model.Properties.Count; i++)
         {
-            var prop = model.Properties[i];
+            PropertyModel prop = model.Properties[i];
             EmitDeserializeProperty(prop, i);
         }
 
@@ -980,12 +980,12 @@ internal class CodeEmitter(StringBuilder sb, TypeModel model)
         {
             // Constructor-based: new TypeName(paramName: prop_N, ...)
             var propByName = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
-            for (var i = 0; i < model.Properties.Count; i++)
+            for (int i = 0; i < model.Properties.Count; i++)
                 propByName[model.Properties[i].PropertyName] = i;
 
             var args = new List<string>();
-            foreach (var param in model.ConstructorParams)
-                if (propByName.TryGetValue(param.Name, out var idx))
+            foreach (ConstructorParamModel param in model.ConstructorParams)
+                if (propByName.TryGetValue(param.Name, out int idx))
                     args.Add($"{param.Name}: prop_{idx}");
                 else if (param.HasDefaultValue)
                     continue; // use default
@@ -998,10 +998,10 @@ internal class CodeEmitter(StringBuilder sb, TypeModel model)
             Line($"{prefix}new {model.TypeName}");
             Line("{");
             _indent++;
-            for (var i = 0; i < model.Properties.Count; i++)
+            for (int i = 0; i < model.Properties.Count; i++)
             {
-                var prop = model.Properties[i];
-                var comma = i < model.Properties.Count - 1 ? "," : "";
+                PropertyModel prop = model.Properties[i];
+                string comma = i < model.Properties.Count - 1 ? "," : "";
                 Line($"{prop.PropertyName} = prop_{i}{comma}");
             }
 
@@ -1012,13 +1012,13 @@ internal class CodeEmitter(StringBuilder sb, TypeModel model)
 
     private void EmitDeserializeProperty(PropertyModel prop, int index)
     {
-        var colAccess = $"batch.Column(\"{prop.FieldName}\")";
+        string colAccess = $"batch.Column(\"{prop.FieldName}\")";
 
         switch (prop.Type.Kind)
         {
             case TypeKind2.String:
             {
-                var si = GetStringArrayInfo(prop);
+                (string ArrayType, string BuilderType) si = GetStringArrayInfo(prop);
                 if (prop.IsNullable)
                     Line(
                         $"var prop_{index} = (({colAccess}) is {si.ArrayType} sa_{index} && !sa_{index}.IsNull(0)) ? sa_{index}.GetString(0) : null;");
@@ -1028,7 +1028,7 @@ internal class CodeEmitter(StringBuilder sb, TypeModel model)
             }
             case TypeKind2.Bool:
             {
-                var bl = GetBoolArrayInfo(prop);
+                (string ArrayType, string BuilderType) bl = GetBoolArrayInfo(prop);
                 EmitPrimitiveDeserialize(prop, index, colAccess, bl.ArrayType, "GetValue");
                 break;
             }
@@ -1064,7 +1064,7 @@ internal class CodeEmitter(StringBuilder sb, TypeModel model)
                 break;
             case TypeKind2.Binary:
             {
-                var bi = GetBinaryArrayInfo(prop);
+                (string ArrayType, string BuilderType) bi = GetBinaryArrayInfo(prop);
                 if (IsReadOnlyMemoryByte(prop))
                     Line($"ReadOnlyMemory<byte> prop_{index} = (({bi.ArrayType}){colAccess}).GetBytes(0).ToArray();");
                 else
@@ -1073,7 +1073,7 @@ internal class CodeEmitter(StringBuilder sb, TypeModel model)
             }
             case TypeKind2.DateTime:
             {
-                var dtProp = TimestampHasTimezone(prop) ? "UtcDateTime" : "DateTime";
+                string dtProp = TimestampHasTimezone(prop) ? "UtcDateTime" : "DateTime";
                 if (prop.IsNullable)
                     Line(
                         $"var prop_{index} = ((TimestampArray){colAccess}).IsNull(0) ? (System.DateTime?)null : ((TimestampArray){colAccess}).GetTimestamp(0)!.Value.{dtProp};");
@@ -1090,7 +1090,7 @@ internal class CodeEmitter(StringBuilder sb, TypeModel model)
                 break;
             case TypeKind2.DateOnly:
             {
-                var di = GetDateArrayInfo(prop);
+                (string ArrayType, string BuilderType) di = GetDateArrayInfo(prop);
                 if (prop.IsNullable)
                     Line(
                         $"var prop_{index} = (({di.ArrayType}){colAccess}).IsNull(0) ? (System.DateOnly?)null : (({di.ArrayType}){colAccess}).GetDateOnly(0);");
@@ -1100,7 +1100,7 @@ internal class CodeEmitter(StringBuilder sb, TypeModel model)
             }
             case TypeKind2.TimeOnly:
             {
-                var ti = GetTimeArrayInfo(prop);
+                (string ArrayType, string BuilderType, string TypeExpr) ti = GetTimeArrayInfo(prop);
                 if (prop.IsNullable)
                     Line($"var prop_{index} = (({ti.ArrayType}){colAccess}).GetTime(0);");
                 else
@@ -1182,7 +1182,7 @@ internal class CodeEmitter(StringBuilder sb, TypeModel model)
 
     private void EmitEnumDeserialize(PropertyModel prop, int index, string colAccess)
     {
-        var enumType = prop.Type.FullTypeName;
+        string enumType = prop.Type.FullTypeName;
         if (prop.IsNullable)
         {
             Line($"var dictArr_{index} = (DictionaryArray){colAccess};");
@@ -1199,13 +1199,13 @@ internal class CodeEmitter(StringBuilder sb, TypeModel model)
 
     private void EmitListDeserialize(PropertyModel prop, int index, string colAccess)
     {
-        var elemType = prop.Type.ElementType!;
-        var listArr = $"listArr_{index}";
+        TypeInfo elemType = prop.Type.ElementType!;
+        string listArr = $"listArr_{index}";
         Line($"var {listArr} = (ListArray){colAccess};");
 
         if (prop.IsNullable)
         {
-            var collTypeName = prop.Type.Kind == TypeKind2.Array
+            string collTypeName = prop.Type.Kind == TypeKind2.Array
                 ? $"{elemType.FullTypeName}[]"
                 : $"System.Collections.Generic.List<{elemType.FullTypeName}>";
             Line($"{collTypeName}? prop_{index};");
@@ -1236,7 +1236,7 @@ internal class CodeEmitter(StringBuilder sb, TypeModel model)
         bool isSet,
         string? assignTarget)
     {
-        var declPrefix = assignTarget != null ? $"{assignTarget}" : $"var prop_{index}";
+        string declPrefix = assignTarget != null ? $"{assignTarget}" : $"var prop_{index}";
         if (NeedsManualListDeserialize(elemType))
         {
             EmitManualListDeserialize(prop, elemType, index, listArr, isSet, assignTarget);
@@ -1244,7 +1244,7 @@ internal class CodeEmitter(StringBuilder sb, TypeModel model)
         else
         {
             Line($"var {listArr}_values = {listArr}.GetSlicedValues(0);");
-            var elemReader = GetElementReader(elemType, $"{listArr}_values");
+            string elemReader = GetElementReader(elemType, $"{listArr}_values");
             if (isSet)
                 Line($"{declPrefix} = new System.Collections.Generic.HashSet<{elemType.FullTypeName}>({elemReader});");
             else if (prop.Type.Kind == TypeKind2.Array)
@@ -1256,13 +1256,13 @@ internal class CodeEmitter(StringBuilder sb, TypeModel model)
 
     private void EmitSetDeserialize(PropertyModel prop, int index, string colAccess)
     {
-        var elemType = prop.Type.ElementType!;
-        var listArr = $"listArr_{index}";
+        TypeInfo elemType = prop.Type.ElementType!;
+        string listArr = $"listArr_{index}";
         Line($"var {listArr} = (ListArray){colAccess};");
 
         if (prop.IsNullable)
         {
-            var collTypeName = $"System.Collections.Generic.HashSet<{elemType.FullTypeName}>";
+            string collTypeName = $"System.Collections.Generic.HashSet<{elemType.FullTypeName}>";
             Line($"{collTypeName}? prop_{index};");
             Line($"if ({listArr}.IsNull(0))");
             Line($"    prop_{index} = null;");
@@ -1305,7 +1305,7 @@ internal class CodeEmitter(StringBuilder sb, TypeModel model)
             case TypeKind2.Guid:
             {
                 Line($"var {listArr}_allValues = (GuidArray){listArr}.Values;");
-                var readExpr =
+                string readExpr =
                     $"Enumerable.Range({listArr}_start, {listArr}_len).Select(i => {listArr}_allValues.GetGuid(i)!.Value)";
                 if (isSet)
                     Line(PropDecl($"new System.Collections.Generic.HashSet<{elemType.FullTypeName}>({readExpr})"));
@@ -1320,7 +1320,7 @@ internal class CodeEmitter(StringBuilder sb, TypeModel model)
                 // Enum list elements are dictionary-encoded: Dictionary(Int16, Utf8)
                 Line($"var {listArr}_dictArr = (DictionaryArray){listArr}.Values;");
                 Line($"var {listArr}_dictValues = (StringArray){listArr}_dictArr.Dictionary;");
-                var readExpr =
+                string readExpr =
                     $"Enumerable.Range({listArr}_start, {listArr}_len).Select(i => System.Enum.Parse<{elemType.FullTypeName}>({listArr}_dictValues.GetString(((Int16Array){listArr}_dictArr.Indices).GetValue(i)!.Value)!))";
                 if (isSet)
                     Line(PropDecl($"new System.Collections.Generic.HashSet<{elemType.FullTypeName}>({readExpr})"));
@@ -1333,7 +1333,7 @@ internal class CodeEmitter(StringBuilder sb, TypeModel model)
             case TypeKind2.NestedRecord:
             {
                 // Nested record list elements: read from StructArray via child's FromRecordBatch
-                var typeName = elemType.FullTypeName;
+                string typeName = elemType.FullTypeName;
                 Line($"var {listArr}_struct = (StructArray){listArr}.Values;");
                 Line($"var {listArr}_result = new System.Collections.Generic.List<{typeName}>({listArr}_len);");
                 Line($"for (int i = {listArr}_start; i < {listArr}_start + {listArr}_len; i++)");
@@ -1358,8 +1358,8 @@ internal class CodeEmitter(StringBuilder sb, TypeModel model)
             case TypeKind2.Array:
             {
                 // Nested list elements: read inner lists from ListArray values
-                var innerElemType = elemType.ElementType!;
-                var innerTypeName = elemType.FullTypeName;
+                TypeInfo innerElemType = elemType.ElementType!;
+                string innerTypeName = elemType.FullTypeName;
                 Line($"var {listArr}_innerArr = (ListArray){listArr}.Values;");
                 Line($"var {listArr}_result = new System.Collections.Generic.List<{innerTypeName}>({listArr}_len);");
                 Line($"for (int i = {listArr}_start; i < {listArr}_start + {listArr}_len; i++)");
@@ -1368,9 +1368,9 @@ internal class CodeEmitter(StringBuilder sb, TypeModel model)
                 if (innerElemType.Kind == TypeKind2.Dictionary)
                 {
                     // Dict inner elements: read each dict from inner list's MapArray values
-                    var keyType = innerElemType.KeyType!;
-                    var valType = innerElemType.ValueType!;
-                    var dictTypeName =
+                    TypeInfo keyType = innerElemType.KeyType!;
+                    TypeInfo valType = innerElemType.ValueType!;
+                    string dictTypeName =
                         $"System.Collections.Generic.Dictionary<{keyType.FullTypeName}, {valType.FullTypeName}>";
                     Line($"var {listArr}_mapSlice = (MapArray){listArr}_innerArr.GetSlicedValues(i);");
                     Line(
@@ -1385,7 +1385,7 @@ internal class CodeEmitter(StringBuilder sb, TypeModel model)
                     Line($"for (int k_{index} = 0; k_{index} < kvs_{index}.Length; k_{index}++)");
                     Line("{");
                     _indent++;
-                    var dKeyReader = GetScalarReader(keyType, $"ks_{index}", $"k_{index}");
+                    string dKeyReader = GetScalarReader(keyType, $"ks_{index}", $"k_{index}");
                     EmitDictValueRead(valType, $"d_{index}", dKeyReader, $"vs_{index}", $"k_{index}", index);
                     _indent--;
                     Line("}");
@@ -1397,7 +1397,7 @@ internal class CodeEmitter(StringBuilder sb, TypeModel model)
                 else
                 {
                     Line($"var {listArr}_innerValues = {listArr}_innerArr.GetSlicedValues(i);");
-                    var innerElemReader = GetElementReader(innerElemType, $"{listArr}_innerValues");
+                    string innerElemReader = GetElementReader(innerElemType, $"{listArr}_innerValues");
                     if (elemType.Kind == TypeKind2.Array)
                         Line($"{listArr}_result.Add({innerElemReader}.ToArray());");
                     else
@@ -1417,9 +1417,9 @@ internal class CodeEmitter(StringBuilder sb, TypeModel model)
             case TypeKind2.Dictionary:
             {
                 // Dict elements inside a list: read each dict from MapArray values
-                var keyType = elemType.KeyType!;
-                var valType = elemType.ValueType!;
-                var dictTypeName =
+                TypeInfo keyType = elemType.KeyType!;
+                TypeInfo valType = elemType.ValueType!;
+                string dictTypeName =
                     $"System.Collections.Generic.Dictionary<{keyType.FullTypeName}, {valType.FullTypeName}>";
                 Line($"var mapArr_{index} = (MapArray){listArr}.Values;");
                 Line($"var {listArr}_result = new System.Collections.Generic.List<{dictTypeName}>({listArr}_len);");
@@ -1433,7 +1433,7 @@ internal class CodeEmitter(StringBuilder sb, TypeModel model)
                 Line($"for (int j_{index} = 0; j_{index} < kvs_{index}.Length; j_{index}++)");
                 Line("{");
                 _indent++;
-                var dKeyReader = GetScalarReader(keyType, $"ks_{index}", $"j_{index}");
+                string dKeyReader = GetScalarReader(keyType, $"ks_{index}", $"j_{index}");
                 EmitDictValueRead(valType, $"d_{index}", dKeyReader, $"vs_{index}", $"j_{index}", index);
                 _indent--;
                 Line("}");
@@ -1453,7 +1453,7 @@ internal class CodeEmitter(StringBuilder sb, TypeModel model)
 
     private string GetElementReader(TypeInfo elemType, string valuesVar)
     {
-        var stringArrayType = GetArrayReadType(elemType);
+        string stringArrayType = GetArrayReadType(elemType);
         return elemType.Kind switch
         {
             TypeKind2.String =>
@@ -1509,9 +1509,9 @@ internal class CodeEmitter(StringBuilder sb, TypeModel model)
 
     private void EmitDictDeserialize(PropertyModel prop, int index, string colAccess)
     {
-        var keyType = prop.Type.KeyType!;
-        var valueType = prop.Type.ValueType!;
-        var dictTypeName = $"System.Collections.Generic.Dictionary<{keyType.FullTypeName}, {valueType.FullTypeName}>";
+        TypeInfo keyType = prop.Type.KeyType!;
+        TypeInfo valueType = prop.Type.ValueType!;
+        string dictTypeName = $"System.Collections.Generic.Dictionary<{keyType.FullTypeName}, {valueType.FullTypeName}>";
 
         Line($"var mapArr_{index} = (MapArray){colAccess};");
         if (prop.IsNullable)
@@ -1538,7 +1538,7 @@ internal class CodeEmitter(StringBuilder sb, TypeModel model)
         Line($"for (int i = 0; i < kvStruct_{index}.Length; i++)");
         Line("{");
         _indent++;
-        var keyReader = GetScalarReader(keyType, $"keys_{index}", "i");
+        string keyReader = GetScalarReader(keyType, $"keys_{index}", "i");
         EmitDictValueRead(valueType, $"prop_{index}", keyReader, $"vals_{index}", "i", index);
         _indent--;
         Line("}");
@@ -1559,30 +1559,30 @@ internal class CodeEmitter(StringBuilder sb, TypeModel model)
         int propIndex,
         int depth = 0)
     {
-        var d = depth > 0 ? $"_{depth}" : "";
+        string d = depth > 0 ? $"_{depth}" : "";
         switch (valueType.Kind)
         {
             case TypeKind2.List:
             case TypeKind2.Array:
             case TypeKind2.Set:
             {
-                var elemType = valueType.ElementType!;
-                var listValsVar = $"lv_{propIndex}{d}";
+                TypeInfo elemType = valueType.ElementType!;
+                string listValsVar = $"lv_{propIndex}{d}";
                 Line($"var {listValsVar} = ((ListArray){valsArrayVar}).GetSlicedValues({indexVar});");
-                var elemReader = GetElementReader(elemType, listValsVar);
+                string elemReader = GetElementReader(elemType, listValsVar);
                 Line(
                     $"{dictVar}[{keyExpr}] = new System.Collections.Generic.List<{elemType.FullTypeName}>({elemReader});");
                 break;
             }
             case TypeKind2.Dictionary:
             {
-                var innerKeyType = valueType.KeyType!;
-                var innerValType = valueType.ValueType!;
-                var innerKvsVar = $"ikvs_{propIndex}{d}";
-                var innerKeysVar = $"iks_{propIndex}{d}";
-                var innerValsVar = $"ivs_{propIndex}{d}";
-                var innerDictVar = $"id_{propIndex}{d}";
-                var innerIdxVar = $"ii_{propIndex}{d}";
+                TypeInfo innerKeyType = valueType.KeyType!;
+                TypeInfo innerValType = valueType.ValueType!;
+                string innerKvsVar = $"ikvs_{propIndex}{d}";
+                string innerKeysVar = $"iks_{propIndex}{d}";
+                string innerValsVar = $"ivs_{propIndex}{d}";
+                string innerDictVar = $"id_{propIndex}{d}";
+                string innerIdxVar = $"ii_{propIndex}{d}";
                 Line($"var {innerKvsVar} = (StructArray)((MapArray){valsArrayVar}).GetSlicedValues({indexVar});");
                 Line($"var {innerKeysVar} = {innerKvsVar}.Fields[0];");
                 Line($"var {innerValsVar} = {innerKvsVar}.Fields[1];");
@@ -1591,7 +1591,7 @@ internal class CodeEmitter(StringBuilder sb, TypeModel model)
                 Line($"for (int {innerIdxVar} = 0; {innerIdxVar} < {innerKvsVar}.Length; {innerIdxVar}++)");
                 Line("{");
                 _indent++;
-                var innerKeyExpr = GetScalarReader(innerKeyType, innerKeysVar, innerIdxVar);
+                string innerKeyExpr = GetScalarReader(innerKeyType, innerKeysVar, innerIdxVar);
                 EmitDictValueRead(
                     innerValType,
                     innerDictVar,
@@ -1608,8 +1608,8 @@ internal class CodeEmitter(StringBuilder sb, TypeModel model)
             case TypeKind2.Enum:
             {
                 // Enum values in maps are dictionary-encoded: Dictionary(Int16, Utf8)
-                var enumType = valueType.FullTypeName;
-                var dvVar = $"dv_{propIndex}{d}";
+                string enumType = valueType.FullTypeName;
+                string dvVar = $"dv_{propIndex}{d}";
                 Line($"var {dvVar} = (DictionaryArray){valsArrayVar};");
                 Line(
                     $"{dictVar}[{keyExpr}] = System.Enum.Parse<{enumType}>(((StringArray){dvVar}.Dictionary).GetString((int)((Int16Array){dvVar}.Indices).GetValue({indexVar}).Value)!);");
@@ -1617,8 +1617,8 @@ internal class CodeEmitter(StringBuilder sb, TypeModel model)
             }
             case TypeKind2.NestedRecord:
             {
-                var typeName = valueType.FullTypeName;
-                var sVar = $"sv_{propIndex}{d}";
+                string typeName = valueType.FullTypeName;
+                string sVar = $"sv_{propIndex}{d}";
                 Line($"var {sVar} = (StructArray){valsArrayVar};");
                 Line($"var ca_{propIndex}{d} = new IArrowArray[{sVar}.Fields.Count];");
                 Line(
@@ -1629,7 +1629,7 @@ internal class CodeEmitter(StringBuilder sb, TypeModel model)
             }
             default:
             {
-                var valueReader = GetScalarReader(valueType, valsArrayVar, indexVar);
+                string valueReader = GetScalarReader(valueType, valsArrayVar, indexVar);
                 Line($"{dictVar}[{keyExpr}] = {valueReader};");
                 break;
             }
@@ -1638,7 +1638,7 @@ internal class CodeEmitter(StringBuilder sb, TypeModel model)
 
     private string GetScalarReader(TypeInfo type, string arrayVar, string indexVar)
     {
-        var stringArrayType = GetArrayReadType(type);
+        string stringArrayType = GetArrayReadType(type);
         return type.Kind switch
         {
             TypeKind2.String => $"(({stringArrayType}){arrayVar}).GetString({indexVar})!",
@@ -1679,7 +1679,7 @@ internal class CodeEmitter(StringBuilder sb, TypeModel model)
 
     private void EmitNestedRecordDeserialize(PropertyModel prop, int index, string colAccess)
     {
-        var typeName = prop.Type.FullTypeName;
+        string typeName = prop.Type.FullTypeName;
 
         if (prop.IsNullable)
         {
@@ -1723,9 +1723,9 @@ internal class CodeEmitter(StringBuilder sb, TypeModel model)
         Line();
 
         // Create a builder for each column
-        for (var i = 0; i < model.Properties.Count; i++)
+        for (int i = 0; i < model.Properties.Count; i++)
         {
-            var prop = model.Properties[i];
+            PropertyModel prop = model.Properties[i];
             EmitMultiRowBuilderDecl(prop, i);
         }
 
@@ -1738,9 +1738,9 @@ internal class CodeEmitter(StringBuilder sb, TypeModel model)
         if (model.HasSerializationCallback)
             Line("((Apache.Arrow.Serialization.IArrowSerializationCallback)item).OnBeforeSerialize();");
 
-        for (var i = 0; i < model.Properties.Count; i++)
+        for (int i = 0; i < model.Properties.Count; i++)
         {
-            var prop = model.Properties[i];
+            PropertyModel prop = model.Properties[i];
             EmitMultiRowBuilderAppend(prop, i);
         }
 
@@ -1749,9 +1749,9 @@ internal class CodeEmitter(StringBuilder sb, TypeModel model)
         Line();
 
         // Build arrays and return RecordBatch
-        for (var i = 0; i < model.Properties.Count; i++)
+        for (int i = 0; i < model.Properties.Count; i++)
         {
-            var prop = model.Properties[i];
+            PropertyModel prop = model.Properties[i];
             EmitMultiRowBuilderBuild(prop, i);
         }
 
@@ -1759,9 +1759,9 @@ internal class CodeEmitter(StringBuilder sb, TypeModel model)
         Line("return new RecordBatch(_arrowSchema, new IArrowArray[]");
         Line("{");
         _indent++;
-        for (var i = 0; i < model.Properties.Count; i++)
+        for (int i = 0; i < model.Properties.Count; i++)
         {
-            var comma = i < model.Properties.Count - 1 ? "," : "";
+            string comma = i < model.Properties.Count - 1 ? "," : "";
             Line($"arr_{i}{comma}");
         }
 
@@ -1778,13 +1778,13 @@ internal class CodeEmitter(StringBuilder sb, TypeModel model)
         {
             case TypeKind2.String:
             {
-                var si = GetStringArrayInfo(prop);
+                (string ArrayType, string BuilderType) si = GetStringArrayInfo(prop);
                 Line($"var bld_{index} = new {si.BuilderType}();");
                 break;
             }
             case TypeKind2.Bool:
             {
-                var bl = GetBoolArrayInfo(prop);
+                (string ArrayType, string BuilderType) bl = GetBoolArrayInfo(prop);
                 Line($"var bld_{index} = new {bl.BuilderType}();");
                 break;
             }
@@ -1820,7 +1820,7 @@ internal class CodeEmitter(StringBuilder sb, TypeModel model)
                 break;
             case TypeKind2.Binary:
             {
-                var bi = GetBinaryArrayInfo(prop);
+                (string ArrayType, string BuilderType) bi = GetBinaryArrayInfo(prop);
                 Line($"var bld_{index} = new {bi.BuilderType}();");
                 break;
             }
@@ -1830,13 +1830,13 @@ internal class CodeEmitter(StringBuilder sb, TypeModel model)
                 break;
             case TypeKind2.DateOnly:
             {
-                var di = GetDateArrayInfo(prop);
+                (string ArrayType, string BuilderType) di = GetDateArrayInfo(prop);
                 Line($"var bld_{index} = new {di.BuilderType}();");
                 break;
             }
             case TypeKind2.TimeOnly:
             {
-                var ti = GetTimeArrayInfo(prop);
+                (string ArrayType, string BuilderType, string TypeExpr) ti = GetTimeArrayInfo(prop);
                 Line($"var bld_{index} = new {ti.BuilderType}({ti.TypeExpr});");
                 break;
             }
@@ -1861,7 +1861,7 @@ internal class CodeEmitter(StringBuilder sb, TypeModel model)
             case TypeKind2.Array:
             case TypeKind2.Set:
             {
-                var elemType = prop.Type.ElementType!;
+                TypeInfo elemType = prop.Type.ElementType!;
                 if (NeedsManualListBuilder(elemType))
                 {
                     // Collect raw items + offsets for manual ListArray construction
@@ -1872,7 +1872,7 @@ internal class CodeEmitter(StringBuilder sb, TypeModel model)
                 }
                 else
                 {
-                    var arrowElemType = GetArrowTypeExpression(elemType);
+                    string arrowElemType = GetArrowTypeExpression(elemType);
                     Line($"var bld_{index} = new ListArray.Builder({arrowElemType});");
                 }
 
@@ -1880,11 +1880,11 @@ internal class CodeEmitter(StringBuilder sb, TypeModel model)
             }
             case TypeKind2.Dictionary:
             {
-                var valueType = prop.Type.ValueType!;
+                TypeInfo valueType = prop.Type.ValueType!;
                 if (NeedsManualMapBuilder(valueType))
                 {
-                    var keyType = prop.Type.KeyType!;
-                    var keyBuilderType = GetArrayBuilderType(keyType);
+                    TypeInfo keyType = prop.Type.KeyType!;
+                    string keyBuilderType = GetArrayBuilderType(keyType);
                     Line($"var bld_{index}_keys = new {keyBuilderType}();");
                     switch (valueType.Kind)
                     {
@@ -1909,7 +1909,7 @@ internal class CodeEmitter(StringBuilder sb, TypeModel model)
                 }
                 else
                 {
-                    var mapType = GetArrowTypeExpression(prop.Type);
+                    string mapType = GetArrowTypeExpression(prop.Type);
                     Line($"var bld_{index} = new MapArray.Builder({mapType});");
                 }
 
@@ -1917,7 +1917,7 @@ internal class CodeEmitter(StringBuilder sb, TypeModel model)
             }
             case TypeKind2.NestedRecord:
             {
-                var typeName = prop.Type.FullTypeName;
+                string typeName = prop.Type.FullTypeName;
                 Line($"var bld_{index}_items = new List<{typeName}{(prop.IsNullable ? "?" : "")}>(count);");
                 break;
             }
@@ -1932,7 +1932,7 @@ internal class CodeEmitter(StringBuilder sb, TypeModel model)
 
     private void EmitMultiRowBuilderAppend(PropertyModel prop, int index)
     {
-        var access = $"item.{prop.PropertyName}";
+        string access = $"item.{prop.PropertyName}";
 
         switch (prop.Type.Kind)
         {
@@ -2036,7 +2036,7 @@ internal class CodeEmitter(StringBuilder sb, TypeModel model)
             case TypeKind2.Array:
             case TypeKind2.Set:
             {
-                var elemType = prop.Type.ElementType!;
+                TypeInfo elemType = prop.Type.ElementType!;
                 if (prop.IsNullable)
                 {
                     Line($"if ({access} != null)");
@@ -2081,8 +2081,8 @@ internal class CodeEmitter(StringBuilder sb, TypeModel model)
             }
             case TypeKind2.Dictionary:
             {
-                var keyType = prop.Type.KeyType!;
-                var valueType = prop.Type.ValueType!;
+                TypeInfo keyType = prop.Type.KeyType!;
+                TypeInfo valueType = prop.Type.ValueType!;
                 if (NeedsManualMapBuilder(valueType))
                 {
                     if (prop.IsNullable)
@@ -2185,8 +2185,8 @@ internal class CodeEmitter(StringBuilder sb, TypeModel model)
             }
             case TypeKind2.NestedRecord:
             {
-                var typeNameWithNullable = prop.Type.FullTypeName + (prop.IsNullable ? "?" : "");
-                var typeName = prop.Type.FullTypeName;
+                string typeNameWithNullable = prop.Type.FullTypeName + (prop.IsNullable ? "?" : "");
+                string typeName = prop.Type.FullTypeName;
                 if (prop.IsNullable)
                 {
                     // For nullable nested: substitute nulls with the first non-null item (value doesn't matter for null rows)
@@ -2268,10 +2268,10 @@ internal class CodeEmitter(StringBuilder sb, TypeModel model)
             case TypeKind2.Array:
             case TypeKind2.Set:
             {
-                var elemType = prop.Type.ElementType!;
+                TypeInfo elemType = prop.Type.ElementType!;
                 if (NeedsManualListBuilder(elemType))
                 {
-                    var arrowElemType = GetArrowTypeExpression(elemType);
+                    string arrowElemType = GetArrowTypeExpression(elemType);
                     // Finalize the offsets with the total item count
                     Line($"bld_{index}_offsets.Append(bld_{index}_items.Count);");
                     switch (elemType.Kind)
@@ -2280,7 +2280,7 @@ internal class CodeEmitter(StringBuilder sb, TypeModel model)
                         {
                             Line(
                                 $"var guidValues_{index} = Apache.Arrow.Serialization.ArrowArrayHelper.BuildGuidArray(bld_{index}_items);");
-                            var guidNullBuf = prop.IsNullable ? $"bld_{index}_nulls.Build()" : "ArrowBuffer.Empty";
+                            string guidNullBuf = prop.IsNullable ? $"bld_{index}_nulls.Build()" : "ArrowBuffer.Empty";
                             Line(
                                 $"var arr_{index} = new ListArray(new ListType(new Field(\"element\", {arrowElemType}, false)), count, bld_{index}_offsets.Build(), guidValues_{index}, {guidNullBuf});");
                             break;
@@ -2301,14 +2301,14 @@ internal class CodeEmitter(StringBuilder sb, TypeModel model)
                                 $"foreach (var kv in enumMap_{index}.OrderBy(kv => kv.Value)) enumDict_{index}.Append(kv.Key);");
                             Line(
                                 $"var enumDictArr_{index} = new DictionaryArray(new DictionaryType(Int16Type.Default, StringType.Default, false), enumIdx_{index}.Build(), enumDict_{index}.Build());");
-                            var enumNullBuf = prop.IsNullable ? $"bld_{index}_nulls.Build()" : "ArrowBuffer.Empty";
+                            string enumNullBuf = prop.IsNullable ? $"bld_{index}_nulls.Build()" : "ArrowBuffer.Empty";
                             Line(
                                 $"var arr_{index} = new ListArray(ArrowSchema.GetFieldByName(\"{prop.FieldName}\").DataType, count, bld_{index}_offsets.Build(), enumDictArr_{index}, {enumNullBuf});");
                             break;
                         }
                         case TypeKind2.NestedRecord:
                         {
-                            var typeName = elemType.FullTypeName;
+                            string typeName = elemType.FullTypeName;
                             Line($"IArrowArray structValues_{index};");
                             Line($"if (bld_{index}_items.Count > 0)");
                             Line("{");
@@ -2329,7 +2329,7 @@ internal class CodeEmitter(StringBuilder sb, TypeModel model)
                                 $"structValues_{index} = new StructArray(new StructType({typeName}.ArrowSchema.FieldsList), 0, System.Array.Empty<IArrowArray>(), ArrowBuffer.Empty);");
                             _indent--;
                             Line("}");
-                            var nestedNullBuf = prop.IsNullable ? $"bld_{index}_nulls.Build()" : "ArrowBuffer.Empty";
+                            string nestedNullBuf = prop.IsNullable ? $"bld_{index}_nulls.Build()" : "ArrowBuffer.Empty";
                             Line(
                                 $"var arr_{index} = new ListArray(new ListType(new Field(\"element\", new StructType({typeName}.ArrowSchema.FieldsList), false)), count, bld_{index}_offsets.Build(), structValues_{index}, {nestedNullBuf});");
                             break;
@@ -2345,10 +2345,10 @@ internal class CodeEmitter(StringBuilder sb, TypeModel model)
             }
             case TypeKind2.Dictionary:
             {
-                var valueType = prop.Type.ValueType!;
+                TypeInfo valueType = prop.Type.ValueType!;
                 if (NeedsManualMapBuilder(valueType))
                 {
-                    var mapType = GetArrowTypeExpression(prop.Type);
+                    string mapType = GetArrowTypeExpression(prop.Type);
                     // Finalize offsets
                     Line($"bld_{index}_offsets.Append(bld_{index}_keys.Length);");
                     Line($"var mkArr_{index} = bld_{index}_keys.Build();");
@@ -2370,7 +2370,7 @@ internal class CodeEmitter(StringBuilder sb, TypeModel model)
                         }
                         case TypeKind2.NestedRecord:
                         {
-                            var typeName = valueType.FullTypeName;
+                            string typeName = valueType.FullTypeName;
                             Line($"IArrowArray mvArr_{index};");
                             Line($"if (bld_{index}_vals.Count > 0)");
                             Line("{");
@@ -2391,7 +2391,7 @@ internal class CodeEmitter(StringBuilder sb, TypeModel model)
                     }
 
                     // Construct MapArray manually
-                    var nullBuf = prop.IsNullable ? $"bld_{index}_nulls.Build()" : "ArrowBuffer.Empty";
+                    string nullBuf = prop.IsNullable ? $"bld_{index}_nulls.Build()" : "ArrowBuffer.Empty";
                     Line(
                         $"var mEntries_{index} = new StructArray(((MapType){mapType}).KeyValueType, mkArr_{index}.Length, new IArrowArray[] {{ mkArr_{index}, mvArr_{index} }}, ArrowBuffer.Empty);");
                     Line(
@@ -2412,7 +2412,7 @@ internal class CodeEmitter(StringBuilder sb, TypeModel model)
 
     private void EmitMultiRowDeserialize()
     {
-        var newKw = model.HasArrowSerializableBase ? "new " : "";
+        string newKw = model.HasArrowSerializableBase ? "new " : "";
         Line($"public static {newKw}IReadOnlyList<{model.TypeName}> ListFromRecordBatch(RecordBatch batch)");
         Line("{");
         _indent++;
@@ -2421,9 +2421,9 @@ internal class CodeEmitter(StringBuilder sb, TypeModel model)
         Line();
 
         // Get column references
-        for (var i = 0; i < model.Properties.Count; i++)
+        for (int i = 0; i < model.Properties.Count; i++)
         {
-            var prop = model.Properties[i];
+            PropertyModel prop = model.Properties[i];
             EmitMultiRowColumnRef(prop, i);
         }
 
@@ -2433,9 +2433,9 @@ internal class CodeEmitter(StringBuilder sb, TypeModel model)
         _indent++;
 
         // Read each property from the column at 'row'
-        for (var i = 0; i < model.Properties.Count; i++)
+        for (int i = 0; i < model.Properties.Count; i++)
         {
-            var prop = model.Properties[i];
+            PropertyModel prop = model.Properties[i];
             EmitMultiRowReadProperty(prop, i);
         }
 
@@ -2462,19 +2462,19 @@ internal class CodeEmitter(StringBuilder sb, TypeModel model)
 
     private void EmitMultiRowColumnRef(PropertyModel prop, int index)
     {
-        var colAccess = $"batch.Column(\"{prop.FieldName}\")";
+        string colAccess = $"batch.Column(\"{prop.FieldName}\")";
 
         switch (prop.Type.Kind)
         {
             case TypeKind2.String:
             {
-                var si = GetStringArrayInfo(prop);
+                (string ArrayType, string BuilderType) si = GetStringArrayInfo(prop);
                 Line($"var col_{index} = ({si.ArrayType}){colAccess};");
                 break;
             }
             case TypeKind2.Bool:
             {
-                var bl = GetBoolArrayInfo(prop);
+                (string ArrayType, string BuilderType) bl = GetBoolArrayInfo(prop);
                 Line($"var col_{index} = ({bl.ArrayType}){colAccess};");
                 break;
             }
@@ -2510,7 +2510,7 @@ internal class CodeEmitter(StringBuilder sb, TypeModel model)
                 break;
             case TypeKind2.Binary:
             {
-                var bi = GetBinaryArrayInfo(prop);
+                (string ArrayType, string BuilderType) bi = GetBinaryArrayInfo(prop);
                 Line($"var col_{index} = ({bi.ArrayType}){colAccess};");
                 break;
             }
@@ -2520,13 +2520,13 @@ internal class CodeEmitter(StringBuilder sb, TypeModel model)
                 break;
             case TypeKind2.DateOnly:
             {
-                var di = GetDateArrayInfo(prop);
+                (string ArrayType, string BuilderType) di = GetDateArrayInfo(prop);
                 Line($"var col_{index} = ({di.ArrayType}){colAccess};");
                 break;
             }
             case TypeKind2.TimeOnly:
             {
-                var ti = GetTimeArrayInfo(prop);
+                (string ArrayType, string BuilderType, string TypeExpr) ti = GetTimeArrayInfo(prop);
                 Line($"var col_{index} = ({ti.ArrayType}){colAccess};");
                 break;
             }
@@ -2600,7 +2600,7 @@ internal class CodeEmitter(StringBuilder sb, TypeModel model)
                 break;
             case TypeKind2.DateTime:
             {
-                var dtProp = TimestampHasTimezone(prop) ? "UtcDateTime" : "DateTime";
+                string dtProp = TimestampHasTimezone(prop) ? "UtcDateTime" : "DateTime";
                 if (prop.IsNullable)
                     Line(
                         $"var prop_{index} = col_{index}.IsNull(row) ? (System.DateTime?)null : col_{index}.GetTimestamp(row)!.Value.{dtProp};");
@@ -2664,7 +2664,7 @@ internal class CodeEmitter(StringBuilder sb, TypeModel model)
                 break;
             case TypeKind2.Enum:
             {
-                var enumType = prop.Type.FullTypeName;
+                string enumType = prop.Type.FullTypeName;
                 if (prop.IsNullable)
                     Line(
                         $"var prop_{index} = col_{index}.IsNull(row) ? ({enumType}?)null : System.Enum.Parse<{enumType}>(((StringArray)col_{index}.Dictionary).GetString((int)((Int16Array)col_{index}.Indices).GetValue(row).Value)!);");
@@ -2677,11 +2677,11 @@ internal class CodeEmitter(StringBuilder sb, TypeModel model)
             case TypeKind2.Array:
             case TypeKind2.Set:
             {
-                var elemType = prop.Type.ElementType!;
+                TypeInfo elemType = prop.Type.ElementType!;
                 // Nullable list: wrap in IsNull check
                 if (prop.IsNullable)
                 {
-                    var collTypeName = prop.Type.Kind switch
+                    string collTypeName = prop.Type.Kind switch
                     {
                         TypeKind2.Array => $"{elemType.FullTypeName}[]",
                         TypeKind2.Set => $"System.Collections.Generic.HashSet<{elemType.FullTypeName}>",
@@ -2700,13 +2700,13 @@ internal class CodeEmitter(StringBuilder sb, TypeModel model)
                     // Extension types can't use GetSlicedValues; use offsets + Values directly
                     Line($"var listStart_{index} = col_{index}.ValueOffsets[row];");
                     Line($"var listLen_{index} = col_{index}.GetValueLength(row);");
-                    var multiDeclPrefix = prop.IsNullable ? $"prop_{index}" : $"var prop_{index}";
+                    string multiDeclPrefix = prop.IsNullable ? $"prop_{index}" : $"var prop_{index}";
                     switch (elemType.Kind)
                     {
                         case TypeKind2.Guid:
                         {
                             Line($"var guidArr_{index} = (GuidArray)col_{index}.Values;");
-                            var readExpr =
+                            string readExpr =
                                 $"Enumerable.Range(listStart_{index}, listLen_{index}).Select(i => guidArr_{index}.GetGuid(i)!.Value)";
                             if (prop.Type.Kind == TypeKind2.Array)
                                 Line($"{multiDeclPrefix} = {readExpr}.ToArray();");
@@ -2723,7 +2723,7 @@ internal class CodeEmitter(StringBuilder sb, TypeModel model)
                             // Dictionary-encoded enum values: Dictionary(Int16, Utf8)
                             Line($"var enumDictArr_{index} = (DictionaryArray)col_{index}.Values;");
                             Line($"var enumDictValues_{index} = (StringArray)enumDictArr_{index}.Dictionary;");
-                            var readExpr2 =
+                            string readExpr2 =
                                 $"Enumerable.Range(listStart_{index}, listLen_{index}).Select(i => System.Enum.Parse<{elemType.FullTypeName}>(enumDictValues_{index}.GetString(((Int16Array)enumDictArr_{index}.Indices).GetValue(i)!.Value)!))";
                             if (prop.Type.Kind == TypeKind2.Array)
                                 Line($"{multiDeclPrefix} = {readExpr2}.ToArray();");
@@ -2737,7 +2737,7 @@ internal class CodeEmitter(StringBuilder sb, TypeModel model)
                         }
                         case TypeKind2.NestedRecord:
                         {
-                            var typeName = elemType.FullTypeName;
+                            string typeName = elemType.FullTypeName;
                             Line($"var structArr_{index} = (StructArray)col_{index}.Values;");
                             Line(
                                 $"{multiDeclPrefix} = new System.Collections.Generic.List<{typeName}>(listLen_{index});");
@@ -2757,8 +2757,8 @@ internal class CodeEmitter(StringBuilder sb, TypeModel model)
                         case TypeKind2.Array:
                         {
                             // Nested list elements: read inner lists from ListArray values
-                            var innerElemType = elemType.ElementType!;
-                            var innerTypeName = elemType.FullTypeName;
+                            TypeInfo innerElemType = elemType.ElementType!;
+                            string innerTypeName = elemType.FullTypeName;
                             Line($"var innerArr_{index} = (ListArray)col_{index}.Values;");
                             Line(
                                 $"{multiDeclPrefix} = new System.Collections.Generic.List<{innerTypeName}>(listLen_{index});");
@@ -2768,9 +2768,9 @@ internal class CodeEmitter(StringBuilder sb, TypeModel model)
                             if (innerElemType.Kind == TypeKind2.Dictionary)
                             {
                                 // Dict inner elements: read each dict from inner list's MapArray
-                                var keyType2 = innerElemType.KeyType!;
-                                var valType2 = innerElemType.ValueType!;
-                                var dictTypeName2 =
+                                TypeInfo keyType2 = innerElemType.KeyType!;
+                                TypeInfo valType2 = innerElemType.ValueType!;
+                                string dictTypeName2 =
                                     $"System.Collections.Generic.Dictionary<{keyType2.FullTypeName}, {valType2.FullTypeName}>";
                                 Line($"var mapSlice_{index} = (MapArray)innerArr_{index}.GetSlicedValues(i);");
                                 Line(
@@ -2785,7 +2785,7 @@ internal class CodeEmitter(StringBuilder sb, TypeModel model)
                                 Line($"for (int k_{index} = 0; k_{index} < kvs_{index}.Length; k_{index}++)");
                                 Line("{");
                                 _indent++;
-                                var dKeyReader2 = GetScalarReader(keyType2, $"ks_{index}", $"k_{index}");
+                                string dKeyReader2 = GetScalarReader(keyType2, $"ks_{index}", $"k_{index}");
                                 EmitDictValueRead(
                                     valType2,
                                     $"d_{index}",
@@ -2803,7 +2803,7 @@ internal class CodeEmitter(StringBuilder sb, TypeModel model)
                             else
                             {
                                 Line($"var innerValues_{index} = innerArr_{index}.GetSlicedValues(i);");
-                                var innerElemReader = GetElementReader(innerElemType, $"innerValues_{index}");
+                                string innerElemReader = GetElementReader(innerElemType, $"innerValues_{index}");
                                 if (elemType.Kind == TypeKind2.Array)
                                     Line($"prop_{index}.Add({innerElemReader}.ToArray());");
                                 else
@@ -2817,9 +2817,9 @@ internal class CodeEmitter(StringBuilder sb, TypeModel model)
                         case TypeKind2.Dictionary:
                         {
                             // Dict elements inside a list: read each dict from MapArray values
-                            var keyType = elemType.KeyType!;
-                            var valType = elemType.ValueType!;
-                            var dictTypeName =
+                            TypeInfo keyType = elemType.KeyType!;
+                            TypeInfo valType = elemType.ValueType!;
+                            string dictTypeName =
                                 $"System.Collections.Generic.Dictionary<{keyType.FullTypeName}, {valType.FullTypeName}>";
                             Line($"var mapArr_{index} = (MapArray)col_{index}.Values;");
                             Line(
@@ -2834,7 +2834,7 @@ internal class CodeEmitter(StringBuilder sb, TypeModel model)
                             Line($"for (int j_{index} = 0; j_{index} < kvs_{index}.Length; j_{index}++)");
                             Line("{");
                             _indent++;
-                            var dKeyReader = GetScalarReader(keyType, $"ks_{index}", $"j_{index}");
+                            string dKeyReader = GetScalarReader(keyType, $"ks_{index}", $"j_{index}");
                             EmitDictValueRead(valType, $"d_{index}", dKeyReader, $"vs_{index}", $"j_{index}", index);
                             _indent--;
                             Line("}");
@@ -2847,9 +2847,9 @@ internal class CodeEmitter(StringBuilder sb, TypeModel model)
                 }
                 else
                 {
-                    var nonManualDeclPrefix = prop.IsNullable ? $"prop_{index}" : $"var prop_{index}";
+                    string nonManualDeclPrefix = prop.IsNullable ? $"prop_{index}" : $"var prop_{index}";
                     Line($"var listValues_{index} = col_{index}.GetSlicedValues(row);");
-                    var elemReader = GetElementReader(elemType, $"listValues_{index}");
+                    string elemReader = GetElementReader(elemType, $"listValues_{index}");
                     if (prop.Type.Kind == TypeKind2.Array)
                         Line($"{nonManualDeclPrefix} = {elemReader}.ToArray();");
                     else if (prop.Type.Kind == TypeKind2.Set)
@@ -2870,9 +2870,9 @@ internal class CodeEmitter(StringBuilder sb, TypeModel model)
             }
             case TypeKind2.Dictionary:
             {
-                var keyType = prop.Type.KeyType!;
-                var valueType = prop.Type.ValueType!;
-                var dictTypeName2 =
+                TypeInfo keyType = prop.Type.KeyType!;
+                TypeInfo valueType = prop.Type.ValueType!;
+                string dictTypeName2 =
                     $"System.Collections.Generic.Dictionary<{keyType.FullTypeName}, {valueType.FullTypeName}>";
                 if (prop.IsNullable)
                 {
@@ -2898,7 +2898,7 @@ internal class CodeEmitter(StringBuilder sb, TypeModel model)
                 Line($"for (int i = 0; i < kvStruct_{index}.Length; i++)");
                 Line("{");
                 _indent++;
-                var keyReader = GetScalarReader(keyType, $"keys_{index}", "i");
+                string keyReader = GetScalarReader(keyType, $"keys_{index}", "i");
                 EmitDictValueRead(valueType, $"prop_{index}", keyReader, $"vals_{index}", "i", index);
                 _indent--;
                 Line("}");
@@ -2908,7 +2908,7 @@ internal class CodeEmitter(StringBuilder sb, TypeModel model)
             }
             case TypeKind2.NestedRecord:
             {
-                var typeName = prop.Type.FullTypeName;
+                string typeName = prop.Type.FullTypeName;
                 if (prop.IsNullable)
                 {
                     Line($"{typeName}? prop_{index};");
@@ -2954,7 +2954,7 @@ internal class CodeEmitter(StringBuilder sb, TypeModel model)
         Line($"na_{index}[f] = ArrowArrayFactory.BuildArray(col_{index}.Fields[f].Data.Slice(row, 1));");
         _indent--;
         Line("}");
-        var decl = declareVar ? "var " : "";
+        string decl = declareVar ? "var " : "";
         Line(
             $"{decl}prop_{index} = {typeName}.FromRecordBatch(new RecordBatch({typeName}.ArrowSchema, na_{index}, 1));");
     }
@@ -2989,25 +2989,25 @@ internal class CodeEmitter(StringBuilder sb, TypeModel model)
     /// </summary>
     private static bool TypeInfoHasTimezone(TypeInfo type)
     {
-        var over = type.ArrowTypeOverride;
+        string? over = type.ArrowTypeOverride;
         if (over == null)
             return true; // default is UTC
-        var lower = over.Trim().ToLowerInvariant();
+        string lower = over.Trim().ToLowerInvariant();
         if (!lower.StartsWith("timestamp"))
             return true;
-        var start = lower.IndexOfAny(['[', '(']);
+        int start = lower.IndexOfAny(['[', '(']);
         if (start < 0)
             return false;
-        var end = lower.IndexOfAny([']', ')'], start);
+        int end = lower.IndexOfAny([']', ')'], start);
         if (end < 0)
             return false;
-        var inner = lower.Substring(start + 1, end - start - 1);
+        string inner = lower.Substring(start + 1, end - start - 1);
         return inner.Contains(",");
     }
 
     private static string GetDateArrayBuilderType(TypeInfo type)
     {
-        var over = type.ArrowTypeOverride?.Trim().ToLowerInvariant();
+        string? over = type.ArrowTypeOverride?.Trim().ToLowerInvariant();
         if (over != null && over.StartsWith("date64"))
             return "Date64Array.Builder";
         return "Date32Array.Builder";
@@ -3015,7 +3015,7 @@ internal class CodeEmitter(StringBuilder sb, TypeModel model)
 
     private static string GetTimeArrayBuilderType(TypeInfo type)
     {
-        var over = type.ArrowTypeOverride?.Trim().ToLowerInvariant();
+        string? over = type.ArrowTypeOverride?.Trim().ToLowerInvariant();
         if (over != null && over.StartsWith("time32"))
             return "Time32Array.Builder";
         return "Time64Array.Builder";
@@ -3023,7 +3023,7 @@ internal class CodeEmitter(StringBuilder sb, TypeModel model)
 
     private static string GetDateArrayReadType(TypeInfo type)
     {
-        var over = type.ArrowTypeOverride?.Trim().ToLowerInvariant();
+        string? over = type.ArrowTypeOverride?.Trim().ToLowerInvariant();
         if (over != null && over.StartsWith("date64"))
             return "Date64Array";
         return "Date32Array";
@@ -3031,7 +3031,7 @@ internal class CodeEmitter(StringBuilder sb, TypeModel model)
 
     private static string GetTimeArrayReadType(TypeInfo type)
     {
-        var over = type.ArrowTypeOverride?.Trim().ToLowerInvariant();
+        string? over = type.ArrowTypeOverride?.Trim().ToLowerInvariant();
         if (over != null && over.StartsWith("time32"))
             return "Time32Array";
         return "Time64Array";
@@ -3049,20 +3049,20 @@ internal class CodeEmitter(StringBuilder sb, TypeModel model)
     /// </summary>
     private static bool TimestampHasTimezone(PropertyModel prop)
     {
-        var over = prop.Type.ArrowTypeOverride;
+        string? over = prop.Type.ArrowTypeOverride;
         if (over == null)
             return true; // default is UTC
-        var lower = over.Trim().ToLowerInvariant();
+        string lower = over.Trim().ToLowerInvariant();
         if (!lower.StartsWith("timestamp"))
             return true; // not a timestamp override, use default
         // Check if there's a comma (unit, tz) in the bracket params
-        var start = lower.IndexOfAny(['[', '(']);
+        int start = lower.IndexOfAny(['[', '(']);
         if (start < 0)
             return false; // just "timestamp" with no params — no timezone
-        var end = lower.IndexOfAny([']', ')'], start);
+        int end = lower.IndexOfAny([']', ')'], start);
         if (end < 0)
             return false;
-        var inner = lower.Substring(start + 1, end - start - 1);
+        string inner = lower.Substring(start + 1, end - start - 1);
         return inner.Contains(",");
     }
 
@@ -3072,17 +3072,17 @@ internal class CodeEmitter(StringBuilder sb, TypeModel model)
     /// </summary>
     private static (string ArrayType, string BuilderType, string TypeExpr) GetTimeArrayInfo(PropertyModel prop)
     {
-        var over = prop.Type.ArrowTypeOverride?.Trim().ToLowerInvariant();
+        string? over = prop.Type.ArrowTypeOverride?.Trim().ToLowerInvariant();
         if (over != null && over.StartsWith("time32"))
         {
-            var unit = ParseUnitParam(over, "time32", "Millisecond");
+            string unit = ParseUnitParam(over, "time32", "Millisecond");
             return ("Time32Array", "Time32Array.Builder", $"new Time32Type(TimeUnit.{unit})");
         }
 
         // Default: time64
         if (over != null && over.StartsWith("time64"))
         {
-            var unit = ParseUnitParam(over, "time64", "Microsecond");
+            string unit = ParseUnitParam(over, "time64", "Microsecond");
             return ("Time64Array", "Time64Array.Builder", $"new Time64Type(TimeUnit.{unit})");
         }
 
@@ -3091,7 +3091,7 @@ internal class CodeEmitter(StringBuilder sb, TypeModel model)
 
     private static (string ArrayType, string BuilderType) GetDateArrayInfo(PropertyModel prop)
     {
-        var over = prop.Type.ArrowTypeOverride?.Trim().ToLowerInvariant();
+        string? over = prop.Type.ArrowTypeOverride?.Trim().ToLowerInvariant();
         if (over != null && over.StartsWith("date64"))
             return ("Date64Array", "Date64Array.Builder");
         return ("Date32Array", "Date32Array.Builder");
@@ -3193,38 +3193,38 @@ internal class CodeEmitter(StringBuilder sb, TypeModel model)
 
     private static string ParseArrowTypeOverride(string typeName)
     {
-        var lower = typeName.ToLowerInvariant().Trim();
-        var original = typeName.Trim();
+        string lower = typeName.ToLowerInvariant().Trim();
+        string original = typeName.Trim();
 
         // Parameterized types: timestamp[unit, tz], decimal128(precision, scale),
         // time64[unit], time32[unit], duration[unit]
         if (lower.StartsWith("timestamp"))
         {
-            var (unit, tz) = ParseTimestampParams(original, "timestamp");
+            (string unit, string tz) = ParseTimestampParams(original, "timestamp");
             return $"new TimestampType(TimeUnit.{unit}, \"{tz}\")";
         }
 
         if (lower.StartsWith("decimal128") || lower.StartsWith("decimal"))
         {
-            var (precision, scale) = ParseDecimalParams(lower);
+            (int precision, int scale) = ParseDecimalParams(lower);
             return $"new Decimal128Type({precision}, {scale})";
         }
 
         if (lower.StartsWith("time64"))
         {
-            var unit = ParseUnitParam(lower, "time64", "Microsecond");
+            string unit = ParseUnitParam(lower, "time64", "Microsecond");
             return $"new Time64Type(TimeUnit.{unit})";
         }
 
         if (lower.StartsWith("time32"))
         {
-            var unit = ParseUnitParam(lower, "time32", "Millisecond");
+            string unit = ParseUnitParam(lower, "time32", "Millisecond");
             return $"new Time32Type(TimeUnit.{unit})";
         }
 
         if (lower.StartsWith("duration"))
         {
-            var unit = ParseUnitParam(lower, "duration", "Microsecond");
+            string unit = ParseUnitParam(lower, "duration", "Microsecond");
             return $"DurationType.{unit}";
         }
 
@@ -3256,12 +3256,12 @@ internal class CodeEmitter(StringBuilder sb, TypeModel model)
 
     private static (string Unit, string Timezone) ParseTimestampParams(string input, string prefix)
     {
-        var unit = "Microsecond";
-        var tz = "UTC";
-        var inner = ExtractBracketParams(input, prefix);
+        string unit = "Microsecond";
+        string tz = "UTC";
+        string? inner = ExtractBracketParams(input, prefix);
         if (inner != null)
         {
-            var parts = inner.Split(',');
+            string[] parts = inner.Split(',');
             if (parts.Length >= 1) unit = NormalizeTimeUnit(parts[0].Trim());
             if (parts.Length >= 2) tz = parts[1].Trim().Trim('"', '\'');
         }
@@ -3271,16 +3271,16 @@ internal class CodeEmitter(StringBuilder sb, TypeModel model)
 
     private static (int Precision, int Scale) ParseDecimalParams(string input)
     {
-        var precision = 38;
-        var scale = 18;
+        int precision = 38;
+        int scale = 18;
         // Match decimal128(p, s) or decimal(p, s)
-        var start = input.IndexOf('(');
-        var end = input.IndexOf(')');
+        int start = input.IndexOf('(');
+        int end = input.IndexOf(')');
         if (start >= 0 && end > start)
         {
-            var parts = input.Substring(start + 1, end - start - 1).Split(',');
-            if (parts.Length >= 1 && int.TryParse(parts[0].Trim(), out var p)) precision = p;
-            if (parts.Length >= 2 && int.TryParse(parts[1].Trim(), out var s)) scale = s;
+            string[] parts = input.Substring(start + 1, end - start - 1).Split(',');
+            if (parts.Length >= 1 && int.TryParse(parts[0].Trim(), out int p)) precision = p;
+            if (parts.Length >= 2 && int.TryParse(parts[1].Trim(), out int s)) scale = s;
         }
 
         return (precision, scale);
@@ -3288,14 +3288,14 @@ internal class CodeEmitter(StringBuilder sb, TypeModel model)
 
     private static string ParseUnitParam(string input, string prefix, string defaultUnit)
     {
-        var inner = ExtractBracketParams(input, prefix);
+        string? inner = ExtractBracketParams(input, prefix);
         return inner != null ? NormalizeTimeUnit(inner.Trim()) : defaultUnit;
     }
 
     private static string ExtractBracketParams(string input, string prefix)
     {
         // Supports both [] and () delimiters: timestamp[us, UTC] or timestamp(us, UTC)
-        var rest = input.Substring(prefix.Length).Trim();
+        string rest = input.Substring(prefix.Length).Trim();
         if (rest.Length >= 2)
             if ((rest[0] == '[' && rest[rest.Length - 1] == ']') ||
                 (rest[0] == '(' && rest[rest.Length - 1] == ')'))
@@ -3329,7 +3329,7 @@ internal class CodeEmitter(StringBuilder sb, TypeModel model)
         // Check for view type overrides
         if (type.ArrowTypeOverride != null)
         {
-            var ov = type.ArrowTypeOverride.ToLowerInvariant().Replace("_", "");
+            string ov = type.ArrowTypeOverride.ToLowerInvariant().Replace("_", "");
             if (ov is "stringview" or "utf8view") return "StringViewArray.Builder";
             if (ov is "binaryview") return "BinaryViewArray.Builder";
         }
@@ -3368,7 +3368,7 @@ internal class CodeEmitter(StringBuilder sb, TypeModel model)
     {
         if (type.ArrowTypeOverride != null)
         {
-            var ov = type.ArrowTypeOverride.ToLowerInvariant().Replace("_", "");
+            string ov = type.ArrowTypeOverride.ToLowerInvariant().Replace("_", "");
             if (ov is "stringview" or "utf8view") return "StringViewArray";
             if (ov is "binaryview") return "BinaryViewArray";
         }

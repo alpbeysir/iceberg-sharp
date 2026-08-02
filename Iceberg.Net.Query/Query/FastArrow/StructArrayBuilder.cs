@@ -16,7 +16,7 @@ public class StructArrayBuilder : IArrowArrayBuilder<StructArray, StructArrayBui
     {
         Allocator = allocator;
         _type = dataType;
-        var count = dataType.Fields.Count;
+        int count = dataType.Fields.Count;
         _fieldBuilders = new IArrowArrayBuilder<IArrowArray>?[count];
         _fieldArrays = new IArrowArray?[count];
     }
@@ -45,7 +45,7 @@ public class StructArrayBuilder : IArrowArrayBuilder<StructArray, StructArrayBui
     public StructArray Build(MemoryAllocator? allocator = null)
     {
         IArrowArray[] arrays = new IArrowArray[FieldCount];
-        for (var i = 0; i < FieldCount; i++)
+        for (int i = 0; i < FieldCount; i++)
         {
             arrays[i] = _fieldArrays[i]
                         ?? _fieldBuilders[i]?.Build(allocator)
@@ -61,7 +61,7 @@ public class StructArrayBuilder : IArrowArrayBuilder<StructArray, StructArrayBui
         get
         {
             // Use the first available source for length
-            for (var i = 0; i < FieldCount; i++)
+            for (int i = 0; i < FieldCount; i++)
             {
                 if (_fieldArrays[i] is { } arr) return arr.Length;
                 if (_fieldBuilders[i] is { } b) return b.Length;
@@ -89,7 +89,7 @@ public class StructArrayBuilder : IArrowArrayBuilder<StructArray, StructArrayBui
 
     public StructArrayBuilder Clear()
     {
-        for (var i = 0; i < FieldCount; i++)
+        for (int i = 0; i < FieldCount; i++)
         {
             if (_fieldBuilders[i] != null)
                 ((dynamic)_fieldBuilders[i]!).Clear();

@@ -117,7 +117,7 @@ public sealed partial class RestCatalogClient(HttpClient httpClient)
 
         PrepareRequest(httpClient, request, urlBuilder);
 
-        var url = urlBuilder.ToString();
+        string url = urlBuilder.ToString();
         request.RequestUri = new Uri(url, UriKind.RelativeOrAbsolute);
 
         PrepareRequest(httpClient, request, url);
@@ -134,7 +134,7 @@ public sealed partial class RestCatalogClient(HttpClient httpClient)
 
         ProcessResponse(httpClient, response);
 
-        var status = (int)response.StatusCode;
+        int status = (int)response.StatusCode;
         if (status == 200)
         {
             ObjectResponseResult<CatalogConfig> objectResponse =
@@ -198,7 +198,7 @@ public sealed partial class RestCatalogClient(HttpClient httpClient)
                 .ConfigureAwait(false);
         }
 
-        var responseData = response.Content == null
+        string? responseData = response.Content == null
             ? null
             : await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
         throw new IcebergRestException(
@@ -259,7 +259,7 @@ public sealed partial class RestCatalogClient(HttpClient httpClient)
         ArgumentNullException.ThrowIfNull(body);
 
         using HttpRequestMessage request = new();
-        var json = JsonSerializer.SerializeToUtf8Bytes(body, JsonSerializerOptions);
+        byte[] json = JsonSerializer.SerializeToUtf8Bytes(body, JsonSerializerOptions);
         Dictionary<string, string>? dictionary =
             JsonSerializer.Deserialize<Dictionary<string, string>>(json, JsonSerializerOptions);
         FormUrlEncodedContent content = new(dictionary ?? []);
@@ -275,7 +275,7 @@ public sealed partial class RestCatalogClient(HttpClient httpClient)
 
         PrepareRequest(httpClient, request, urlBuilder);
 
-        var url = urlBuilder.ToString();
+        string url = urlBuilder.ToString();
         request.RequestUri = new Uri(url, UriKind.RelativeOrAbsolute);
 
         PrepareRequest(httpClient, request, url);
@@ -292,7 +292,7 @@ public sealed partial class RestCatalogClient(HttpClient httpClient)
 
         ProcessResponse(httpClient, response);
 
-        var status = (int)response.StatusCode;
+        int status = (int)response.StatusCode;
         if (status == 200)
         {
             ObjectResponseResult<OAuthTokenResponse> objectResponse =
@@ -316,7 +316,7 @@ public sealed partial class RestCatalogClient(HttpClient httpClient)
                 "OAuth2 error response",
                 cancellationToken);
 
-        var responseData = response.Content == null
+        string? responseData = response.Content == null
             ? null
             : await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
         throw new IcebergRestException(
@@ -387,7 +387,7 @@ public sealed partial class RestCatalogClient(HttpClient httpClient)
 
         PrepareRequest(httpClient, request, urlBuilder);
 
-        var url = urlBuilder.ToString();
+        string url = urlBuilder.ToString();
         request.RequestUri = new Uri(url, UriKind.RelativeOrAbsolute);
 
         PrepareRequest(httpClient, request, url);
@@ -404,7 +404,7 @@ public sealed partial class RestCatalogClient(HttpClient httpClient)
 
         ProcessResponse(httpClient, response);
 
-        var status = (int)response.StatusCode;
+        int status = (int)response.StatusCode;
         if (status == 200)
         {
             ObjectResponseResult<ListNamespacesResponse> objectResponse =
@@ -478,7 +478,7 @@ public sealed partial class RestCatalogClient(HttpClient httpClient)
                 "A server-side problem that might not be addressable from the client side. Used for server 5xx errors without more specific documentation in individual routes.",
                 cancellationToken).ConfigureAwait(false);
 
-        var responseData = response.Content == null
+        string? responseData = response.Content == null
             ? null
             : await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
         throw new IcebergRestException(
@@ -538,7 +538,7 @@ public sealed partial class RestCatalogClient(HttpClient httpClient)
             request.Headers.TryAddWithoutValidation(
                 "Idempotency-Key",
                 ConvertToString(idempotencyKey, CultureInfo.InvariantCulture));
-        var json = JsonSerializer.SerializeToUtf8Bytes(body, JsonSerializerOptions);
+        byte[] json = JsonSerializer.SerializeToUtf8Bytes(body, JsonSerializerOptions);
         ByteArrayContent content = new(json);
         content.Headers.ContentType = MediaTypeHeaderValue.Parse("application/json");
         request.Content = content;
@@ -552,7 +552,7 @@ public sealed partial class RestCatalogClient(HttpClient httpClient)
 
         PrepareRequest(httpClient, request, urlBuilder);
 
-        var url = urlBuilder.ToString();
+        string url = urlBuilder.ToString();
         request.RequestUri = new Uri(url, UriKind.RelativeOrAbsolute);
 
         PrepareRequest(httpClient, request, url);
@@ -569,7 +569,7 @@ public sealed partial class RestCatalogClient(HttpClient httpClient)
 
         ProcessResponse(httpClient, response);
 
-        var status = (int)response.StatusCode;
+        int status = (int)response.StatusCode;
         if (status == 200)
         {
             ObjectResponseResult<CreateNamespaceResponse> objectResponse =
@@ -651,7 +651,7 @@ public sealed partial class RestCatalogClient(HttpClient httpClient)
                 "A server-side problem that might not be addressable from the client side. Used for server 5xx errors without more specific documentation in individual routes.",
                 cancellationToken);
 
-        var responseData = response.Content == null
+        string? responseData = response.Content == null
             ? null
             : await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
         throw new IcebergRestException(
@@ -702,7 +702,7 @@ public sealed partial class RestCatalogClient(HttpClient httpClient)
 
         PrepareRequest(httpClient, request, urlBuilder);
 
-        var url = urlBuilder.ToString();
+        string url = urlBuilder.ToString();
         request.RequestUri = new Uri(url, UriKind.RelativeOrAbsolute);
 
         PrepareRequest(httpClient, request, url);
@@ -719,7 +719,7 @@ public sealed partial class RestCatalogClient(HttpClient httpClient)
 
         ProcessResponse(httpClient, response);
 
-        var status = (int)response.StatusCode;
+        int status = (int)response.StatusCode;
         if (status == 200)
         {
             ObjectResponseResult<GetNamespaceResponse> objectResponse =
@@ -791,7 +791,7 @@ public sealed partial class RestCatalogClient(HttpClient httpClient)
                 "A server-side problem that might not be addressable from the client side. Used for server 5xx errors without more specific documentation in individual routes.",
                 cancellationToken);
 
-        var responseData = response.Content == null
+        string? responseData = response.Content == null
             ? null
             : await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
         throw new IcebergRestException(
@@ -836,7 +836,7 @@ public sealed partial class RestCatalogClient(HttpClient httpClient)
 
         PrepareRequest(httpClient, request, urlBuilder);
 
-        var url = urlBuilder.ToString();
+        string url = urlBuilder.ToString();
         request.RequestUri = new Uri(url, UriKind.RelativeOrAbsolute);
 
         PrepareRequest(httpClient, request, url);
@@ -853,7 +853,7 @@ public sealed partial class RestCatalogClient(HttpClient httpClient)
 
         ProcessResponse(httpClient, response);
 
-        var status = (int)response.StatusCode;
+        int status = (int)response.StatusCode;
         if (status == 204)
         {
         }
@@ -922,7 +922,7 @@ public sealed partial class RestCatalogClient(HttpClient httpClient)
         }
         else
         {
-            var responseData = response.Content == null
+            string? responseData = response.Content == null
                 ? null
                 : await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
             throw new IcebergRestException(
@@ -992,7 +992,7 @@ public sealed partial class RestCatalogClient(HttpClient httpClient)
 
         PrepareRequest(httpClient, request, urlBuilder);
 
-        var url = urlBuilder.ToString();
+        string url = urlBuilder.ToString();
         request.RequestUri = new Uri(url, UriKind.RelativeOrAbsolute);
 
         PrepareRequest(httpClient, request, url);
@@ -1009,7 +1009,7 @@ public sealed partial class RestCatalogClient(HttpClient httpClient)
 
         ProcessResponse(httpClient, response);
 
-        var status = (int)response.StatusCode;
+        int status = (int)response.StatusCode;
         if (status == 204)
         {
         }
@@ -1087,7 +1087,7 @@ public sealed partial class RestCatalogClient(HttpClient httpClient)
         }
         else
         {
-            var responseData = response.Content == null
+            string? responseData = response.Content == null
                 ? null
                 : await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
             throw new IcebergRestException(
@@ -1156,7 +1156,7 @@ public sealed partial class RestCatalogClient(HttpClient httpClient)
             request.Headers.TryAddWithoutValidation(
                 "Idempotency-Key",
                 ConvertToString(idempotencyKey, CultureInfo.InvariantCulture));
-        var json = JsonSerializer.SerializeToUtf8Bytes(body, JsonSerializerOptions);
+        byte[] json = JsonSerializer.SerializeToUtf8Bytes(body, JsonSerializerOptions);
         ByteArrayContent content = new(json);
         content.Headers.ContentType = MediaTypeHeaderValue.Parse("application/json");
         request.Content = content;
@@ -1172,7 +1172,7 @@ public sealed partial class RestCatalogClient(HttpClient httpClient)
 
         PrepareRequest(httpClient, request, urlBuilder);
 
-        var url = urlBuilder.ToString();
+        string url = urlBuilder.ToString();
         request.RequestUri = new Uri(url, UriKind.RelativeOrAbsolute);
 
         PrepareRequest(httpClient, request, url);
@@ -1189,7 +1189,7 @@ public sealed partial class RestCatalogClient(HttpClient httpClient)
 
         ProcessResponse(httpClient, response);
 
-        var status = (int)response.StatusCode;
+        int status = (int)response.StatusCode;
         if (status == 200)
         {
             ObjectResponseResult<UpdateNamespacePropertiesResponse> objectResponse =
@@ -1279,7 +1279,7 @@ public sealed partial class RestCatalogClient(HttpClient httpClient)
                 "A server-side problem that might not be addressable from the client side. Used for server 5xx errors without more specific documentation in individual routes.",
                 cancellationToken);
 
-        var responseData = response.Content == null
+        string? responseData = response.Content == null
             ? null
             : await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
         throw new IcebergRestException(
@@ -1345,7 +1345,7 @@ public sealed partial class RestCatalogClient(HttpClient httpClient)
 
         PrepareRequest(httpClient, request, urlBuilder);
 
-        var url = urlBuilder.ToString();
+        string url = urlBuilder.ToString();
         request.RequestUri = new Uri(url, UriKind.RelativeOrAbsolute);
 
         PrepareRequest(httpClient, request, url);
@@ -1362,7 +1362,7 @@ public sealed partial class RestCatalogClient(HttpClient httpClient)
 
         ProcessResponse(httpClient, response);
 
-        var status = (int)response.StatusCode;
+        int status = (int)response.StatusCode;
         if (status == 200)
         {
             ObjectResponseResult<ListTablesResponse> objectResponse =
@@ -1434,7 +1434,7 @@ public sealed partial class RestCatalogClient(HttpClient httpClient)
                 "A server-side problem that might not be addressable from the client side. Used for server 5xx errors without more specific documentation in individual routes.",
                 cancellationToken);
 
-        var responseData = response.Content == null
+        string? responseData = response.Content == null
             ? null
             : await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
         throw new IcebergRestException(
@@ -1523,8 +1523,8 @@ public sealed partial class RestCatalogClient(HttpClient httpClient)
             request.Headers.TryAddWithoutValidation(
                 "Idempotency-Key",
                 ConvertToString(idempotencyKey, CultureInfo.InvariantCulture));
-        var json = JsonSerializer.SerializeToUtf8Bytes(body, JsonSerializerOptions);
-        var aaa = JsonSerializer.Serialize(body, JsonSerializerOptions);
+        byte[] json = JsonSerializer.SerializeToUtf8Bytes(body, JsonSerializerOptions);
+        string aaa = JsonSerializer.Serialize(body, JsonSerializerOptions);
         ByteArrayContent content = new(json);
         content.Headers.ContentType = MediaTypeHeaderValue.Parse("application/json");
         request.Content = content;
@@ -1540,7 +1540,7 @@ public sealed partial class RestCatalogClient(HttpClient httpClient)
 
         PrepareRequest(httpClient, request, urlBuilder);
 
-        var url = urlBuilder.ToString();
+        string url = urlBuilder.ToString();
         request.RequestUri = new Uri(url, UriKind.RelativeOrAbsolute);
 
         PrepareRequest(httpClient, request, url);
@@ -1557,7 +1557,7 @@ public sealed partial class RestCatalogClient(HttpClient httpClient)
 
         ProcessResponse(httpClient, response);
 
-        var status = (int)response.StatusCode;
+        int status = (int)response.StatusCode;
         if (status == 200)
         {
             ObjectResponseResult<LoadTableResult> objectResponse =
@@ -1637,7 +1637,7 @@ public sealed partial class RestCatalogClient(HttpClient httpClient)
                 "A server-side problem that might not be addressable from the client side. Used for server 5xx errors without more specific documentation in individual routes.",
                 cancellationToken);
 
-        var responseData = response.Content == null
+        string? responseData = response.Content == null
             ? null
             : await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
         throw new IcebergRestException(
@@ -1733,7 +1733,7 @@ public sealed partial class RestCatalogClient(HttpClient httpClient)
             request.Headers.TryAddWithoutValidation(
                 "Idempotency-Key",
                 ConvertToString(idempotencyKey, CultureInfo.InvariantCulture));
-        var json = JsonSerializer.SerializeToUtf8Bytes(body, JsonSerializerOptions);
+        byte[] json = JsonSerializer.SerializeToUtf8Bytes(body, JsonSerializerOptions);
         ByteArrayContent content = new(json);
         content.Headers.ContentType = MediaTypeHeaderValue.Parse("application/json");
         request.Content = content;
@@ -1751,7 +1751,7 @@ public sealed partial class RestCatalogClient(HttpClient httpClient)
 
         PrepareRequest(httpClient, request, urlBuilder);
 
-        var url = urlBuilder.ToString();
+        string url = urlBuilder.ToString();
         request.RequestUri = new Uri(url, UriKind.RelativeOrAbsolute);
 
         PrepareRequest(httpClient, request, url);
@@ -1768,7 +1768,7 @@ public sealed partial class RestCatalogClient(HttpClient httpClient)
 
         ProcessResponse(httpClient, response);
 
-        var status = (int)response.StatusCode;
+        int status = (int)response.StatusCode;
         if (status == 200)
         {
             ObjectResponseResult<CompletedPlanningWithIdResult> objectResponse =
@@ -1850,7 +1850,7 @@ public sealed partial class RestCatalogClient(HttpClient httpClient)
                 "A server-side problem that might not be addressable from the client side. Used for server 5xx errors without more specific documentation in individual routes.",
                 cancellationToken);
 
-        var responseData = response.Content == null
+        string? responseData = response.Content == null
             ? null
             : await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
         throw new IcebergRestException(
@@ -1923,7 +1923,7 @@ public sealed partial class RestCatalogClient(HttpClient httpClient)
 
         PrepareRequest(httpClient, request, urlBuilder);
 
-        var url = urlBuilder.ToString();
+        string url = urlBuilder.ToString();
         request.RequestUri = new Uri(url, UriKind.RelativeOrAbsolute);
 
         PrepareRequest(httpClient, request, url);
@@ -1940,7 +1940,7 @@ public sealed partial class RestCatalogClient(HttpClient httpClient)
 
         ProcessResponse(httpClient, response);
 
-        var status = (int)response.StatusCode;
+        int status = (int)response.StatusCode;
         if (status == 200)
         {
             ObjectResponseResult<CompletedPlanningResult> objectResponse =
@@ -2014,7 +2014,7 @@ public sealed partial class RestCatalogClient(HttpClient httpClient)
                 "A server-side problem that might not be addressable from the client side. Used for server 5xx errors without more specific documentation in individual routes.",
                 cancellationToken);
 
-        var responseData = response.Content == null
+        string? responseData = response.Content == null
             ? null
             : await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
         throw new IcebergRestException(
@@ -2107,7 +2107,7 @@ public sealed partial class RestCatalogClient(HttpClient httpClient)
 
         PrepareRequest(httpClient, request, urlBuilder);
 
-        var url = urlBuilder.ToString();
+        string url = urlBuilder.ToString();
         request.RequestUri = new Uri(url, UriKind.RelativeOrAbsolute);
 
         PrepareRequest(httpClient, request, url);
@@ -2124,7 +2124,7 @@ public sealed partial class RestCatalogClient(HttpClient httpClient)
 
         ProcessResponse(httpClient, response);
 
-        var status = (int)response.StatusCode;
+        int status = (int)response.StatusCode;
         if (status == 204)
         {
         }
@@ -2193,7 +2193,7 @@ public sealed partial class RestCatalogClient(HttpClient httpClient)
         }
         else
         {
-            var responseData = response.Content == null
+            string? responseData = response.Content == null
                 ? null
                 : await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
             throw new IcebergRestException(
@@ -2261,7 +2261,7 @@ public sealed partial class RestCatalogClient(HttpClient httpClient)
             request.Headers.TryAddWithoutValidation(
                 "Idempotency-Key",
                 ConvertToString(idempotencyKey, CultureInfo.InvariantCulture));
-        var json = JsonSerializer.SerializeToUtf8Bytes(body, JsonSerializerOptions);
+        byte[] json = JsonSerializer.SerializeToUtf8Bytes(body, JsonSerializerOptions);
         ByteArrayContent content = new(json);
         content.Headers.ContentType = MediaTypeHeaderValue.Parse("application/json");
         request.Content = content;
@@ -2279,7 +2279,7 @@ public sealed partial class RestCatalogClient(HttpClient httpClient)
 
         PrepareRequest(httpClient, request, urlBuilder);
 
-        var url = urlBuilder.ToString();
+        string url = urlBuilder.ToString();
         request.RequestUri = new Uri(url, UriKind.RelativeOrAbsolute);
 
         PrepareRequest(httpClient, request, url);
@@ -2296,7 +2296,7 @@ public sealed partial class RestCatalogClient(HttpClient httpClient)
 
         ProcessResponse(httpClient, response);
 
-        var status = (int)response.StatusCode;
+        int status = (int)response.StatusCode;
         if (status == 200)
         {
             ObjectResponseResult<FetchScanTasksResult> objectResponse =
@@ -2368,7 +2368,7 @@ public sealed partial class RestCatalogClient(HttpClient httpClient)
                 "A server-side problem that might not be addressable from the client side. Used for server 5xx errors without more specific documentation in individual routes.",
                 cancellationToken);
 
-        var responseData = response.Content == null
+        string? responseData = response.Content == null
             ? null
             : await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
         throw new IcebergRestException(
@@ -2433,7 +2433,7 @@ public sealed partial class RestCatalogClient(HttpClient httpClient)
             request.Headers.TryAddWithoutValidation(
                 "Idempotency-Key",
                 ConvertToString(idempotencyKey, CultureInfo.InvariantCulture));
-        var json = JsonSerializer.SerializeToUtf8Bytes(body, JsonSerializerOptions);
+        byte[] json = JsonSerializer.SerializeToUtf8Bytes(body, JsonSerializerOptions);
         ByteArrayContent content = new(json);
         content.Headers.ContentType = MediaTypeHeaderValue.Parse("application/json");
         request.Content = content;
@@ -2449,7 +2449,7 @@ public sealed partial class RestCatalogClient(HttpClient httpClient)
 
         PrepareRequest(httpClient, request, urlBuilder);
 
-        var url = urlBuilder.ToString();
+        string url = urlBuilder.ToString();
         request.RequestUri = new Uri(url, UriKind.RelativeOrAbsolute);
 
         PrepareRequest(httpClient, request, url);
@@ -2466,7 +2466,7 @@ public sealed partial class RestCatalogClient(HttpClient httpClient)
 
         ProcessResponse(httpClient, response);
 
-        var status = (int)response.StatusCode;
+        int status = (int)response.StatusCode;
         if (status == 200)
         {
             ObjectResponseResult<LoadTableResult> objectResponse =
@@ -2546,7 +2546,7 @@ public sealed partial class RestCatalogClient(HttpClient httpClient)
                 "A server-side problem that might not be addressable from the client side. Used for server 5xx errors without more specific documentation in individual routes.",
                 cancellationToken);
 
-        var responseData = response.Content == null
+        string? responseData = response.Content == null
             ? null
             : await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
         throw new IcebergRestException(
@@ -2649,7 +2649,7 @@ public sealed partial class RestCatalogClient(HttpClient httpClient)
 
         PrepareRequest(httpClient, request, urlBuilder);
 
-        var url = urlBuilder.ToString();
+        string url = urlBuilder.ToString();
         request.RequestUri = new Uri(url, UriKind.RelativeOrAbsolute);
 
         PrepareRequest(httpClient, request, url);
@@ -2666,7 +2666,7 @@ public sealed partial class RestCatalogClient(HttpClient httpClient)
 
         ProcessResponse(httpClient, response);
 
-        var status = (int)response.StatusCode;
+        int status = (int)response.StatusCode;
         if (status == 200)
         {
             ObjectResponseResult<LoadTableResult> objectResponse =
@@ -2684,7 +2684,7 @@ public sealed partial class RestCatalogClient(HttpClient httpClient)
 
         if (status == 304)
         {
-            var responseText = response.Content == null
+            string responseText = response.Content == null
                 ? string.Empty
                 : await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
             throw new IcebergRestException(
@@ -2751,7 +2751,7 @@ public sealed partial class RestCatalogClient(HttpClient httpClient)
                 "A server-side problem that might not be addressable from the client side. Used for server 5xx errors without more specific documentation in individual routes.",
                 cancellationToken);
 
-        var responseData = response.Content == null
+        string? responseData = response.Content == null
             ? null
             : await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
         throw new IcebergRestException(
@@ -2838,8 +2838,8 @@ public sealed partial class RestCatalogClient(HttpClient httpClient)
             request.Headers.TryAddWithoutValidation(
                 "Idempotency-Key",
                 ConvertToString(idempotencyKey, CultureInfo.InvariantCulture));
-        var txt = JsonSerializer.Serialize(body, JsonSerializerOptions);
-        var json = JsonSerializer.SerializeToUtf8Bytes(body, JsonSerializerOptions);
+        string txt = JsonSerializer.Serialize(body, JsonSerializerOptions);
+        byte[] json = JsonSerializer.SerializeToUtf8Bytes(body, JsonSerializerOptions);
         ByteArrayContent content = new(json);
         content.Headers.ContentType = MediaTypeHeaderValue.Parse("application/json");
         request.Content = content;
@@ -2856,7 +2856,7 @@ public sealed partial class RestCatalogClient(HttpClient httpClient)
 
         PrepareRequest(httpClient, request, urlBuilder);
 
-        var url = urlBuilder.ToString();
+        string url = urlBuilder.ToString();
         request.RequestUri = new Uri(url, UriKind.RelativeOrAbsolute);
 
         PrepareRequest(httpClient, request, url);
@@ -2873,7 +2873,7 @@ public sealed partial class RestCatalogClient(HttpClient httpClient)
 
         ProcessResponse(httpClient, response);
 
-        var status = (int)response.StatusCode;
+        int status = (int)response.StatusCode;
         if (status == 200)
         {
             ObjectResponseResult<CommitTableResponse> objectResponse =
@@ -2977,7 +2977,7 @@ public sealed partial class RestCatalogClient(HttpClient httpClient)
                 "A server-side problem that might not be addressable on the client.",
                 cancellationToken);
 
-        var responseData = response.Content == null
+        string? responseData = response.Content == null
             ? null
             : await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
         throw new IcebergRestException(
@@ -3063,7 +3063,7 @@ public sealed partial class RestCatalogClient(HttpClient httpClient)
 
         PrepareRequest(httpClient, request, urlBuilder);
 
-        var url = urlBuilder.ToString();
+        string url = urlBuilder.ToString();
         request.RequestUri = new Uri(url, UriKind.RelativeOrAbsolute);
 
         PrepareRequest(httpClient, request, url);
@@ -3080,7 +3080,7 @@ public sealed partial class RestCatalogClient(HttpClient httpClient)
 
         ProcessResponse(httpClient, response);
 
-        var status = (int)response.StatusCode;
+        int status = (int)response.StatusCode;
         if (status == 204)
         {
         }
@@ -3149,7 +3149,7 @@ public sealed partial class RestCatalogClient(HttpClient httpClient)
         }
         else
         {
-            var responseData = response.Content == null
+            string? responseData = response.Content == null
                 ? null
                 : await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
             throw new IcebergRestException(
@@ -3203,7 +3203,7 @@ public sealed partial class RestCatalogClient(HttpClient httpClient)
 
         PrepareRequest(httpClient, request, urlBuilder);
 
-        var url = urlBuilder.ToString();
+        string url = urlBuilder.ToString();
         request.RequestUri = new Uri(url, UriKind.RelativeOrAbsolute);
 
         PrepareRequest(httpClient, request, url);
@@ -3220,7 +3220,7 @@ public sealed partial class RestCatalogClient(HttpClient httpClient)
 
         ProcessResponse(httpClient, response);
 
-        var status = (int)response.StatusCode;
+        int status = (int)response.StatusCode;
         if (status == 204)
         {
         }
@@ -3289,7 +3289,7 @@ public sealed partial class RestCatalogClient(HttpClient httpClient)
         }
         else
         {
-            var responseData = response.Content == null
+            string? responseData = response.Content == null
                 ? null
                 : await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
             throw new IcebergRestException(
@@ -3353,7 +3353,7 @@ public sealed partial class RestCatalogClient(HttpClient httpClient)
 
         PrepareRequest(httpClient, request, urlBuilder);
 
-        var url = urlBuilder.ToString();
+        string url = urlBuilder.ToString();
         request.RequestUri = new Uri(url, UriKind.RelativeOrAbsolute);
 
         PrepareRequest(httpClient, request, url);
@@ -3370,7 +3370,7 @@ public sealed partial class RestCatalogClient(HttpClient httpClient)
 
         ProcessResponse(httpClient, response);
 
-        var status = (int)response.StatusCode;
+        int status = (int)response.StatusCode;
         if (status == 200)
         {
             ObjectResponseResult<LoadCredentialsResponse> objectResponse =
@@ -3444,7 +3444,7 @@ public sealed partial class RestCatalogClient(HttpClient httpClient)
                 "A server-side problem that might not be addressable from the client side. Used for server 5xx errors without more specific documentation in individual routes.",
                 cancellationToken);
 
-        var responseData = response.Content == null
+        string? responseData = response.Content == null
             ? null
             : await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
         throw new IcebergRestException(
@@ -3501,7 +3501,7 @@ public sealed partial class RestCatalogClient(HttpClient httpClient)
             request.Headers.TryAddWithoutValidation(
                 "Idempotency-Key",
                 ConvertToString(idempotencyKey, CultureInfo.InvariantCulture));
-        var json = JsonSerializer.SerializeToUtf8Bytes(body, JsonSerializerOptions);
+        byte[] json = JsonSerializer.SerializeToUtf8Bytes(body, JsonSerializerOptions);
         ByteArrayContent content = new(json);
         content.Headers.ContentType = MediaTypeHeaderValue.Parse("application/json");
         request.Content = content;
@@ -3514,7 +3514,7 @@ public sealed partial class RestCatalogClient(HttpClient httpClient)
 
         PrepareRequest(httpClient, request, urlBuilder);
 
-        var url = urlBuilder.ToString();
+        string url = urlBuilder.ToString();
         request.RequestUri = new Uri(url, UriKind.RelativeOrAbsolute);
 
         PrepareRequest(httpClient, request, url);
@@ -3531,7 +3531,7 @@ public sealed partial class RestCatalogClient(HttpClient httpClient)
 
         ProcessResponse(httpClient, response);
 
-        var status = (int)response.StatusCode;
+        int status = (int)response.StatusCode;
         if (status == 204)
         {
         }
@@ -3618,7 +3618,7 @@ public sealed partial class RestCatalogClient(HttpClient httpClient)
         }
         else
         {
-            var responseData = response.Content == null
+            string? responseData = response.Content == null
                 ? null
                 : await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
             throw new IcebergRestException(
@@ -3661,7 +3661,7 @@ public sealed partial class RestCatalogClient(HttpClient httpClient)
         ArgumentNullException.ThrowIfNull(body);
 
         using HttpRequestMessage request = new();
-        var json = JsonSerializer.SerializeToUtf8Bytes(body, JsonSerializerOptions);
+        byte[] json = JsonSerializer.SerializeToUtf8Bytes(body, JsonSerializerOptions);
         ByteArrayContent content = new(json);
         content.Headers.ContentType = MediaTypeHeaderValue.Parse("application/json");
         request.Content = content;
@@ -3678,7 +3678,7 @@ public sealed partial class RestCatalogClient(HttpClient httpClient)
 
         PrepareRequest(httpClient, request, urlBuilder);
 
-        var url = urlBuilder.ToString();
+        string url = urlBuilder.ToString();
         request.RequestUri = new Uri(url, UriKind.RelativeOrAbsolute);
 
         PrepareRequest(httpClient, request, url);
@@ -3695,7 +3695,7 @@ public sealed partial class RestCatalogClient(HttpClient httpClient)
 
         ProcessResponse(httpClient, response);
 
-        var status = (int)response.StatusCode;
+        int status = (int)response.StatusCode;
         if (status == 204)
         {
         }
@@ -3764,7 +3764,7 @@ public sealed partial class RestCatalogClient(HttpClient httpClient)
         }
         else
         {
-            var responseData = response.Content == null
+            string? responseData = response.Content == null
                 ? null
                 : await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
             throw new IcebergRestException(
@@ -3827,7 +3827,7 @@ public sealed partial class RestCatalogClient(HttpClient httpClient)
             request.Headers.TryAddWithoutValidation(
                 "Idempotency-Key",
                 ConvertToString(idempotencyKey, CultureInfo.InvariantCulture));
-        var json = JsonSerializer.SerializeToUtf8Bytes(body, JsonSerializerOptions);
+        byte[] json = JsonSerializer.SerializeToUtf8Bytes(body, JsonSerializerOptions);
         ByteArrayContent content = new(json);
         content.Headers.ContentType = MediaTypeHeaderValue.Parse("application/json");
         request.Content = content;
@@ -3840,7 +3840,7 @@ public sealed partial class RestCatalogClient(HttpClient httpClient)
 
         PrepareRequest(httpClient, request, urlBuilder);
 
-        var url = urlBuilder.ToString();
+        string url = urlBuilder.ToString();
         request.RequestUri = new Uri(url, UriKind.RelativeOrAbsolute);
 
         PrepareRequest(httpClient, request, url);
@@ -3857,7 +3857,7 @@ public sealed partial class RestCatalogClient(HttpClient httpClient)
 
         ProcessResponse(httpClient, response);
 
-        var status = (int)response.StatusCode;
+        int status = (int)response.StatusCode;
         if (status == 204)
         {
         }
@@ -3962,7 +3962,7 @@ public sealed partial class RestCatalogClient(HttpClient httpClient)
         }
         else
         {
-            var responseData = response.Content == null
+            string? responseData = response.Content == null
                 ? null
                 : await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
             throw new IcebergRestException(
@@ -4029,7 +4029,7 @@ public sealed partial class RestCatalogClient(HttpClient httpClient)
 
         PrepareRequest(httpClient, request, urlBuilder);
 
-        var url = urlBuilder.ToString();
+        string url = urlBuilder.ToString();
         request.RequestUri = new Uri(url, UriKind.RelativeOrAbsolute);
 
         PrepareRequest(httpClient, request, url);
@@ -4046,7 +4046,7 @@ public sealed partial class RestCatalogClient(HttpClient httpClient)
 
         ProcessResponse(httpClient, response);
 
-        var status = (int)response.StatusCode;
+        int status = (int)response.StatusCode;
         if (status == 200)
         {
             ObjectResponseResult<ListTablesResponse> objectResponse =
@@ -4118,7 +4118,7 @@ public sealed partial class RestCatalogClient(HttpClient httpClient)
                 "A server-side problem that might not be addressable from the client side. Used for server 5xx errors without more specific documentation in individual routes.",
                 cancellationToken);
 
-        var responseData = response.Content == null
+        string? responseData = response.Content == null
             ? null
             : await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
         throw new IcebergRestException(
@@ -4158,7 +4158,7 @@ public sealed partial class RestCatalogClient(HttpClient httpClient)
         ArgumentNullException.ThrowIfNull(body);
 
         using HttpRequestMessage request = new();
-        var json = JsonSerializer.SerializeToUtf8Bytes(body, JsonSerializerOptions);
+        byte[] json = JsonSerializer.SerializeToUtf8Bytes(body, JsonSerializerOptions);
         ByteArrayContent content = new(json);
         content.Headers.ContentType = MediaTypeHeaderValue.Parse("application/json");
         request.Content = content;
@@ -4174,7 +4174,7 @@ public sealed partial class RestCatalogClient(HttpClient httpClient)
 
         PrepareRequest(httpClient, request, urlBuilder);
 
-        var url = urlBuilder.ToString();
+        string url = urlBuilder.ToString();
         request.RequestUri = new Uri(url, UriKind.RelativeOrAbsolute);
 
         PrepareRequest(httpClient, request, url);
@@ -4191,7 +4191,7 @@ public sealed partial class RestCatalogClient(HttpClient httpClient)
 
         ProcessResponse(httpClient, response);
 
-        var status = (int)response.StatusCode;
+        int status = (int)response.StatusCode;
         if (status == 200)
         {
             ObjectResponseResult<LoadViewResult> objectResponse =
@@ -4271,7 +4271,7 @@ public sealed partial class RestCatalogClient(HttpClient httpClient)
                 "A server-side problem that might not be addressable from the client side. Used for server 5xx errors without more specific documentation in individual routes.",
                 cancellationToken);
 
-        var responseData = response.Content == null
+        string? responseData = response.Content == null
             ? null
             : await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
         throw new IcebergRestException(
@@ -4335,7 +4335,7 @@ public sealed partial class RestCatalogClient(HttpClient httpClient)
 
         PrepareRequest(httpClient, request, urlBuilder);
 
-        var url = urlBuilder.ToString();
+        string url = urlBuilder.ToString();
         request.RequestUri = new Uri(url, UriKind.RelativeOrAbsolute);
 
         PrepareRequest(httpClient, request, url);
@@ -4352,7 +4352,7 @@ public sealed partial class RestCatalogClient(HttpClient httpClient)
 
         ProcessResponse(httpClient, response);
 
-        var status = (int)response.StatusCode;
+        int status = (int)response.StatusCode;
         if (status == 200)
         {
             ObjectResponseResult<LoadViewResult> objectResponse =
@@ -4424,7 +4424,7 @@ public sealed partial class RestCatalogClient(HttpClient httpClient)
                 "A server-side problem that might not be addressable from the client side. Used for server 5xx errors without more specific documentation in individual routes.",
                 cancellationToken);
 
-        var responseData = response.Content == null
+        string? responseData = response.Content == null
             ? null
             : await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
         throw new IcebergRestException(
@@ -4493,7 +4493,7 @@ public sealed partial class RestCatalogClient(HttpClient httpClient)
             request.Headers.TryAddWithoutValidation(
                 "Idempotency-Key",
                 ConvertToString(idempotencyKey, CultureInfo.InvariantCulture));
-        var json = JsonSerializer.SerializeToUtf8Bytes(body, JsonSerializerOptions);
+        byte[] json = JsonSerializer.SerializeToUtf8Bytes(body, JsonSerializerOptions);
         ByteArrayContent content = new(json);
         content.Headers.ContentType = MediaTypeHeaderValue.Parse("application/json");
         request.Content = content;
@@ -4510,7 +4510,7 @@ public sealed partial class RestCatalogClient(HttpClient httpClient)
 
         PrepareRequest(httpClient, request, urlBuilder);
 
-        var url = urlBuilder.ToString();
+        string url = urlBuilder.ToString();
         request.RequestUri = new Uri(url, UriKind.RelativeOrAbsolute);
 
         PrepareRequest(httpClient, request, url);
@@ -4527,7 +4527,7 @@ public sealed partial class RestCatalogClient(HttpClient httpClient)
 
         ProcessResponse(httpClient, response);
 
-        var status = (int)response.StatusCode;
+        int status = (int)response.StatusCode;
         if (status == 200)
         {
             ObjectResponseResult<LoadViewResult> objectResponse =
@@ -4631,7 +4631,7 @@ public sealed partial class RestCatalogClient(HttpClient httpClient)
                 "A server-side problem that might not be addressable on the client.",
                 cancellationToken);
 
-        var responseData = response.Content == null
+        string? responseData = response.Content == null
             ? null
             : await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
         throw new IcebergRestException(
@@ -4709,7 +4709,7 @@ public sealed partial class RestCatalogClient(HttpClient httpClient)
 
         PrepareRequest(httpClient, request, urlBuilder);
 
-        var url = urlBuilder.ToString();
+        string url = urlBuilder.ToString();
         request.RequestUri = new Uri(url, UriKind.RelativeOrAbsolute);
 
         PrepareRequest(httpClient, request, url);
@@ -4726,7 +4726,7 @@ public sealed partial class RestCatalogClient(HttpClient httpClient)
 
         ProcessResponse(httpClient, response);
 
-        var status = (int)response.StatusCode;
+        int status = (int)response.StatusCode;
         if (status == 204)
         {
         }
@@ -4795,7 +4795,7 @@ public sealed partial class RestCatalogClient(HttpClient httpClient)
         }
         else
         {
-            var responseData = response.Content == null
+            string? responseData = response.Content == null
                 ? null
                 : await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
             throw new IcebergRestException(
@@ -4849,7 +4849,7 @@ public sealed partial class RestCatalogClient(HttpClient httpClient)
 
         PrepareRequest(httpClient, request, urlBuilder);
 
-        var url = urlBuilder.ToString();
+        string url = urlBuilder.ToString();
         request.RequestUri = new Uri(url, UriKind.RelativeOrAbsolute);
 
         PrepareRequest(httpClient, request, url);
@@ -4867,27 +4867,27 @@ public sealed partial class RestCatalogClient(HttpClient httpClient)
 
         ProcessResponse(httpClient, response);
 
-        var status = (int)response.StatusCode;
+        int status = (int)response.StatusCode;
         if (status == 204)
         {
         }
         else if (status == 400)
         {
-            var responseText = response.Content == null
+            string responseText = response.Content == null
                 ? string.Empty
                 : await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
             throw new IcebergRestException("Bad Request", status, responseText, headers, null);
         }
         else if (status == 401)
         {
-            var responseText = response.Content == null
+            string responseText = response.Content == null
                 ? string.Empty
                 : await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
             throw new IcebergRestException("Unauthorized", status, responseText, headers, null);
         }
         else if (status == 404)
         {
-            var responseText = response.Content == null
+            string responseText = response.Content == null
                 ? string.Empty
                 : await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
             throw new IcebergRestException("Not Found", status, responseText, headers, null);
@@ -4921,7 +4921,7 @@ public sealed partial class RestCatalogClient(HttpClient httpClient)
         }
         else
         {
-            var responseData = response.Content == null
+            string? responseData = response.Content == null
                 ? null
                 : await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
             throw new IcebergRestException(
@@ -4979,7 +4979,7 @@ public sealed partial class RestCatalogClient(HttpClient httpClient)
             request.Headers.TryAddWithoutValidation(
                 "Idempotency-Key",
                 ConvertToString(idempotencyKey, CultureInfo.InvariantCulture));
-        var json = JsonSerializer.SerializeToUtf8Bytes(body, JsonSerializerOptions);
+        byte[] json = JsonSerializer.SerializeToUtf8Bytes(body, JsonSerializerOptions);
         ByteArrayContent content = new(json);
         content.Headers.ContentType = MediaTypeHeaderValue.Parse("application/json");
         request.Content = content;
@@ -4992,7 +4992,7 @@ public sealed partial class RestCatalogClient(HttpClient httpClient)
 
         PrepareRequest(httpClient, request, urlBuilder);
 
-        var url = urlBuilder.ToString();
+        string url = urlBuilder.ToString();
         request.RequestUri = new Uri(url, UriKind.RelativeOrAbsolute);
 
         PrepareRequest(httpClient, request, url);
@@ -5009,7 +5009,7 @@ public sealed partial class RestCatalogClient(HttpClient httpClient)
 
         ProcessResponse(httpClient, response);
 
-        var status = (int)response.StatusCode;
+        int status = (int)response.StatusCode;
         if (status == 204)
         {
         }
@@ -5096,7 +5096,7 @@ public sealed partial class RestCatalogClient(HttpClient httpClient)
         }
         else
         {
-            var responseData = response.Content == null
+            string? responseData = response.Content == null
                 ? null
                 : await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
             throw new IcebergRestException(
@@ -5118,7 +5118,7 @@ public sealed partial class RestCatalogClient(HttpClient httpClient)
 
         if (ReadResponseAsString || retainResponseText)
         {
-            var responseText = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
+            string responseText = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
             try
             {
                 T? typedBody = JsonSerializer.Deserialize<T>(responseText, JsonSerializerOptions);
@@ -5126,7 +5126,7 @@ public sealed partial class RestCatalogClient(HttpClient httpClient)
             }
             catch (JsonException exception)
             {
-                var message = "Could not deserialize the response body string as " + typeof(T).FullName + ".";
+                string message = "Could not deserialize the response body string as " + typeof(T).FullName + ".";
                 throw new IcebergRestException(message, (int)response.StatusCode, responseText, headers, exception);
             }
         }
@@ -5142,7 +5142,7 @@ public sealed partial class RestCatalogClient(HttpClient httpClient)
         }
         catch (JsonException exception)
         {
-            var message = "Could not deserialize the response body stream as " + typeof(T).FullName + ".";
+            string message = "Could not deserialize the response body stream as " + typeof(T).FullName + ".";
             throw new IcebergRestException(message, (int)response.StatusCode, string.Empty, headers, exception);
         }
     }
@@ -5179,7 +5179,7 @@ public sealed partial class RestCatalogClient(HttpClient httpClient)
 
         if (value is Enum)
         {
-            var name = Enum.GetName(value.GetType(), value);
+            string? name = Enum.GetName(value.GetType(), value);
             if (name != null)
             {
                 FieldInfo? field = value.GetType().GetTypeInfo().GetDeclaredField(name);
@@ -5187,7 +5187,7 @@ public sealed partial class RestCatalogClient(HttpClient httpClient)
                     if (field.GetCustomAttribute<JsonStringEnumMemberNameAttribute>() is { } attribute)
                         return attribute.Name ?? name;
 
-                var converted =
+                string? converted =
                     Convert.ToString(Convert.ChangeType(value, Enum.GetUnderlyingType(value.GetType()), cultureInfo));
                 return converted ?? string.Empty;
             }
@@ -5207,13 +5207,13 @@ public sealed partial class RestCatalogClient(HttpClient httpClient)
         else if (value.GetType().IsArray)
         {
             Array valueArray = (Array)value;
-            var valueTextArray = new string[valueArray.Length];
-            for (var i = 0; i < valueArray.Length; i++)
+            string[] valueTextArray = new string[valueArray.Length];
+            for (int i = 0; i < valueArray.Length; i++)
                 valueTextArray[i] = ConvertToString(valueArray.GetValue(i), cultureInfo);
             return string.Join(",", valueTextArray);
         }
 
-        var result = Convert.ToString(value, cultureInfo);
+        string? result = Convert.ToString(value, cultureInfo);
         return result ?? "";
     }
 

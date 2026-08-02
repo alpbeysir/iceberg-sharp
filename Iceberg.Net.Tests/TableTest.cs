@@ -10,9 +10,9 @@ public class TableTest(RestCatalogFixture fixture)
 
     protected async Task<Identifier> Write<T>(List<T> rows)
     {
-        var identifier = GetTableName<T>();
+        Identifier identifier = GetTableName<T>();
 
-        await using var transaction = new Transaction(new Table(identifier, Catalog));
+        await using Transaction transaction = new Transaction(new Table(identifier, Catalog));
         await transaction.AppendRows(rows, TestContext.Current.CancellationToken);
         await transaction.Commit(TestContext.Current.CancellationToken);
 
@@ -21,8 +21,8 @@ public class TableTest(RestCatalogFixture fixture)
 
     protected async Task Verify<T>(Identifier identifier, List<T> original) where T : IArrowSerializer<T>
     {
-        var loadedTable = await Catalog.LoadTableAsync(identifier);
-        await using var readTx = new Transaction(loadedTable);
+        Table loadedTable = await Catalog.LoadTableAsync(identifier);
+        await using Transaction readTx = new Transaction(loadedTable);
         var readRows = readTx.ReadRows<T>().ToList();
         readRows.Should().BeEquivalentTo(
             original,
@@ -36,7 +36,7 @@ public class TableTest(RestCatalogFixture fixture)
 
     private Identifier GetTableName<T>()
     {
-        var tableName =
+        string tableName =
             $"{GetType().Name}_{TestContext.Current.Test?.TestCase?.TestMethod?.MethodName}";
         return [.. fixture.BaseNamespace, tableName];
     }

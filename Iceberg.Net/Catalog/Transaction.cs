@@ -104,8 +104,8 @@ public sealed class Transaction(Table table, bool commitOnDispose = false) : IAs
         IEnumerable<TRow> rows,
         CancellationToken cancellationToken = default) where TRow : IArrowSerializer<TRow>
     {
-        var schemaId = Table.Metadata?.CurrentSchemaId ?? 0;
-        var nextFieldId = (Table.Metadata?.LastColumnId ?? 0) + 1;
+        int schemaId = Table.Metadata?.CurrentSchemaId ?? 0;
+        int nextFieldId = (Table.Metadata?.LastColumnId ?? 0) + 1;
         Schema schema = CSharpSchema.ToIcebergSchema(typeof(TRow), schemaId, _ => nextFieldId++);
 
         Channel<RecordBatch> channel = Channel.CreateBounded<RecordBatch>(
@@ -136,8 +136,8 @@ public sealed class Transaction(Table table, bool commitOnDispose = false) : IAs
         IEnumerable<TRow> rows,
         CancellationToken cancellationToken = default)
     {
-        var schemaId = Table.Metadata?.CurrentSchemaId ?? 0;
-        var nextFieldId = (Table.Metadata?.LastColumnId ?? 0) + 1;
+        int schemaId = Table.Metadata?.CurrentSchemaId ?? 0;
+        int nextFieldId = (Table.Metadata?.LastColumnId ?? 0) + 1;
         Schema schema = CSharpSchema.ToIcebergSchema(typeof(TRow), schemaId, _ => nextFieldId++);
 
         Channel<RecordBatch> channel = Channel.CreateBounded<RecordBatch>(
@@ -193,7 +193,7 @@ public sealed class Transaction(Table table, bool commitOnDispose = false) : IAs
             dataFiles,
             cancellationToken);
 
-        var snapshotId = Utils.GenerateSnapshotId();
+        long snapshotId = Utils.GenerateSnapshotId();
 
         Channel<ManifestListEntry> existingManifests = Channel.CreateBounded<ManifestListEntry>(
             new BoundedChannelOptions(1024)
@@ -350,7 +350,7 @@ public sealed class Transaction(Table table, bool commitOnDispose = false) : IAs
         int schemaId,
         CancellationToken cancellationToken = default)
     {
-        var sequenceNumber = (long)Table.Metadata!.LastSequenceNumber! + 1;
+        long sequenceNumber = (long)Table.Metadata!.LastSequenceNumber! + 1;
         Summary summary = new() { Operation = SummaryOperation.Overwrite };
 
         PathAndStream manifestListFile = await CreateManifestListFile(snapshotId, sequenceNumber, cancellationToken);
@@ -452,7 +452,7 @@ public sealed class Transaction(Table table, bool commitOnDispose = false) : IAs
 
         long addedFilesSize = 0;
         long addedRowsCount = 0;
-        var addedDataFilesCount = 0;
+        int addedDataFilesCount = 0;
 
         await foreach (DataFileWriteResult entry in dataFiles.Reader.ReadAllAsync(cancellationToken))
         {
@@ -532,7 +532,7 @@ public sealed class Transaction(Table table, bool commitOnDispose = false) : IAs
         string path,
         CancellationToken cancellationToken = default)
     {
-        var success = Uri.TryCreate(path, UriKind.RelativeOrAbsolute, out Uri? uri);
+        bool success = Uri.TryCreate(path, UriKind.RelativeOrAbsolute, out Uri? uri);
         if (!success) throw new ArgumentException($"Invalid URI: {path}");
 
         Stream stream = await Table.Open(
@@ -604,8 +604,8 @@ public sealed class Transaction(Table table, bool commitOnDispose = false) : IAs
         }
         else
         {
-            var currentSnapshotId = Table.Metadata!.CurrentSnapshotId ??
-                                    throw new InvalidOperationException("Table doesn't have any snapshots");
+            long currentSnapshotId = Table.Metadata!.CurrentSnapshotId ??
+                                     throw new InvalidOperationException("Table doesn't have any snapshots");
             return Table.Metadata.SnapshotsById.TryGetValue(currentSnapshotId, out Snapshot? result)
                 ? result
                 : throw new UnreachableException("Could not find the current snapshot");

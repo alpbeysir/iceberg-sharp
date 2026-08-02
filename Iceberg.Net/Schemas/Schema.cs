@@ -68,7 +68,7 @@ public class IcebergTypeConverter : JsonConverter<IIcebergType>
 
         using JsonDocument doc = JsonDocument.ParseValue(ref reader);
         JsonElement root = doc.RootElement;
-        var typeKind = root.GetProperty("type").GetString();
+        string? typeKind = root.GetProperty("type").GetString();
 
         return typeKind switch
         {

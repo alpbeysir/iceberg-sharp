@@ -153,7 +153,7 @@ public static class ArrowConverter
                                     nameof(Enumerable.Cast),
                                     BindingFlags.Public | BindingFlags.Static)!
                                 .MakeGenericMethod(runtimeType);
-                            var castData = castMethod.Invoke(null, [dataList]);
+                            object? castData = castMethod.Invoke(null, [dataList]);
 
                             return (IArrowArray)method.Invoke(null, [castData!])!;
                         }
@@ -202,10 +202,10 @@ public static class ArrowConverter
         Int32Array.Builder offsetsBuilder = new();
         BooleanArrayBuilder validityBuilder = new();
 
-        var currentOffset = 0;
+        int currentOffset = 0;
         offsetsBuilder.Append(0);
 
-        var nullCount = 0;
+        int nullCount = 0;
 
         foreach (IEnumerable<U>? subList in data)
             if (subList == null)
@@ -218,7 +218,7 @@ public static class ArrowConverter
             {
                 validityBuilder.Append(true);
 
-                var count = 0;
+                int count = 0;
                 foreach (U item in subList)
                 {
                     flattenedData.Add(item);
@@ -259,7 +259,7 @@ public static class ArrowConverter
     private static FloatArray BuildFloat32(IEnumerable<float?> data)
     {
         FloatArray.Builder b = new();
-        foreach (var v in data)
+        foreach (float? v in data)
             if (v.HasValue) b.Append(v.Value);
             else b.AppendNull();
         return b.Build();
@@ -269,7 +269,7 @@ public static class ArrowConverter
     {
         Decimal128Type type = new(38, 18);
         Decimal128Array.Builder b = new(type);
-        foreach (var v in data)
+        foreach (decimal? v in data)
             if (v.HasValue) b.Append(v.Value);
             else b.AppendNull();
         return b.Build();
@@ -278,7 +278,7 @@ public static class ArrowConverter
     private static Int8Array BuildInt8(IEnumerable<sbyte?> data)
     {
         Int8Array.Builder b = new();
-        foreach (var v in data)
+        foreach (sbyte? v in data)
             if (v.HasValue) b.Append(v.Value);
             else b.AppendNull();
         return b.Build();
@@ -287,7 +287,7 @@ public static class ArrowConverter
     private static UInt8Array BuildUInt8(IEnumerable<byte?> data)
     {
         UInt8Array.Builder b = new();
-        foreach (var v in data)
+        foreach (byte? v in data)
             if (v.HasValue) b.Append(v.Value);
             else b.AppendNull();
         return b.Build();
@@ -296,7 +296,7 @@ public static class ArrowConverter
     private static Int16Array BuildInt16(IEnumerable<short?> data)
     {
         Int16Array.Builder b = new();
-        foreach (var v in data)
+        foreach (short? v in data)
             if (v.HasValue) b.Append(v.Value);
             else b.AppendNull();
         return b.Build();
@@ -305,7 +305,7 @@ public static class ArrowConverter
     private static UInt16Array BuildUInt16(IEnumerable<ushort?> data)
     {
         UInt16Array.Builder b = new();
-        foreach (var v in data)
+        foreach (ushort? v in data)
             if (v.HasValue) b.Append(v.Value);
             else b.AppendNull();
         return b.Build();
@@ -314,7 +314,7 @@ public static class ArrowConverter
     private static Int32Array BuildInt32(IEnumerable<int?> data)
     {
         Int32Array.Builder b = new();
-        foreach (var v in data)
+        foreach (int? v in data)
             if (v.HasValue) b.Append(v.Value);
             else b.AppendNull();
         return b.Build();
@@ -323,7 +323,7 @@ public static class ArrowConverter
     private static Int64Array BuildInt64(IEnumerable<long?> data)
     {
         Int64Array.Builder b = new();
-        foreach (var v in data)
+        foreach (long? v in data)
             if (v.HasValue) b.Append(v.Value);
             else b.AppendNull();
         return b.Build();
@@ -332,7 +332,7 @@ public static class ArrowConverter
     private static UInt32Array BuildUInt32(IEnumerable<uint?> data)
     {
         UInt32Array.Builder b = new();
-        foreach (var v in data)
+        foreach (uint? v in data)
             if (v.HasValue) b.Append(v.Value);
             else b.AppendNull();
         return b.Build();
@@ -341,7 +341,7 @@ public static class ArrowConverter
     private static UInt64Array BuildUInt64(IEnumerable<ulong?> data)
     {
         UInt64Array.Builder b = new();
-        foreach (var v in data)
+        foreach (ulong? v in data)
             if (v.HasValue) b.Append(v.Value);
             else b.AppendNull();
         return b.Build();
@@ -350,7 +350,7 @@ public static class ArrowConverter
     private static DoubleArray BuildDouble(IEnumerable<double?> data)
     {
         DoubleArray.Builder b = new();
-        foreach (var v in data)
+        foreach (double? v in data)
             if (v.HasValue) b.Append(v.Value);
             else b.AppendNull();
         return b.Build();
@@ -359,7 +359,7 @@ public static class ArrowConverter
     private static BooleanArray BuildBoolean(IEnumerable<bool?> data)
     {
         BooleanArray.Builder b = new();
-        foreach (var v in data)
+        foreach (bool? v in data)
             if (v.HasValue) b.Append(v.Value);
             else b.AppendNull();
         return b.Build();
@@ -368,7 +368,7 @@ public static class ArrowConverter
     private static StringViewArray BuildString(IEnumerable<string?> data)
     {
         StringViewArray.Builder b = new();
-        foreach (var v in data) b.Append(v);
+        foreach (string? v in data) b.Append(v);
         return b.Build();
     }
 
@@ -467,7 +467,7 @@ public static class ArrowConverter
     private static BinaryViewArray BuildBinary(IEnumerable<byte[]?> data)
     {
         BinaryViewArray.Builder b = new();
-        foreach (var v in data)
+        foreach (byte[]? v in data)
             if (v != null) b.Append(v);
             else b.AppendNull();
         return b.Build();
@@ -482,7 +482,7 @@ public static class ArrowConverter
         foreach (PropertyInfo member in members)
         {
             Type memberType = member.PropertyType;
-            var dummyInstance = CreateDummyInstance(memberType);
+            object? dummyInstance = CreateDummyInstance(memberType);
 
             Array wrapper = Array.CreateInstance(memberType, 1);
             if (dummyInstance != null) wrapper.SetValue(dummyInstance, 0);
@@ -539,7 +539,7 @@ public static class ArrowConverter
         StructType? structType = (StructType)dummyStruct.Data.DataType;
         Schema schema = new(structType.Fields, null);
 
-        var hasYielded = false;
+        bool hasYielded = false;
 
         foreach (T[] chunk in data.Chunk(batchSize))
         {
@@ -565,7 +565,7 @@ public static class ArrowConverter
         public static StructArray BuildStructArray<T>(IEnumerable<T> data)
         {
             IList<T> dataList = data as IList<T> ?? data.ToList();
-            var length = dataList.Count;
+            int length = dataList.Count;
             Type type = typeof(T);
 
             // Direct Reflection to ensure exact names and internal props
@@ -591,7 +591,7 @@ public static class ArrowConverter
 
             // Build Validity Bitmap
             ArrowBuffer.BitmapBuilder validityBuilder = new();
-            var nullCount = 0;
+            int nullCount = 0;
             foreach (T item in dataList)
                 if (item == null)
                 {
@@ -647,7 +647,7 @@ public static class ArrowConverter
                     continue;
                 }
 
-                var rawVal = getter(item);
+                object? rawVal = getter(item);
                 if (rawVal == null) columnData.Add(default!);
                 else columnData.Add((TProp)rawVal);
             }

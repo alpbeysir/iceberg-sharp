@@ -18,8 +18,8 @@ public readonly struct MeasureHeap : IDisposable
 
     public void Dispose()
     {
-        var bytesAfter = GC.GetAllocatedBytesForCurrentThread();
-        var bytesAllocated = bytesAfter - _bytesBefore;
+        long bytesAfter = GC.GetAllocatedBytesForCurrentThread();
+        long bytesAllocated = bytesAfter - _bytesBefore;
         Console.WriteLine($"--- {_label} heap: {Utils.ToFileSize(bytesAllocated)}");
     }
 }

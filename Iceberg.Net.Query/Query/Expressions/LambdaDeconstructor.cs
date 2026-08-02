@@ -15,7 +15,7 @@ public record ColumnExpressions(
     {
         StringBuilder s = new();
 
-        foreach ((var name, FrozenDictionary<string, ParameterExpression> param) in Inputs)
+        foreach ((string name, FrozenDictionary<string, ParameterExpression> param) in Inputs)
         {
             s.Append($"{name}: ");
             foreach (KeyValuePair<string, ParameterExpression> input in param)
@@ -73,7 +73,7 @@ public class LambdaDeconstructor : ExpressionVisitor
                 break;
 
             case NewExpression { Members: not null } newExpr:
-                for (var i = 0; i < newExpr.Arguments.Count; i++)
+                for (int i = 0; i < newExpr.Arguments.Count; i++)
                     DeconstructOutput(newExpr.Arguments[i], CombinePath(path, newExpr.Members[i].Name));
                 break;
 
@@ -87,7 +87,7 @@ public class LambdaDeconstructor : ExpressionVisitor
                     // Now that we know it's a leaf for the OUTPUT, 
                     // we Visit it to create/retrieve the INPUT parameter.
                     Expression rewrittenLeaf = Visit(expression);
-                    var finalKey = string.IsNullOrEmpty(path) ? Root : path;
+                    string finalKey = string.IsNullOrEmpty(path) ? Root : path;
                     _assignments.Add(finalKey, rewrittenLeaf);
                 }
 
@@ -113,7 +113,7 @@ public class LambdaDeconstructor : ExpressionVisitor
 
         if (maybeParam is not null)
         {
-            var path = GetMemberPath(node);
+            string path = GetMemberPath(node);
             Dictionary<string, ParameterExpression> paramDict = _inputParameters[maybeParam.Name!];
 
             if (!paramDict.TryGetValue(path, out ParameterExpression? flatParam))
@@ -130,7 +130,7 @@ public class LambdaDeconstructor : ExpressionVisitor
 
     protected override Expression VisitParameter(ParameterExpression node)
     {
-        var index = _sourceParameters.IndexOf(node);
+        int index = _sourceParameters.IndexOf(node);
         if (index != -1)
         {
             Dictionary<string, ParameterExpression> paramDict = _inputParameters[node.Name!];

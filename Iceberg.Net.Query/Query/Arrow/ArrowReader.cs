@@ -36,9 +36,9 @@ public static class ArrowReader
             if (array.Length == 0) yield break;
 
             Func<int, object?> accessor = CreateAccessor(array, targetType);
-            for (var i = 0; i < array.Length; i++)
+            for (int i = 0; i < array.Length; i++)
             {
-                var val = accessor(i);
+                object? val = accessor(i);
                 yield return val == null ? default! : (T)val;
             }
 
@@ -51,9 +51,9 @@ public static class ArrowReader
             if (array.Length == 0) yield break;
 
             Func<int, object?> accessor = CreateAccessor(array, targetType);
-            for (var i = 0; i < array.Length; i++)
+            for (int i = 0; i < array.Length; i++)
             {
-                var val = accessor(i);
+                object? val = accessor(i);
                 yield return val == null ? default! : (T)val;
             }
 
@@ -75,8 +75,8 @@ public static class ArrowReader
         T>(StructArray structArray)
     {
         Type targetType = typeof(T);
-        var rowCount = structArray.Length;
-        var isAnonymous = targetType.IsAnonymousType();
+        int rowCount = structArray.Length;
+        bool isAnonymous = targetType.IsAnonymousType();
 
         MemberInfo[] members;
         if (isAnonymous)
@@ -88,13 +88,13 @@ public static class ArrowReader
         StructType? structType = (StructType)structArray.Data.DataType;
         Action<T, int>[] setters = new Action<T, int>[members.Length];
 
-        for (var i = 0; i < members.Length; i++)
+        for (int i = 0; i < members.Length; i++)
         {
             MemberInfo member = members[i];
-            var memberName = isAnonymous ? ExtractCleanFieldName(member.Name) : member.Name;
+            string memberName = isAnonymous ? ExtractCleanFieldName(member.Name) : member.Name;
 
-            var fieldIdx = -1;
-            for (var k = 0; k < structType.Fields.Count; k++)
+            int fieldIdx = -1;
+            for (int k = 0; k < structType.Fields.Count; k++)
                 if (string.Equals(structType.Fields[k].Name, memberName, StringComparison.OrdinalIgnoreCase))
                 {
                     fieldIdx = k;
@@ -108,7 +108,7 @@ public static class ArrowReader
 
         T[] batchItems = new T[rowCount];
 
-        for (var i = 0; i < rowCount; i++)
+        for (int i = 0; i < rowCount; i++)
             if (isAnonymous)
                 batchItems[i] = (T)RuntimeHelpers.GetUninitializedObject(targetType);
             else if (targetType.IsValueType)
@@ -116,11 +116,11 @@ public static class ArrowReader
             else
                 batchItems[i] = Activator.CreateInstance<T>()!;
 
-        for (var p = 0; p < setters.Length; p++)
+        for (int p = 0; p < setters.Length; p++)
         {
             Action<T, int>? setter = setters[p];
             if (setter == null) continue;
-            for (var i = 0; i < rowCount; i++) setter(batchItems[i], i);
+            for (int i = 0; i < rowCount; i++) setter(batchItems[i], i);
         }
 
         foreach (T item in batchItems) yield return item;
@@ -203,7 +203,7 @@ public static class ArrowReader
             if (array is Int64Array i64Arr)
                 return idx =>
                 {
-                    var v = i64Arr.GetValue(idx);
+                    long? v = i64Arr.GetValue(idx);
                     return v.HasValue ? DateTime.UnixEpoch.AddTicks(v.Value * 10) : null;
                 };
 
@@ -256,9 +256,9 @@ public static class ArrowReader
             Dictionary<string, Func<int, object?>> fieldAccessors = new();
             IReadOnlyList<Field>? fields = ((StructType)structArray.Data.DataType).Fields;
 
-            for (var i = 0; i < fields.Count; i++)
+            for (int i = 0; i < fields.Count; i++)
             {
-                var fieldName = fields[i].Name;
+                string fieldName = fields[i].Name;
                 IArrowArray? childArray = structArray.Fields[i];
                 fieldAccessors[fieldName] = CreateAccessor(childArray, typeof(object));
             }
@@ -272,7 +272,7 @@ public static class ArrowReader
             };
         }
 
-        var isAnon = type.IsAnonymousType();
+        bool isAnon = type.IsAnonymousType();
         StructType? structType = (StructType)structArray.Data.DataType;
         List<Action<object, int>> setters = new();
 
@@ -281,9 +281,9 @@ public static class ArrowReader
             FieldInfo[] fields = type.GetFields(BindingFlags.Instance | BindingFlags.NonPublic);
             foreach (FieldInfo field in fields)
             {
-                var memberName = ExtractCleanFieldName(field.Name);
-                var fieldIndex = -1;
-                for (var k = 0; k < structType.Fields.Count; k++)
+                string memberName = ExtractCleanFieldName(field.Name);
+                int fieldIndex = -1;
+                for (int k = 0; k < structType.Fields.Count; k++)
                     if (string.Equals(structType.Fields[k].Name, memberName, StringComparison.OrdinalIgnoreCase))
                     {
                         fieldIndex = k;
@@ -297,7 +297,7 @@ public static class ArrowReader
 
                 setters.Add((obj, rowIdx) =>
                 {
-                    var val = childGetter(rowIdx);
+                    object? val = childGetter(rowIdx);
                     if (val != null) field.SetValue(obj, val);
                 });
             }
@@ -309,8 +309,8 @@ public static class ArrowReader
 
             foreach (PropertyInfo prop in props)
             {
-                var fieldIndex = -1;
-                for (var k = 0; k < structType.Fields.Count; k++)
+                int fieldIndex = -1;
+                for (int k = 0; k < structType.Fields.Count; k++)
                     if (string.Equals(structType.Fields[k].Name, prop.Name, StringComparison.OrdinalIgnoreCase))
                     {
                         fieldIndex = k;
@@ -324,7 +324,7 @@ public static class ArrowReader
 
                 setters.Add((obj, rowIdx) =>
                 {
-                    var val = childGetter(rowIdx);
+                    object? val = childGetter(rowIdx);
                     if (val != null) prop.SetValue(obj, val);
                 });
             }
@@ -333,7 +333,7 @@ public static class ArrowReader
         return idx =>
         {
             if (structArray.IsNull(idx)) return null;
-            var instance = isAnon
+            object instance = isAnon
                 ? RuntimeHelpers.GetUninitializedObject(type)
                 : Activator.CreateInstance(type)!;
             foreach (Action<object, int> setter in setters) setter(instance, idx);
@@ -372,7 +372,7 @@ public static class ArrowReader
         {
             FixedSizeListArray fixedArr = (FixedSizeListArray)array;
             valuesArray = fixedArr.Values;
-            var width = ((FixedSizeListType)fixedArr.Data.DataType).ListSize;
+            int width = ((FixedSizeListType)fixedArr.Data.DataType).ListSize;
             getOffset = i => (long)(i + array.Offset) * width; // Correct Offset logic
             isNull = fixedArr.IsNull;
         }
@@ -383,17 +383,17 @@ public static class ArrowReader
         {
             if (isNull(idx)) return null;
 
-            var start = getOffset(idx);
-            var end = getOffset(idx + 1);
-            var count = (int)(end - start);
+            long start = getOffset(idx);
+            long end = getOffset(idx + 1);
+            int count = (int)(end - start);
 
             // Create List<Element>
             Type listType = typeof(List<>).MakeGenericType(elementType);
             IList list = (IList)Activator.CreateInstance(listType, count)!;
 
-            for (var k = 0; k < count; k++)
+            for (int k = 0; k < count; k++)
             {
-                var val = childGetter((int)(start + k));
+                object? val = childGetter((int)(start + k));
                 list.Add(val);
             }
 
@@ -455,7 +455,7 @@ public static class ArrowReader
     public static T? ReadItem<T>(IArrowArray array, int index)
     {
         Func<int, object?> accessor = CreateAccessor(array, typeof(T));
-        var val = accessor(index);
+        object? val = accessor(index);
         return val == null ? default : (T)val;
     }
 
@@ -489,7 +489,7 @@ public static class ArrowReader
         // Assemble Accessor
         return idx =>
         {
-            var key = indexGetter(idx);
+            int? key = indexGetter(idx);
 
             if (key == null) return null;
 
@@ -606,13 +606,13 @@ public static class ArrowReader
         if (fastArray != null) return fastArray;
 
         // Accessor
-        var len = array.Length;
+        int len = array.Length;
         Func<int, object?> accessor = CreateAccessor(array, typeof(T));
         T[] result = new T[len];
 
-        for (var i = 0; i < len; i++)
+        for (int i = 0; i < len; i++)
         {
-            var val = accessor(i);
+            object? val = accessor(i);
             result[i] = val == null ? default! : (T)val;
         }
 
@@ -729,7 +729,7 @@ internal static class FastAccessorBuilder
         Type type = typeof(TProp);
         Type underlyingType = Nullable.GetUnderlyingType(type) ?? type;
 
-        var isNullable = Nullable.GetUnderlyingType(type) != null || !type.IsValueType;
+        bool isNullable = Nullable.GetUnderlyingType(type) != null || !type.IsValueType;
 
         // =========================================================
         // String
@@ -822,7 +822,7 @@ internal static class FastAccessorBuilder
                 if (array is Date32Array d32Arr) return d32Arr.GetDateTime(idx);
                 if (array is Int64Array i64Arr)
                 {
-                    var val = i64Arr.GetValue(idx);
+                    long? val = i64Arr.GetValue(idx);
                     return val.HasValue ? DateTime.UnixEpoch.AddTicks(val.Value * 10) : null;
                 }
 
@@ -858,7 +858,7 @@ internal static class FastAccessorBuilder
         Func<int, object?> oldAccessor = ArrowReader.CreateAccessor(array, type);
         return idx =>
         {
-            var val = oldAccessor(idx);
+            object? val = oldAccessor(idx);
             return val == null ? default! : (TProp)val;
         };
     }

@@ -29,7 +29,7 @@ public class BooleanArrayBuilder(MemoryAllocator? allocator = null)
 
     public BooleanArrayBuilder Append(ReadOnlySpan<bool> span)
     {
-        foreach (var value in span) Append(value);
+        foreach (bool value in span) Append(value);
         return this;
     }
 
@@ -39,7 +39,7 @@ public class BooleanArrayBuilder(MemoryAllocator? allocator = null)
     public BooleanArrayBuilder AppendBitmap(ReadOnlySpan<byte> bitmap, int bitCount)
     {
         ValueBuffer.Append(bitmap, bitCount);
-        for (var i = 0; i < bitCount; i++)
+        for (int i = 0; i < bitCount; i++)
             ValidityBuffer.Append(true);
         return this;
     }
@@ -52,7 +52,7 @@ public class BooleanArrayBuilder(MemoryAllocator? allocator = null)
                 "Use AppendBitmap for byte-packed bitmaps. AppendMask<byte> is for byte-sized mask values.");
         foreach (TMask value in mask)
         {
-            var isTrue = value != TMask.Zero;
+            bool isTrue = value != TMask.Zero;
             ValueBuffer.Append(isTrue);
             ValidityBuffer.Append(true);
         }
@@ -61,7 +61,7 @@ public class BooleanArrayBuilder(MemoryAllocator? allocator = null)
 
     public BooleanArrayBuilder AppendRange(IEnumerable<bool> values)
     {
-        foreach (var value in values) Append(value);
+        foreach (bool value in values) Append(value);
         return this;
     }
 

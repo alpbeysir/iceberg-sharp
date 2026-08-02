@@ -43,7 +43,7 @@ public static class Utils
             "bytes", "KB", "MB", "GB",
             "TB", "PB", "EB", "ZB", "YB"
         ];
-        for (var i = 0; i < suffixes.Length; i++)
+        for (int i = 0; i < suffixes.Length; i++)
             if (value <= Math.Pow(1024, i + 1))
                 return ThreeNonZeroDigits(
                            value /
@@ -89,14 +89,14 @@ public static class Utils
         const string allowedChars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz0123456789!@$?_-";
         Span<char> chars = stackalloc char[stringLength];
 
-        for (var i = 0; i < stringLength; i++) chars[i] = allowedChars[Rd.Next(0, allowedChars.Length)];
+        for (int i = 0; i < stringLength; i++) chars[i] = allowedChars[Rd.Next(0, allowedChars.Length)];
 
         return new string(chars);
     }
 
     public static void SaveToFile(Stream stream, string path)
     {
-        var pos = stream.Position;
+        long pos = stream.Position;
         stream.Seek(0, SeekOrigin.Begin);
         using FileStream file = new(path, FileMode.Create);
         stream.CopyTo(file);
@@ -123,9 +123,9 @@ public static class Utils
     public static long GenerateSnapshotId()
     {
         Guid uuid = Guid.NewGuid();
-        var bytes = uuid.ToByteArray();
-        var mostSignificantBits = BitConverter.ToInt64(bytes, 0);
-        var leastSignificantBits = BitConverter.ToInt64(bytes, 8);
+        byte[] bytes = uuid.ToByteArray();
+        long mostSignificantBits = BitConverter.ToInt64(bytes, 0);
+        long leastSignificantBits = BitConverter.ToInt64(bytes, 8);
         return (mostSignificantBits ^ leastSignificantBits) & long.MaxValue;
     }
 

@@ -1,5 +1,6 @@
 ﻿using AwesomeAssertions;
 using Iceberg.Net.Catalog;
+using Iceberg.Net.Schemas;
 
 namespace Iceberg.Net.Tests;
 
@@ -13,7 +14,7 @@ public class CatalogTests(RestCatalogFixture fixture)
         Identifier identifier = [..fixture.BaseNamespace, "test_child"];
         await _catalog.CreateNamespaceAsync(identifier, cancellationToken: TestContext.Current.CancellationToken);
         var namespaces = _catalog.ListNamespacesAsync(fixture.BaseNamespace, TestContext.Current.CancellationToken);
-        var contains = await namespaces.AnyAsync(
+        bool contains = await namespaces.AnyAsync(
             x => x.Identifier == identifier,
             TestContext.Current.CancellationToken);
         contains.Should().BeTrue();
@@ -24,10 +25,10 @@ public class CatalogTests(RestCatalogFixture fixture)
     public async Task TestCreateTable()
     {
         Identifier identifier = [..fixture.BaseNamespace, "test_table"];
-        var schema = new Schemas.Schema([]);
+        Schema schema = new Schemas.Schema([]);
         await _catalog.CreateTableAsync(identifier, schema, TestContext.Current.CancellationToken);
         var namespaces = _catalog.ListTablesAsync(fixture.BaseNamespace, TestContext.Current.CancellationToken);
-        var contains = await namespaces.AnyAsync(
+        bool contains = await namespaces.AnyAsync(
             x => x.Identifier == identifier,
             TestContext.Current.CancellationToken);
         contains.Should().BeTrue();

@@ -11,8 +11,8 @@ public static class PrettyPrintExtensions
         if (type.IsGenericType)
         {
             // find generic type name
-            var genTypeName = type.GetGenericTypeDefinition().Name;
-            var index = genTypeName.IndexOf('`');
+            string genTypeName = type.GetGenericTypeDefinition().Name;
+            int index = genTypeName.IndexOf('`');
             if (index != -1)
                 genTypeName = genTypeName[..index];
 
@@ -36,7 +36,7 @@ public static class PrettyPrintExtensions
 
     public static string ToPrettyString<T>(in T[] array, int edgeItems = 3)
     {
-        var len = array.Length;
+        int len = array.Length;
         StringBuilder sb = new();
         sb.Append('[');
 
@@ -59,7 +59,7 @@ public static class PrettyPrintExtensions
         if (keys.Length != values.Length)
             throw new ArgumentException("Arrays must be of the same length.");
 
-        var len = keys.Length;
+        int len = keys.Length;
         StringBuilder sb = new();
         sb.Append('{');
 
@@ -80,7 +80,7 @@ public static class PrettyPrintExtensions
     // Helper for single arrays to avoid code duplication
     private static void BuildRange<T>(StringBuilder sb, T[] array, int start, int count)
     {
-        for (var i = 0; i < count; i++)
+        for (int i = 0; i < count; i++)
         {
             sb.Append(array[start + i]);
             if (i < count - 1) sb.Append(", ");
@@ -90,9 +90,9 @@ public static class PrettyPrintExtensions
     // Helper for map-style arrays
     private static void BuildMapRange<TK, TV>(StringBuilder sb, TK[] keys, TV[] values, int start, int count)
     {
-        for (var i = 0; i < count; i++)
+        for (int i = 0; i < count; i++)
         {
-            var idx = start + i;
+            int idx = start + i;
             sb.Append(keys[idx]).Append(": ").Append(values[idx]);
             if (i < count - 1) sb.Append(", ");
         }

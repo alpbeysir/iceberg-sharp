@@ -30,7 +30,7 @@ public class IcebergCustomization : ICustomization
             // Add this class to the beginning of the specimen builders list
             fixture.Customizations.Insert(0, this);
 
-            var customization = new SupportMutableValueTypesCustomization();
+            SupportMutableValueTypesCustomization customization = new SupportMutableValueTypesCustomization();
             customization.Customize(fixture);
 
             fixture.Customize(

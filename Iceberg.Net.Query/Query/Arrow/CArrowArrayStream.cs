@@ -126,7 +126,7 @@ public unsafe class ArrowStreamExporter(IEnumerator<RecordBatch> enumerator, Sch
     {
         if (stream == null) return;
 
-        var ptr = (IntPtr)stream->private_data;
+        IntPtr ptr = (IntPtr)stream->private_data;
         if (ptr != IntPtr.Zero)
         {
             GCHandle handle = GCHandle.FromIntPtr(ptr);

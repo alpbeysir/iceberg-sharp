@@ -42,7 +42,7 @@ public class BufferTransformVisitor : ExpressionVisitorNarrow<Expression, Expres
         _builderStack.Push(resultBuilderParam);
 
         // Create bindings for local params (based on current _inputTypes)
-        foreach ((var index, ParameterExpression expression) in node.Parameters.Index())
+        foreach ((int index, ParameterExpression expression) in node.Parameters.Index())
         {
             EnsureBindMemberIndexes(expression.Type);
             _bindings.Push(
@@ -69,7 +69,7 @@ public class BufferTransformVisitor : ExpressionVisitorNarrow<Expression, Expres
             .Where(m => m is PropertyInfo or FieldInfo).ToList();
 
         List<Expression> visitedArgs = new(node.Arguments.Count);
-        for (var i = 0; i < node.Arguments.Count; i++)
+        for (int i = 0; i < node.Arguments.Count; i++)
         {
             Type memberType = Utils.PropertyOrFieldType(members[i]);
             Type underlying = Nullable.GetUnderlyingType(memberType) ?? memberType;
@@ -119,13 +119,13 @@ public class BufferTransformVisitor : ExpressionVisitorNarrow<Expression, Expres
             if (declaringType == null && !supportedTypes.Any(name => declaringType!.Name.Contains(name)))
                 throw new NotImplementedException("this method can't be mapped yet");
 
-            var methodName = node.Method.Name;
+            string methodName = node.Method.Name;
 
             Expression originalEnumerable = node.Arguments[0];
             LambdaExpression originalPredicate = (LambdaExpression)node.Arguments[1];
 
             List<(ParameterExpression, ParameterExpression)> closureParams = GetClosureParameters(originalPredicate);
-            var hasClosures = closureParams.Count > 0;
+            bool hasClosures = closureParams.Count > 0;
 
             Expression enumerable = Visit(originalEnumerable);
 
@@ -319,10 +319,10 @@ public class BufferTransformVisitor : ExpressionVisitorNarrow<Expression, Expres
         Expression conversion,
         Expression right)
     {
-        var leftIsSpanLike = IsSpanLike(left);
-        var rightIsSpanLike = IsSpanLike(right);
-        var leftIsScalarLike = IsScalarLike(left);
-        var rightIsScalarLike = IsScalarLike(right);
+        bool leftIsSpanLike = IsSpanLike(left);
+        bool rightIsSpanLike = IsSpanLike(right);
+        bool leftIsScalarLike = IsScalarLike(left);
+        bool rightIsScalarLike = IsScalarLike(right);
 
         if (leftIsSpanLike && rightIsSpanLike)
         {
@@ -397,7 +397,7 @@ public class BufferTransformVisitor : ExpressionVisitorNarrow<Expression, Expres
     {
         List<ParameterExpression> lambdaParams = [_ctxParam, ..parameters.Cast<ParameterExpression>()];
 
-        var hasBuilderParam = TryGetParameter(_builderStack, out ParameterExpression? builderParam);
+        bool hasBuilderParam = TryGetParameter(_builderStack, out ParameterExpression? builderParam);
         if (!hasBuilderParam)
             throw new InvalidOperationException("Lambda cannot be constructed without a builder parameter");
 
@@ -734,7 +734,7 @@ public class BufferTransformVisitor : ExpressionVisitorNarrow<Expression, Expres
         {
             List<MemberInfo> members = type.GetMembers(BindingFlags.Instance | BindingFlags.Public)
                 .Where(info => info is PropertyInfo or FieldInfo).ToList();
-            foreach ((var idx, MemberInfo member) in members.Index())
+            foreach ((int idx, MemberInfo member) in members.Index())
             {
                 if (member is FieldInfo field)
                     EnsureBindMemberIndexes(field.FieldType);
@@ -1056,10 +1056,10 @@ public class BufferTransformVisitor : ExpressionVisitorNarrow<Expression, Expres
 
     private Expression ExecuteBinarySpan(BinaryExpression node, Expression left, Expression right)
     {
-        var leftIsBitmap = IsBitmap(left);
-        var rightIsBitmap = IsBitmap(right);
-        var leftIsSpan = IsSpan(left);
-        var rightIsSpan = IsSpan(right);
+        bool leftIsBitmap = IsBitmap(left);
+        bool rightIsBitmap = IsBitmap(right);
+        bool leftIsSpan = IsSpan(left);
+        bool rightIsSpan = IsSpan(right);
 
         // If either side is a Bitmap, convert the other side and use BitmapOps
         if (leftIsBitmap || rightIsBitmap)

@@ -13,7 +13,7 @@ public class BufferExpressionFuzzTests
     public static TheoryData<TestCase> RandomExpressions()
     {
         TheoryData<TestCase> data = [];
-        var rng = new Random(42);
+        Random rng = new Random(42);
         for (int i = 0; i < 100; i++)
         {
             try
@@ -42,7 +42,7 @@ public class BufferExpressionFuzzTests
 
     private static LambdaExpression GenerateRandomExpr(Random rng)
     {
-        var rowParam = Expression.Parameter(typeof(TestRow), "str");
+        ParameterExpression rowParam = Expression.Parameter(typeof(TestRow), "str");
         Expression body = GenerateBody(rng, rowParam, depth: 0, wantBool: false);
         return Expression.Lambda(body, rowParam);
     }
@@ -75,12 +75,12 @@ public class BufferExpressionFuzzTests
             choices.Add(() => ListOp(rng, row, depth));
         }
 
-        var expr = choices[rng.Next(choices.Count)]();
+        Expression expr = choices[rng.Next(choices.Count)]();
 
         // If the parent needs a bool but we produced a non-bool, wrap in a comparison
         if (wantBool && expr.Type != typeof(bool))
         {
-            var op = rng.Next(4) switch
+            ExpressionType op = rng.Next(4) switch
             {
                 0 => ExpressionType.GreaterThan,
                 1 => ExpressionType.LessThan,
@@ -129,9 +129,9 @@ public class BufferExpressionFuzzTests
 
     private static Expression Arithmetic(Random rng, ParameterExpression row, int depth)
     {
-        var left = GenerateBody(rng, row, depth + 1, wantBool: false);
-        var right = GenerateBody(rng, row, depth + 1, wantBool: false);
-        var op = rng.Next(4) switch
+        Expression left = GenerateBody(rng, row, depth + 1, wantBool: false);
+        Expression right = GenerateBody(rng, row, depth + 1, wantBool: false);
+        ExpressionType op = rng.Next(4) switch
         {
             0 => ExpressionType.Add,
             1 => ExpressionType.Subtract,
@@ -150,9 +150,9 @@ public class BufferExpressionFuzzTests
 
     private static Expression Comparison(Random rng, ParameterExpression row, int depth)
     {
-        var left = GenerateBody(rng, row, depth + 1, wantBool: false);
-        var right = GenerateBody(rng, row, depth + 1, wantBool: false);
-        var op = rng.Next(6) switch
+        Expression left = GenerateBody(rng, row, depth + 1, wantBool: false);
+        Expression right = GenerateBody(rng, row, depth + 1, wantBool: false);
+        ExpressionType op = rng.Next(6) switch
         {
             0 => ExpressionType.GreaterThan,
             1 => ExpressionType.LessThan,
@@ -173,10 +173,10 @@ public class BufferExpressionFuzzTests
 
     private static Expression BooleanCombinator(Random rng, ParameterExpression row, int depth)
     {
-        var left = GenerateBody(rng, row, depth + 1, wantBool: true);
+        Expression left = GenerateBody(rng, row, depth + 1, wantBool: true);
         if (rng.Next(3) == 0) return left; // just one comparison
-        var right = GenerateBody(rng, row, depth + 1, wantBool: true);
-        var op = rng.Next(2) == 0 ? ExpressionType.AndAlso : ExpressionType.OrElse;
+        Expression right = GenerateBody(rng, row, depth + 1, wantBool: true);
+        ExpressionType op = rng.Next(2) == 0 ? ExpressionType.AndAlso : ExpressionType.OrElse;
         return Expression.AndAlso(left, right);
     }
 
@@ -187,13 +187,13 @@ public class BufferExpressionFuzzTests
         int count = 1 + rng.Next(3);
         for (int i = 0; i < count; i++)
         {
-            var val = GenerateBody(rng, row, depth + 1, wantBool: false);
+            Expression val = GenerateBody(rng, row, depth + 1, wantBool: false);
             members.Add(($"f{i}", val));
         }
 
         // build anonymous type via constructor
         var types = members.Select(m => m.value.Type).ToArray();
-        var ctor = GetAnonCtor(types);
+        ConstructorInfo ctor = GetAnonCtor(types);
         return Expression.New(ctor, members.Select(m => m.value));
     }
 
@@ -212,12 +212,12 @@ public class BufferExpressionFuzzTests
 
     private static Expression ListOp(Random rng, ParameterExpression row, int depth)
     {
-        var listAccess = Expression.Property(row, "L");
-        var elemType = typeof(int);
-        var elemParam = Expression.Parameter(elemType, "x");
+        MemberExpression listAccess = Expression.Property(row, "L");
+        Type elemType = typeof(int);
+        ParameterExpression elemParam = Expression.Parameter(elemType, "x");
 
         // Generate a predicate body. Sometimes use a closure (capturing 'row').
-        var body = rng.Next(3) switch
+        Expression body = rng.Next(3) switch
         {
             0 => GenerateBody(rng, elemParam, depth + 1, wantBool: false), // uses element param
             1 => GenerateBody(rng, row, depth + 1, wantBool: false), // closure: captures outer row
@@ -227,9 +227,9 @@ public class BufferExpressionFuzzTests
                 Expression.Property(Expression.Property(row, "N"), "C")), // element vs struct field
         };
 
-        var pred = Expression.Lambda(body, elemParam);
+        LambdaExpression pred = Expression.Lambda(body, elemParam);
 
-        var method = rng.Next(3) switch
+        string method = rng.Next(3) switch
         {
             0 => "Select",
             1 => "Where",

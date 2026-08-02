@@ -45,7 +45,7 @@ public class QueryPlayground
         var b = new UsableExpression<int>(Expression.Parameter(typeof(int), "b"));
         Expression test = ExpressionUtilities.Use(() => a.Value + b.Value);
         // ExpressionUtilities.EnableAsmPrint();
-        var size = (int)Math.Pow(2, 18);
+        int size = (int)Math.Pow(2, 18);
         Console.WriteLine($"size: {size}");
         List<MyStruct> list = Enumerable.Range(0, size).Select(_ => CreateRandom()).ToList();
 
@@ -98,7 +98,7 @@ public class QueryPlayground
         using StructArray inputBatch = ArrowFfiBridge.BuildRecordBatch(list).AsStructArray();
         MethodInfo method = typeof(QueryPlayground).GetMethod(nameof(Execute))!
             .MakeGenericMethod(typeof(MyStruct), expr.ReturnType);
-        for (var i = 0; i < 100; i++)
+        for (int i = 0; i < 100; i++)
         {
             Console.WriteLine($"Run {i}");
             method.Invoke(null, [linq, arrow, list, inputBatch]);

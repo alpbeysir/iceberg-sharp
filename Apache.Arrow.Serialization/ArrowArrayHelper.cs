@@ -34,8 +34,8 @@ public static class ArrowArrayHelper
         {
             case BooleanType:
             {
-                var b = new BooleanArray.Builder();
-                for (var i = 0; i < length; i++) b.AppendNull();
+                BooleanArray.Builder b = new BooleanArray.Builder();
+                for (int i = 0; i < length; i++) b.AppendNull();
                 return b.Build();
             }
             // case Bool8Type:
@@ -46,98 +46,98 @@ public static class ArrowArrayHelper
             // }
             case Int8Type:
             {
-                var b = new Int8Array.Builder();
-                for (var i = 0; i < length; i++) b.AppendNull();
+                Int8Array.Builder b = new Int8Array.Builder();
+                for (int i = 0; i < length; i++) b.AppendNull();
                 return b.Build();
             }
             case UInt8Type:
             {
-                var b = new UInt8Array.Builder();
-                for (var i = 0; i < length; i++) b.AppendNull();
+                UInt8Array.Builder b = new UInt8Array.Builder();
+                for (int i = 0; i < length; i++) b.AppendNull();
                 return b.Build();
             }
             case Int16Type:
             {
-                var b = new Int16Array.Builder();
-                for (var i = 0; i < length; i++) b.AppendNull();
+                Int16Array.Builder b = new Int16Array.Builder();
+                for (int i = 0; i < length; i++) b.AppendNull();
                 return b.Build();
             }
             case UInt16Type:
             {
-                var b = new UInt16Array.Builder();
-                for (var i = 0; i < length; i++) b.AppendNull();
+                UInt16Array.Builder b = new UInt16Array.Builder();
+                for (int i = 0; i < length; i++) b.AppendNull();
                 return b.Build();
             }
             case Int32Type:
             {
-                var b = new Int32Array.Builder();
-                for (var i = 0; i < length; i++) b.AppendNull();
+                Int32Array.Builder b = new Int32Array.Builder();
+                for (int i = 0; i < length; i++) b.AppendNull();
                 return b.Build();
             }
             case UInt32Type:
             {
-                var b = new UInt32Array.Builder();
-                for (var i = 0; i < length; i++) b.AppendNull();
+                UInt32Array.Builder b = new UInt32Array.Builder();
+                for (int i = 0; i < length; i++) b.AppendNull();
                 return b.Build();
             }
             case Int64Type:
             {
-                var b = new Int64Array.Builder();
-                for (var i = 0; i < length; i++) b.AppendNull();
+                Int64Array.Builder b = new Int64Array.Builder();
+                for (int i = 0; i < length; i++) b.AppendNull();
                 return b.Build();
             }
             case UInt64Type:
             {
-                var b = new UInt64Array.Builder();
-                for (var i = 0; i < length; i++) b.AppendNull();
+                UInt64Array.Builder b = new UInt64Array.Builder();
+                for (int i = 0; i < length; i++) b.AppendNull();
                 return b.Build();
             }
             case HalfFloatType:
             {
-                var b = new HalfFloatArray.Builder();
-                for (var i = 0; i < length; i++) b.AppendNull();
+                HalfFloatArray.Builder b = new HalfFloatArray.Builder();
+                for (int i = 0; i < length; i++) b.AppendNull();
                 return b.Build();
             }
             case FloatType:
             {
-                var b = new FloatArray.Builder();
-                for (var i = 0; i < length; i++) b.AppendNull();
+                FloatArray.Builder b = new FloatArray.Builder();
+                for (int i = 0; i < length; i++) b.AppendNull();
                 return b.Build();
             }
             case DoubleType:
             {
-                var b = new DoubleArray.Builder();
-                for (var i = 0; i < length; i++) b.AppendNull();
+                DoubleArray.Builder b = new DoubleArray.Builder();
+                for (int i = 0; i < length; i++) b.AppendNull();
                 return b.Build();
             }
             case Decimal128Type dt:
             {
-                var b = new Decimal128Array.Builder(dt);
-                for (var i = 0; i < length; i++) b.AppendNull();
+                Decimal128Array.Builder b = new Decimal128Array.Builder(dt);
+                for (int i = 0; i < length; i++) b.AppendNull();
                 return b.Build();
             }
             case StringType:
             {
-                var b = new StringArray.Builder();
-                for (var i = 0; i < length; i++) b.AppendNull();
+                StringArray.Builder b = new StringArray.Builder();
+                for (int i = 0; i < length; i++) b.AppendNull();
                 return b.Build();
             }
             case BinaryType:
             {
-                var b = new BinaryArray.Builder();
-                for (var i = 0; i < length; i++) b.AppendNull();
+                BinaryArray.Builder b = new BinaryArray.Builder();
+                for (int i = 0; i < length; i++) b.AppendNull();
                 return b.Build();
             }
             case StringViewType:
             {
-                var b = new StringViewArray.Builder();
-                for (var i = 0; i < length; i++) b.AppendNull();
+                StringViewArray.Builder b = new StringViewArray.Builder();
+                for (int i = 0; i < length; i++) b.AppendNull();
                 return b.Build();
             }
             case BinaryViewType:
             {
-                var b = new BinaryViewArray.Builder();
-                for (var i = 0; i < length; i++) b.AppendNull();
+                BinaryViewArray.Builder b = new BinaryViewArray.Builder();
+                for (int i = 0; i < length; i++) b.AppendNull();
                 return b.Build();
             }
             // case GuidType:
@@ -152,66 +152,66 @@ public static class ArrowArrayHelper
             }
             case Date32Type:
             {
-                var b = new Date32Array.Builder();
-                for (var i = 0; i < length; i++) b.AppendNull();
+                Date32Array.Builder b = new Date32Array.Builder();
+                for (int i = 0; i < length; i++) b.AppendNull();
                 return b.Build();
             }
             case Date64Type:
             {
-                var b = new Date64Array.Builder();
-                for (var i = 0; i < length; i++) b.AppendNull();
+                Date64Array.Builder b = new Date64Array.Builder();
+                for (int i = 0; i < length; i++) b.AppendNull();
                 return b.Build();
             }
             case TimestampType tsType:
             {
-                var b = new TimestampArray.Builder(tsType);
-                for (var i = 0; i < length; i++) b.AppendNull();
+                TimestampArray.Builder b = new TimestampArray.Builder(tsType);
+                for (int i = 0; i < length; i++) b.AppendNull();
                 return b.Build();
             }
             case Time32Type t32:
             {
-                var b = new Time32Array.Builder(t32);
-                for (var i = 0; i < length; i++) b.AppendNull();
+                Time32Array.Builder b = new Time32Array.Builder(t32);
+                for (int i = 0; i < length; i++) b.AppendNull();
                 return b.Build();
             }
             case Time64Type t64:
             {
-                var b = new Time64Array.Builder(t64);
-                for (var i = 0; i < length; i++) b.AppendNull();
+                Time64Array.Builder b = new Time64Array.Builder(t64);
+                for (int i = 0; i < length; i++) b.AppendNull();
                 return b.Build();
             }
             case DurationType dur:
             {
-                var b = new DurationArray.Builder(dur);
-                for (var i = 0; i < length; i++) b.AppendNull();
+                DurationArray.Builder b = new DurationArray.Builder(dur);
+                for (int i = 0; i < length; i++) b.AppendNull();
                 return b.Build();
             }
             case DictionaryType dt:
             {
-                var idx = new Int16Array.Builder();
-                for (var i = 0; i < length; i++) idx.AppendNull();
-                var dict = new StringArray.Builder().Build();
+                Int16Array.Builder idx = new Int16Array.Builder();
+                for (int i = 0; i < length; i++) idx.AppendNull();
+                StringArray dict = new StringArray.Builder().Build();
                 return new DictionaryArray(dt, idx.Build(), dict);
             }
             case StructType st:
             {
                 var children = new IArrowArray[st.Fields.Count];
-                for (var i = 0; i < children.Length; i++)
+                for (int i = 0; i < children.Length; i++)
                     children[i] = BuildNullArray(st.Fields[i].DataType, length);
-                var bitmapBuilder = new ArrowBuffer.BitmapBuilder();
-                for (var i = 0; i < length; i++) bitmapBuilder.Append(false);
+                ArrowBuffer.BitmapBuilder bitmapBuilder = new ArrowBuffer.BitmapBuilder();
+                for (int i = 0; i < length; i++) bitmapBuilder.Append(false);
                 return new StructArray(st, length, children, bitmapBuilder.Build(), length);
             }
             case ListType lt:
             {
-                var lb = new ListArray.Builder(lt.ValueDataType);
-                for (var i = 0; i < length; i++) lb.AppendNull();
+                ListArray.Builder lb = new ListArray.Builder(lt.ValueDataType);
+                for (int i = 0; i < length; i++) lb.AppendNull();
                 return lb.Build();
             }
             case MapType mt:
             {
-                var mb = new MapArray.Builder(mt);
-                for (var i = 0; i < length; i++) mb.AppendNull();
+                MapArray.Builder mb = new MapArray.Builder(mt);
+                for (int i = 0; i < length; i++) mb.AppendNull();
                 return mb.Build();
             }
             default:
@@ -223,11 +223,11 @@ public static class ArrowArrayHelper
 
     private static FixedSizeBinaryArray BuildNullFixedSizeBinaryArray(FixedSizeBinaryType type, int length)
     {
-        var valueBytes = new byte[length * type.ByteWidth];
-        var validityBuffer = new ArrowBuffer.BitmapBuilder();
-        for (var i = 0; i < length; i++)
+        byte[] valueBytes = new byte[length * type.ByteWidth];
+        ArrowBuffer.BitmapBuilder validityBuffer = new ArrowBuffer.BitmapBuilder();
+        for (int i = 0; i < length; i++)
             validityBuffer.Append(false);
-        var data = new ArrayData(
+        ArrayData data = new ArrayData(
             type,
             length,
             length,
@@ -268,14 +268,14 @@ public static class ArrowArrayHelper
 
     public static IArrowArray BuildTimeOnlyArray(TimeOnly value)
     {
-        var b = new Time64Array.Builder(Time64Type.Default);
+        Time64Array.Builder b = new Time64Array.Builder(Time64Type.Default);
         b.Append(value);
         return b.Build();
     }
 
     public static IArrowArray BuildTimeOnlyArray(TimeOnly? value)
     {
-        var b = new Time64Array.Builder(Time64Type.Default);
+        Time64Array.Builder b = new Time64Array.Builder(Time64Type.Default);
         if (value is { } v)
             b.Append(v);
         else
@@ -285,8 +285,8 @@ public static class ArrowArrayHelper
 
     public static IArrowArray BuildTimeOnlyArray<T>(IReadOnlyList<T> items)
     {
-        var b = new Time64Array.Builder(Time64Type.Default);
-        foreach (var item in items)
+        Time64Array.Builder b = new Time64Array.Builder(Time64Type.Default);
+        foreach (T item in items)
             if (item is TimeOnly v)
                 b.Append(v);
             else
@@ -303,14 +303,14 @@ public static class ArrowArrayHelper
 
     public static IArrowArray BuildDurationArray(TimeSpan value)
     {
-        var b = new DurationArray.Builder(DurationType.Microsecond);
+        DurationArray.Builder b = new DurationArray.Builder(DurationType.Microsecond);
         b.Append(value);
         return b.Build();
     }
 
     public static IArrowArray BuildDurationArray(TimeSpan? value)
     {
-        var b = new DurationArray.Builder(DurationType.Microsecond);
+        DurationArray.Builder b = new DurationArray.Builder(DurationType.Microsecond);
         if (value is { } v)
             b.Append(v);
         else
@@ -320,8 +320,8 @@ public static class ArrowArrayHelper
 
     public static IArrowArray BuildDurationArray<T>(IReadOnlyList<T> items)
     {
-        var b = new DurationArray.Builder(DurationType.Microsecond);
-        foreach (var item in items)
+        DurationArray.Builder b = new DurationArray.Builder(DurationType.Microsecond);
+        foreach (T item in items)
             if (item is TimeSpan v)
                 b.Append(v);
             else
@@ -343,7 +343,7 @@ public static class ArrowArrayHelper
 
     public static IArrowArray BuildDecimalArray(SqlDecimal? value, Decimal128Type type)
     {
-        var b = new Decimal128Array.Builder(type);
+        Decimal128Array.Builder b = new Decimal128Array.Builder(type);
         if (value is { } v)
             b.Append(v);
         else
@@ -353,8 +353,8 @@ public static class ArrowArrayHelper
 
     public static IArrowArray BuildDecimalArray<T>(IReadOnlyList<T> items, Decimal128Type type)
     {
-        var b = new Decimal128Array.Builder(type);
-        foreach (var item in items)
+        Decimal128Array.Builder b = new Decimal128Array.Builder(type);
+        foreach (T item in items)
         {
             switch (item)
             {

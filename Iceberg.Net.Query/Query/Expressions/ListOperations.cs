@@ -26,7 +26,7 @@ public static class ListOperations
 
         if (typeof(TInput) == typeof(IdentityInput))
         {
-            for (var i = 0; i < l.Length; i++)
+            for (int i = 0; i < l.Length; i++)
             {
                 asListBuilder?.Append();
                 RangedInput subInput = ValueRangeForIndex(l, i);
@@ -36,8 +36,8 @@ public static class ListOperations
         else if (typeof(TInput) == typeof(RangedInput))
         {
             RangedInput ranged = Unsafe.As<TInput, RangedInput>(ref input);
-            var (offset, length) = ranged.Range.GetOffsetAndLength(l.Length);
-            for (var i = offset; i < offset + length; i++)
+            (int offset, int length) = ranged.Range.GetOffsetAndLength(l.Length);
+            for (int i = offset; i < offset + length; i++)
             {
                 asListBuilder?.Append();
                 RangedInput subInput = ValueRangeForIndex(l, i);
@@ -280,7 +280,7 @@ public static class ListOperations
             ParameterExpression valueBuilder = CodeGenerator.DeclareVariable(
                 "valueBuilder",
                 builder.Property("ValueBuilder").Convert(valueBuilderType));
-            var lVar = CodeGenerator.DeclareVariable(
+            ParameterExpression lVar = CodeGenerator.DeclareVariable(
                 "l",
                 input.Property("Array").Convert<ListArray>());
             var l = lVar.AsUsable<ListArray>();
@@ -396,10 +396,10 @@ public static class ListOperations
         else if (typeof(TInput) == typeof(RangedInput))
         {
             RangedInput ranged = Unsafe.As<TInput, RangedInput>(ref input);
-            var (offset, length) = ranged.Range.GetOffsetAndLength(l.Length);
+            (int offset, int length) = ranged.Range.GetOffsetAndLength(l.Length);
 
-            var start = l.ValueOffsets[offset];
-            var end = l.ValueOffsets[offset + length];
+            int start = l.ValueOffsets[offset];
+            int end = l.ValueOffsets[offset + length];
 
             builder.ValueBuilder.Reserve(end - start);
             builder.InitializeOffsetsFromList(l, offset, length);
@@ -410,8 +410,8 @@ public static class ListOperations
         else if (typeof(TInput) == typeof(IndexedInput))
         {
             IndexedInput indexed = Unsafe.As<TInput, IndexedInput>(ref input);
-            var start = l.ValueOffsets[indexed.Index];
-            var end = start + l.GetValueLength(indexed.Index);
+            int start = l.ValueOffsets[indexed.Index];
+            int end = start + l.GetValueLength(indexed.Index);
 
             builder.Append();
             builder.ValueBuilder.Reserve(end - start);
@@ -452,8 +452,8 @@ public static class ListOperations
         else if (typeof(TInput) == typeof(IndexedInput))
         {
             IndexedInput indexed = Unsafe.As<TInput, IndexedInput>(ref input);
-            var (start, end) = GetValueRange(l, indexed.Index);
-            for (var j = start; j < end; j++)
+            (int start, int end) = GetValueRange(l, indexed.Index);
+            for (int j = start; j < end; j++)
             {
                 IndexedInput el = new(l.Values, j);
                 op(ctx, Unsafe.As<IndexedInput, TInput>(ref el), maskBuilder);
@@ -473,14 +473,14 @@ public static class ListOperations
         else if (typeof(TInput) == typeof(RangedInput))
         {
             RangedInput ranged = Unsafe.As<TInput, RangedInput>(ref input);
-            var (offset, length) = ranged.Range.GetOffsetAndLength(l.Length);
-            var valStart = l.ValueOffsets[offset];
+            (int offset, int length) = ranged.Range.GetOffsetAndLength(l.Length);
+            int valStart = l.ValueOffsets[offset];
             CopyWhereElements(ctx, l, offset, length, mask, valStart, copier, builder, valueBuilder);
         }
         else if (typeof(TInput) == typeof(IndexedInput))
         {
             IndexedInput indexed = Unsafe.As<TInput, IndexedInput>(ref input);
-            var (start, end) = GetValueRange(l, indexed.Index);
+            (int start, int end) = GetValueRange(l, indexed.Index);
             CopyWhereElements(ctx, l, indexed.Index, 1, mask, start, copier, builder, valueBuilder);
         }
         else
@@ -501,11 +501,11 @@ public static class ListOperations
         TValueBuilder valueBuilder)
         where TValueBuilder : class, IArrowArrayBuilder
     {
-        for (var i = listOffset; i < listOffset + listLength; i++)
+        for (int i = listOffset; i < listOffset + listLength; i++)
         {
             builder.Append();
-            var (start, end) = GetValueRange(l, i);
-            for (var j = start; j < end; j++)
+            (int start, int end) = GetValueRange(l, i);
+            for (int j = start; j < end; j++)
             {
                 if (!mask.GetValue(j - maskBaseOffset)!.Value)
                     continue;
@@ -516,21 +516,21 @@ public static class ListOperations
 
     public static (int start, int end) GetValueRange(ListArray l, int index)
     {
-        var start = l.ValueOffsets[index];
+        int start = l.ValueOffsets[index];
         return (start, start + l.GetValueLength(index));
     }
 
     public static RangedInput ValueRangeForIndex(ListArray l, int index)
     {
-        var (start, end) = GetValueRange(l, index);
+        (int start, int end) = GetValueRange(l, index);
         return new RangedInput(l.Values, new Range(start, end));
     }
 
     public static RangedInput ValueRangeForRangedInput(ListArray l, RangedInput ranged)
     {
-        var (offset, length) = ranged.Range.GetOffsetAndLength(l.Length);
-        var start = l.ValueOffsets[offset];
-        var end = l.ValueOffsets[offset + length];
+        (int offset, int length) = ranged.Range.GetOffsetAndLength(l.Length);
+        int start = l.ValueOffsets[offset];
+        int end = l.ValueOffsets[offset + length];
         return new RangedInput(l.Values, new Range(start, end));
     }
 

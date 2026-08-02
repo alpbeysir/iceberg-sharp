@@ -19,5 +19,5 @@ ICatalog catalog = await RestCatalog.Create(userConfig);
 await catalog.CreateNamespaceIfNotExistsAsync(["test"]);
 Identifier ident = ["test", "test"];
 
-var table = await catalog.LoadTableAsync(ident);
+Table table = await catalog.LoadTableAsync(ident);
 Console.WriteLine(table.Metadata!.ToString());

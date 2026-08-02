@@ -24,7 +24,7 @@ public sealed class RestCatalogFixture : IAsyncLifetime
             SecretAccessKey = "key",
             ForcePathStyle = true
         };
-        var userConfig = new UserConfig { BaseUrl = "http://localhost:8181/v1" };
+        UserConfig userConfig = new UserConfig { BaseUrl = "http://localhost:8181/v1" };
         foreach (KeyValuePair<string, string> property in storageConfig.ToProperties())
             userConfig.CatalogConfig[property.Key] = property.Value;
         _catalog = await RestCatalog.Create(userConfig);

@@ -25,7 +25,7 @@ public static class BufferTestHelpers
         using StructArray inputBatch = ArrowFfiBridge.BuildRecordBatch(rows.Cast<object>().ToList()).AsStructArray();
         MethodInfo method = typeof(BufferTestHelpers).GetMethod(nameof(Execute))!
             .MakeGenericMethod(typeof(T), expr.ReturnType);
-        for (var i = 0; i < iterations; i++)
+        for (int i = 0; i < iterations; i++)
             method.Invoke(null, [linq, arrow, rows, inputBatch]);
     }
 

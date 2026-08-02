@@ -55,9 +55,9 @@ public class ListArrayBuilder : IArrowArrayBuilder<ListArray, ListArrayBuilder>
 
     public ListArrayBuilder InitializeOffsetsFromRangedList(ListArray l, Range range)
     {
-        var (offset, length) = range.GetOffsetAndLength(l.Length);
-        var start = l.ValueOffsets[offset];
-        var end = l.ValueOffsets[offset + length];
+        (int offset, int length) = range.GetOffsetAndLength(l.Length);
+        int start = l.ValueOffsets[offset];
+        int end = l.ValueOffsets[offset + length];
         ValueBuilder.Reserve(end - start);
         return InitializeOffsetsFromList(l, offset, length);
     }
@@ -65,8 +65,8 @@ public class ListArrayBuilder : IArrowArrayBuilder<ListArray, ListArrayBuilder>
     public ListArrayBuilder PrepareIndexedListElement(ListArray l, int index)
     {
         Append();
-        var start = l.ValueOffsets[index];
-        var end = start + l.GetValueLength(index);
+        int start = l.ValueOffsets[index];
+        int end = start + l.GetValueLength(index);
         ValueBuilder.Reserve(end - start);
         return this;
     }

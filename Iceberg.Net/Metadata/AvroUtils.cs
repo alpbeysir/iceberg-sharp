@@ -23,14 +23,14 @@ internal static class AvroUtils
     {
         internal T? ReadOptionalStruct<T>(Func<Decoder, T> read) where T : struct
         {
-            var unionIndex = decoder.ReadUnionIndex();
+            int unionIndex = decoder.ReadUnionIndex();
             if (unionIndex == 1) return read(decoder);
             return null;
         }
 
         internal T? ReadOptional<T>(Func<Decoder, T> read)
         {
-            var unionIndex = decoder.ReadUnionIndex();
+            int unionIndex = decoder.ReadUnionIndex();
             if (unionIndex == 1) return read(decoder);
             return default;
         }
@@ -38,7 +38,7 @@ internal static class AvroUtils
         internal ImmutableArray<T> ReadArray<T>(Func<Decoder, T> read)
         {
             ImmutableArray<T>.Builder builder = ImmutableArray.CreateBuilder<T>();
-            for (var n = decoder.ReadArrayStart(); n > 0; n = decoder.ReadArrayNext())
+            for (long n = decoder.ReadArrayStart(); n > 0; n = decoder.ReadArrayNext())
                 builder.Add(read(decoder));
             return builder.ToImmutable();
         }
@@ -48,8 +48,8 @@ internal static class AvroUtils
             Func<Decoder, TValue> readValue) where TKey : notnull
         {
             ImmutableDictionary<TKey, TValue>.Builder map = ImmutableDictionary.CreateBuilder<TKey, TValue>();
-            for (var n = decoder.ReadMapStart(); n > 0; n = decoder.ReadMapNext())
-            for (var i = 0; i < n; i++)
+            for (long n = decoder.ReadMapStart(); n > 0; n = decoder.ReadMapNext())
+            for (int i = 0; i < n; i++)
                 map.Add(readKey(decoder), readValue(decoder));
             return map.ToImmutable();
         }

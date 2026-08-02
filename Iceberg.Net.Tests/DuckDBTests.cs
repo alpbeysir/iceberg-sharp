@@ -1,7 +1,9 @@
 ﻿using System.Collections;
+using System.Data.Common;
 using System.Data.SqlTypes;
 using System.Reflection;
 using Apache.Arrow.Serialization;
+using Iceberg.Net.Catalog;
 using Iceberg.Net.Tests.DataGeneration;
 
 namespace Iceberg.Net.Tests;
@@ -55,9 +57,9 @@ public class DuckDBTests(RestCatalogFixture restFixture, DuckDbFixture duckDbFix
 
     private async Task Run<T>(List<T> original) where T : IArrowSerializer<T>
     {
-        var identifier = await Write(original);
+        Identifier identifier = await Write(original);
         await Verify(identifier, original);
-        await using var reader =
+        await using DbDataReader reader =
             await duckDbFixture.DuckDbCatalog
                 .ExecuteQuery($"SELECT * FROM {duckDbFixture.DuckDbCatalog.CatalogName}.{identifier};");
 
@@ -65,7 +67,7 @@ public class DuckDBTests(RestCatalogFixture restFixture, DuckDbFixture duckDbFix
         while (await reader.ReadAsync(TestContext.Current.CancellationToken))
         {
             var row = new Dictionary<object, object?>();
-            for (var column = 0; column < reader.FieldCount; column++)
+            for (int column = 0; column < reader.FieldCount; column++)
                 row[reader.GetName(column)] = Normalize(reader.GetValue(column));
             actual.Add(row);
         }
@@ -91,7 +93,7 @@ public class DuckDBTests(RestCatalogFixture restFixture, DuckDbFixture duckDbFix
         if (value is Stream stream)
         {
             long position = stream.CanSeek ? stream.Position : 0;
-            using var copy = new MemoryStream();
+            using MemoryStream copy = new MemoryStream();
             stream.CopyTo(copy);
             if (stream.CanSeek) stream.Position = position;
             return copy.ToArray();

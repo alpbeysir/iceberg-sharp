@@ -12,7 +12,7 @@ public static class TestData
         Random rand = new(42);
         List<TestRow> list = new(RowCount);
 
-        for (var i = 0; i < RowCount; i++)
+        for (int i = 0; i < RowCount; i++)
             list.Add(
                 new TestRow
                 {

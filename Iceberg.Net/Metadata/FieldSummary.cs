@@ -6,10 +6,10 @@ public readonly record struct FieldSummary(bool? ContainsNan, bool ContainsNull,
 {
     internal static FieldSummary Read(Decoder decoder)
     {
-        var containsNull = decoder.ReadBoolean();
+        bool containsNull = decoder.ReadBoolean();
         bool? containsNan = decoder.ReadOptional(d => d.ReadBoolean());
-        var lowerBound = decoder.ReadOptional(d => d.ReadBytes());
-        var upperBound = decoder.ReadOptional(d => d.ReadBytes());
+        byte[]? lowerBound = decoder.ReadOptional(d => d.ReadBytes());
+        byte[]? upperBound = decoder.ReadOptional(d => d.ReadBytes());
         return new FieldSummary(containsNan, containsNull, lowerBound, upperBound);
     }
 

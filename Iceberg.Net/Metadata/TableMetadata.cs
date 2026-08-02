@@ -198,7 +198,7 @@ public record TableMetadata
                     ImmutableHashSet<int> schemaIds = removeSchemasTableUpdate.SchemaIds.ToImmutableHashSet();
                     _schemas.RemoveAll(schema =>
                         schema.SchemaId is not null && schemaIds.Contains((int)schema.SchemaId!));
-                    foreach (var schemaId in schemaIds) _schemasById.Remove(schemaId);
+                    foreach (int schemaId in schemaIds) _schemasById.Remove(schemaId);
                     break;
                 case RemoveSnapshotRefTableUpdate removeSnapshotRefTableUpdate:
                     _refs.Remove(removeSnapshotRefTableUpdate.RefName);

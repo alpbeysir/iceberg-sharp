@@ -164,9 +164,9 @@ public static class CSharpSchema
             Type keyType = genericArguments[0];
             Type valueType = genericArguments[1];
             Type? maybeUnderlyingType = Nullable.GetUnderlyingType(valueType);
-            var valueRequired = maybeUnderlyingType == null;
-            var keyFieldId = fieldIdProvider($"{currentPath}.key");
-            var valueFieldId = fieldIdProvider($"{currentPath}.value");
+            bool valueRequired = maybeUnderlyingType == null;
+            int keyFieldId = fieldIdProvider($"{currentPath}.key");
+            int valueFieldId = fieldIdProvider($"{currentPath}.value");
             return new MapType(
                 keyFieldId,
                 ToIcebergType(keyType, fieldIdProvider, currentPath),
@@ -180,9 +180,9 @@ public static class CSharpSchema
             Type? elementType = type.IsArray ? type.GetElementType() : type.GetGenericArguments().FirstOrDefault();
             if (elementType != null)
             {
-                var elementId = fieldIdProvider($"{currentPath}.element");
+                int elementId = fieldIdProvider($"{currentPath}.element");
                 Type? maybeUnderlyingType = Nullable.GetUnderlyingType(elementType);
-                var required = maybeUnderlyingType == null;
+                bool required = maybeUnderlyingType == null;
                 return new ListType(
                     elementId,
                     ToIcebergType(
@@ -198,9 +198,9 @@ public static class CSharpSchema
             Type? elementType = type.IsArray ? type.GetElementType() : type.GetGenericArguments().FirstOrDefault();
             if (elementType != null)
             {
-                var elementId = fieldIdProvider($"{currentPath}.element");
+                int elementId = fieldIdProvider($"{currentPath}.element");
                 Type? maybeUnderlyingType = Nullable.GetUnderlyingType(elementType);
-                var required = maybeUnderlyingType == null;
+                bool required = maybeUnderlyingType == null;
                 return new ListType(
                     elementId,
                     ToIcebergType(

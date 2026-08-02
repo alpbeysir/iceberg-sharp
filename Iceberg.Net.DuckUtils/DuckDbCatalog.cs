@@ -11,7 +11,7 @@ public class DuckDbCatalog
     public async ValueTask InitializeAsync()
     {
         await _connection.OpenAsync();
-        await using var command = _connection.CreateCommand();
+        await using DuckDBCommand command = _connection.CreateCommand();
         command.CommandText =
             $"""
              ATTACH 'warehouse' AS {CatalogName} (
@@ -45,7 +45,7 @@ public class DuckDbCatalog
 
     public async Task<DbDataReader> ExecuteQuery(string sql)
     {
-        var command = _connection.CreateCommand();
+        DuckDBCommand command = _connection.CreateCommand();
         command.CommandText = sql;
         return await command.ExecuteReaderAsync();
     }

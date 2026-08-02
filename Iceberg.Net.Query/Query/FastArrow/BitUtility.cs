@@ -45,8 +45,8 @@ public static class BitUtility
     
     public static void SetBit(Span<byte> data, int index, bool value)
     {
-        var idx = index / 8;
-        var mod = index % 8;
+        int idx = index / 8;
+        int mod = index % 8;
         data[idx] = value
             ? (byte)(data[idx] | BitMask[mod])
             : (byte)(data[idx] & ~BitMask[mod]);
@@ -64,40 +64,40 @@ public static class BitUtility
         if (length == 0)
             return;
 
-        var endBitIndex = checked(index + length - 1);
+        int endBitIndex = checked(index + length - 1);
 
         // Use simpler method if there aren't many values
         if (length < 20)
         {
-            for (var i = index; i <= endBitIndex; i++) SetBit(data, i, value);
+            for (int i = index; i <= endBitIndex; i++) SetBit(data, i, value);
             return;
         }
 
         // Otherwise do the work to figure out how to copy whole bytes
-        var startByteIndex = index / 8;
-        var startBitOffset = index % 8;
-        var endByteIndex = endBitIndex / 8;
-        var endBitOffset = endBitIndex % 8;
+        int startByteIndex = index / 8;
+        int startBitOffset = index % 8;
+        int endByteIndex = endBitIndex / 8;
+        int endBitOffset = endBitIndex % 8;
 
         // If the starting index and ending index are not byte-aligned,
         // we'll need to set bits the slow way. If they are
         // byte-aligned, and for all other bytes in the 'middle', we
         // can use a faster byte-aligned set.
-        var fullByteStartIndex = startBitOffset == 0 ? startByteIndex : startByteIndex + 1;
-        var fullByteEndIndex = endBitOffset == 7 ? endByteIndex : endByteIndex - 1;
+        int fullByteStartIndex = startBitOffset == 0 ? startByteIndex : startByteIndex + 1;
+        int fullByteEndIndex = endBitOffset == 7 ? endByteIndex : endByteIndex - 1;
 
         // Bits we will be using to finish up the first byte
         if (startBitOffset != 0)
         {
             Span<byte> slice = data.Slice(startByteIndex, 1);
-            for (var i = startBitOffset; i <= 7; i++)
+            for (int i = startBitOffset; i <= 7; i++)
                 SetBit(slice, i, value);
         }
 
         if (fullByteEndIndex >= fullByteStartIndex)
         {
             Span<byte> slice = data.Slice(fullByteStartIndex, fullByteEndIndex - fullByteStartIndex + 1);
-            var fill = (byte)(value ? 0xFF : 0x00);
+            byte fill = (byte)(value ? 0xFF : 0x00);
 
             slice.Fill(fill);
         }
@@ -105,7 +105,7 @@ public static class BitUtility
         if (endBitOffset != 7)
         {
             Span<byte> slice = data.Slice(endByteIndex, 1);
-            for (var i = 0; i <= endBitOffset; i++)
+            for (int i = 0; i <= endBitOffset; i++)
                 SetBit(slice, i, value);
         }
     }
@@ -138,23 +138,23 @@ public static class BitUtility
     /// <returns>Count of set (one) bits.</returns>
     public static int CountBits(ReadOnlySpan<byte> data, int index, int length)
     {
-        var startByteIndex = index / 8;
-        var startBitOffset = index % 8;
+        int startByteIndex = index / 8;
+        int startBitOffset = index % 8;
 
-        var endBitIndex = index + length - 1;
+        int endBitIndex = index + length - 1;
 
-        var endByteIndex = endBitIndex / 8;
-        var endBitOffset = endBitIndex % 8;
+        int endByteIndex = endBitIndex / 8;
+        int endBitOffset = endBitIndex % 8;
 
         if (startBitOffset < 0)
             return 0;
 
-        var count = 0;
+        int count = 0;
         if (startByteIndex == endByteIndex)
         {
             // Range starts and ends within the same byte.
             ReadOnlySpan<byte> slice = data.Slice(startByteIndex, 1);
-            for (var i = startBitOffset; i <= endBitOffset; i++)
+            for (int i = startBitOffset; i <= endBitOffset; i++)
                 count += GetBit(slice, i) ? 1 : 0;
 
             return count;
@@ -164,13 +164,13 @@ public static class BitUtility
         // we'll need to count bits the slow way. If they are
         // byte-aligned, and for all other bytes in the 'middle', we
         // can use a faster byte-aligned count.
-        var fullByteStartIndex = startBitOffset == 0 ? startByteIndex : startByteIndex + 1;
-        var fullByteEndIndex = endBitOffset == 7 ? endByteIndex : endByteIndex - 1;
+        int fullByteStartIndex = startBitOffset == 0 ? startByteIndex : startByteIndex + 1;
+        int fullByteEndIndex = endBitOffset == 7 ? endByteIndex : endByteIndex - 1;
 
         if (startBitOffset != 0)
         {
             ReadOnlySpan<byte> slice = data.Slice(startByteIndex, 1);
-            for (var i = startBitOffset; i <= 7; i++)
+            for (int i = startBitOffset; i <= 7; i++)
                 count += GetBit(slice, i) ? 1 : 0;
         }
 
@@ -183,7 +183,7 @@ public static class BitUtility
         if (endBitOffset != 7)
         {
             ReadOnlySpan<byte> slice = data.Slice(endByteIndex, 1);
-            for (var i = 0; i <= endBitOffset; i++)
+            for (int i = 0; i <= endBitOffset; i++)
                 count += GetBit(slice, i) ? 1 : 0;
         }
 
@@ -197,8 +197,8 @@ public static class BitUtility
     /// <returns>Count of set (one) bits.</returns>
     public static int CountBits(ReadOnlySpan<byte> data)
     {
-        var count = 0;
-        foreach (var t in data)
+        int count = 0;
+        foreach (byte t in data)
             count += PopcountTable[t];
         return count;
     }

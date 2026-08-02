@@ -65,7 +65,7 @@ public class IcebergRestException : Exception
         int statusCode,
         string? response)
     {
-        var errorMessage = string.IsNullOrWhiteSpace(serverMessage) ? message : serverMessage;
+        string errorMessage = string.IsNullOrWhiteSpace(serverMessage) ? message : serverMessage;
 
         return errorMessage + "\n\nStatus: " + statusCode + "\nResponse: \n" + (response == null
             ? "(null)"
@@ -80,7 +80,7 @@ public class IcebergRestException : Exception
         {
             using JsonDocument document = JsonDocument.Parse(response);
             JsonElement root = document.RootElement;
-            if (TryGetMessage(root, out var errorMessage)) return errorMessage;
+            if (TryGetMessage(root, out string? errorMessage)) return errorMessage;
 
             if (root.ValueKind == JsonValueKind.Object &&
                 root.TryGetProperty("error", out JsonElement error) &&

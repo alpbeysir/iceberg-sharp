@@ -20,7 +20,7 @@ public class ObjectStorageRegistryTests
                 "registry-test://bucket/table/")
         ];
 
-        var uri = new Uri("registry-test://bucket/table/data.parquet");
+        Uri uri = new Uri("registry-test://bucket/table/data.parquet");
         IObjectStorage storage = ObjectStorageRegistry.Resolve(
             uri,
             key => properties.TryGetValue(key, out string? value) ? value : null,

@@ -174,8 +174,8 @@ public class ArrowBufferBuilder<T> where T : struct
     /// <returns>Returns an <see cref="ArrowBuffer" /> object.</returns>
     internal ArrowBuffer Build(int byteSize, MemoryAllocator? allocator = null)
     {
-        var currentBytesLength = Length * _size;
-        var bufferLength = checked((int)BitUtility.RoundUpToMultiplePowerOfTwo(currentBytesLength, byteSize));
+        int currentBytesLength = Length * _size;
+        int bufferLength = checked((int)BitUtility.RoundUpToMultiplePowerOfTwo(currentBytesLength, byteSize));
 
         MemoryAllocator? memoryAllocator = allocator ?? MemoryAllocator.Default.Value;
         IMemoryOwner<byte>? memoryOwner = memoryAllocator.Allocate(bufferLength);
@@ -196,7 +196,7 @@ public class ArrowBufferBuilder<T> where T : struct
             // TODO: specifiable growth strategy
             // Double the length of the in-memory array, or use the byte count of the capacity, whichever is
             // greater.
-            var capacity = Math.Max(requiredCapacity * _size, Memory.Length * 2);
+            int capacity = Math.Max(requiredCapacity * _size, Memory.Length * 2);
             Reallocate(capacity);
         }
     }

@@ -54,7 +54,7 @@ internal class PolymorphicCodeEmitter
             Line();
         }
 
-        var typeKeyword = _model.IsInterface ? "interface" : (_model.IsRecord ? "record" : "class");
+        string typeKeyword = _model.IsInterface ? "interface" : (_model.IsRecord ? "record" : "class");
         Line($"partial {typeKeyword} {_model.TypeName} : IArrowSerializer<{_model.TypeName}>");
         Line("{");
         _indent++;
@@ -82,9 +82,9 @@ internal class PolymorphicCodeEmitter
         Line($".Field(new Field(\"{Escape(_model.TypeDiscriminatorFieldName)}\", StringType.Default, false))");
 
         // Union properties — all nullable
-        foreach (var prop in _model.UnionProperties)
+        foreach (PropertyModel prop in _model.UnionProperties)
         {
-            var arrowType = CodeEmitterHelpers.GetArrowTypeExpression(prop.Type);
+            string arrowType = CodeEmitterHelpers.GetArrowTypeExpression(prop.Type);
             Line($".Field(new Field(\"{Escape(prop.FieldName)}\", {arrowType}, true))");
         }
 
@@ -106,7 +106,7 @@ internal class PolymorphicCodeEmitter
         // Build union property builders
         for (int i = 0; i < _model.UnionProperties.Count; i++)
         {
-            var prop = _model.UnionProperties[i];
+            PropertyModel prop = _model.UnionProperties[i];
             EmitBuilderDeclaration(prop, i);
         }
 
@@ -116,7 +116,7 @@ internal class PolymorphicCodeEmitter
         Line("{");
         _indent++;
 
-        foreach (var dt in _model.DerivedTypes)
+        foreach (DerivedTypeInfo dt in _model.DerivedTypes)
         {
             Line($"case {dt.FullTypeName} v_{dt.TypeName}:");
             Line("{");
@@ -126,8 +126,8 @@ internal class PolymorphicCodeEmitter
             // For each union property, either append the value or null
             for (int i = 0; i < _model.UnionProperties.Count; i++)
             {
-                var unionProp = _model.UnionProperties[i];
-                var derivedProp = FindProperty(dt, unionProp.FieldName);
+                PropertyModel unionProp = _model.UnionProperties[i];
+                PropertyModel? derivedProp = FindProperty(dt, unionProp.FieldName);
                 if (derivedProp != null)
                 {
                     EmitAppendValue(derivedProp, i, $"v_{dt.TypeName}.{derivedProp.PropertyName}");
@@ -180,7 +180,7 @@ internal class PolymorphicCodeEmitter
         Line("{");
         _indent++;
 
-        foreach (var dt in _model.DerivedTypes)
+        foreach (DerivedTypeInfo dt in _model.DerivedTypes)
         {
             Line($"case \"{Escape(dt.TypeDiscriminator)}\":");
             Line("{");
@@ -189,9 +189,9 @@ internal class PolymorphicCodeEmitter
             // Read each property for this derived type from the batch columns
             for (int i = 0; i < dt.Properties.Count; i++)
             {
-                var prop = dt.Properties[i];
-                var unionIndex = FindUnionPropertyIndex(prop.FieldName);
-                var colIndex = unionIndex + 1; // +1 for discriminator
+                PropertyModel prop = dt.Properties[i];
+                int unionIndex = FindUnionPropertyIndex(prop.FieldName);
+                int colIndex = unionIndex + 1; // +1 for discriminator
                 EmitReadProperty(prop, i, colIndex);
             }
 
@@ -201,7 +201,7 @@ internal class PolymorphicCodeEmitter
             _indent++;
             for (int i = 0; i < dt.Properties.Count; i++)
             {
-                var prop = dt.Properties[i];
+                PropertyModel prop = dt.Properties[i];
                 Line($"{prop.PropertyName} = prop_{i},");
             }
             _indent--;
@@ -232,7 +232,7 @@ internal class PolymorphicCodeEmitter
         Line("var discriminatorBuilder = new StringArray.Builder();");
         for (int i = 0; i < _model.UnionProperties.Count; i++)
         {
-            var prop = _model.UnionProperties[i];
+            PropertyModel prop = _model.UnionProperties[i];
             EmitBuilderDeclaration(prop, i);
         }
 
@@ -245,7 +245,7 @@ internal class PolymorphicCodeEmitter
         Line("{");
         _indent++;
 
-        foreach (var dt in _model.DerivedTypes)
+        foreach (DerivedTypeInfo dt in _model.DerivedTypes)
         {
             Line($"case {dt.FullTypeName} v_{dt.TypeName}:");
             Line("{");
@@ -254,8 +254,8 @@ internal class PolymorphicCodeEmitter
 
             for (int i = 0; i < _model.UnionProperties.Count; i++)
             {
-                var unionProp = _model.UnionProperties[i];
-                var derivedProp = FindProperty(dt, unionProp.FieldName);
+                PropertyModel unionProp = _model.UnionProperties[i];
+                PropertyModel? derivedProp = FindProperty(dt, unionProp.FieldName);
                 if (derivedProp != null)
                 {
                     EmitAppendValue(derivedProp, i, $"v_{dt.TypeName}.{derivedProp.PropertyName}");
@@ -301,7 +301,7 @@ internal class PolymorphicCodeEmitter
 
     private void EmitBuildColumn(int index)
     {
-        var prop = _model.UnionProperties[index];
+        PropertyModel prop = _model.UnionProperties[index];
         if (prop.Type.Kind == TypeKind2.Enum)
         {
             // Build DictionaryArray from index + dict builders
@@ -324,9 +324,9 @@ internal class PolymorphicCodeEmitter
         // Cast all union property columns
         for (int i = 0; i < _model.UnionProperties.Count; i++)
         {
-            var prop = _model.UnionProperties[i];
-            var colIndex = i + 1;
-            var castType = CodeEmitterHelpers.GetArrayCastType(prop);
+            PropertyModel prop = _model.UnionProperties[i];
+            int colIndex = i + 1;
+            string castType = CodeEmitterHelpers.GetArrayCastType(prop);
             Line($"var col_{i} = ({castType})batch.Column({colIndex});");
         }
 
@@ -341,7 +341,7 @@ internal class PolymorphicCodeEmitter
         Line("{");
         _indent++;
 
-        foreach (var dt in _model.DerivedTypes)
+        foreach (DerivedTypeInfo dt in _model.DerivedTypes)
         {
             Line($"case \"{Escape(dt.TypeDiscriminator)}\":");
             Line("{");
@@ -349,8 +349,8 @@ internal class PolymorphicCodeEmitter
 
             for (int i = 0; i < dt.Properties.Count; i++)
             {
-                var prop = dt.Properties[i];
-                var unionIndex = FindUnionPropertyIndex(prop.FieldName);
+                PropertyModel prop = dt.Properties[i];
+                int unionIndex = FindUnionPropertyIndex(prop.FieldName);
                 EmitMultiRowReadProperty(prop, i, unionIndex);
             }
 
@@ -359,7 +359,7 @@ internal class PolymorphicCodeEmitter
             _indent++;
             for (int i = 0; i < dt.Properties.Count; i++)
             {
-                var prop = dt.Properties[i];
+                PropertyModel prop = dt.Properties[i];
                 Line($"{prop.PropertyName} = prop_{i},");
             }
             _indent--;
@@ -398,7 +398,7 @@ internal class PolymorphicCodeEmitter
         }
         else
         {
-            var builderType = CodeEmitterHelpers.GetNullableBuilderDeclaration(prop);
+            string builderType = CodeEmitterHelpers.GetNullableBuilderDeclaration(prop);
             Line($"var bld_{index} = {builderType};");
         }
     }
@@ -478,7 +478,7 @@ internal class PolymorphicCodeEmitter
 
     private void EmitReadProperty(PropertyModel prop, int propIndex, int colIndex)
     {
-        var col = $"batch.Column({colIndex})";
+        string col = $"batch.Column({colIndex})";
         switch (prop.Type.Kind)
         {
             case TypeKind2.String:
@@ -500,7 +500,7 @@ internal class PolymorphicCodeEmitter
             case TypeKind2.Double:
             case TypeKind2.Half:
             {
-                var castType = CodeEmitterHelpers.GetArrayCastType(prop);
+                string castType = CodeEmitterHelpers.GetArrayCastType(prop);
                 if (prop.IsNullable)
                     Line($"var prop_{propIndex} = (({castType}){col}).IsNull(0) ? ({prop.Type.FullTypeName}?)null : (({castType}){col}).GetValue(0).Value;");
                 else
@@ -525,7 +525,7 @@ internal class PolymorphicCodeEmitter
             }
             case TypeKind2.DateOnly:
             {
-                var castType = CodeEmitterHelpers.GetArrayCastType(prop);
+                string castType = CodeEmitterHelpers.GetArrayCastType(prop);
                 if (prop.IsNullable)
                     Line($"var prop_{propIndex} = (({castType}){col}).IsNull(0) ? (System.DateOnly?)null : (({castType}){col}).GetDateOnly(0);");
                 else
@@ -549,7 +549,7 @@ internal class PolymorphicCodeEmitter
             }
             case TypeKind2.Enum:
             {
-                var enumType = prop.Type.FullTypeName;
+                string enumType = prop.Type.FullTypeName;
                 if (prop.IsNullable)
                 {
                     Line($"{enumType}? prop_{propIndex} = null;");
@@ -571,7 +571,7 @@ internal class PolymorphicCodeEmitter
 
     private void EmitMultiRowReadProperty(PropertyModel prop, int propIndex, int unionIndex)
     {
-        var col = $"col_{unionIndex}";
+        string col = $"col_{unionIndex}";
         switch (prop.Type.Kind)
         {
             case TypeKind2.String:
@@ -630,7 +630,7 @@ internal class PolymorphicCodeEmitter
                 break;
             case TypeKind2.Enum:
             {
-                var enumType = prop.Type.FullTypeName;
+                string enumType = prop.Type.FullTypeName;
                 if (prop.IsNullable)
                 {
                     Line($"{enumType}? prop_{propIndex} = null;");
@@ -651,7 +651,7 @@ internal class PolymorphicCodeEmitter
 
     private static PropertyModel? FindProperty(DerivedTypeInfo dt, string fieldName)
     {
-        foreach (var prop in dt.Properties)
+        foreach (PropertyModel prop in dt.Properties)
         {
             if (prop.FieldName == fieldName)
                 return prop;
@@ -738,7 +738,7 @@ internal static class CodeEmitterHelpers
 
     private static string ParseArrowTypeOverride(string typeName)
     {
-        var lower = typeName.ToLowerInvariant().Trim();
+        string lower = typeName.ToLowerInvariant().Trim();
         return lower switch
         {
             "date32" => "Date32Type.Default",

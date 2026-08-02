@@ -4,6 +4,7 @@ using Apache.Arrow.Serialization;
 using Apache.Arrow.Types;
 using AwesomeAssertions;
 using Iceberg.Net.Schemas;
+using Schema = Iceberg.Net.Schemas.Schema;
 
 namespace Iceberg.Net.Tests;
 
@@ -12,12 +13,12 @@ public class DecimalTests
     [Fact]
     public void DecimalWithControlsArrowAndIcebergSchemas()
     {
-        var arrowType = DecimalRow.ArrowSchema.GetFieldByName(nameof(DecimalRow.Wide)).DataType
+        Decimal128Type arrowType = DecimalRow.ArrowSchema.GetFieldByName(nameof(DecimalRow.Wide)).DataType
             .Should().BeOfType<Decimal128Type>().Subject;
         arrowType.Precision.Should().Be(38);
         arrowType.Scale.Should().Be(18);
 
-        var icebergSchema = CSharpSchema.ToIcebergSchema(typeof(DecimalRow), null, _ => 1);
+        Schema icebergSchema = CSharpSchema.ToIcebergSchema(typeof(DecimalRow), null, _ => 1);
         icebergSchema.Fields.Single(field => field.Name == nameof(DecimalRow.Wide)).FieldType
             .Should().Be(new PrimitiveType.Decimal(38, 18));
         icebergSchema.Fields.Single(field => field.Name == nameof(DecimalRow.Compact)).FieldType

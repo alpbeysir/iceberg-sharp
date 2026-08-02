@@ -46,7 +46,7 @@ public class UnsafeArenaMemoryAllocator(VirtualBuffer buffer) : MemoryAllocator
         Span<byte> span = buffer.AllocateRange(length);
         unsafe
         {
-            var ptr = (byte*)Unsafe.AsPointer(ref MemoryMarshal.GetReference(span));
+            byte* ptr = (byte*)Unsafe.AsPointer(ref MemoryMarshal.GetReference(span));
             ArenaMemoryManager manager = new(ptr, length);
             return new ArenaMemoryOwner(manager.Memory);
         }

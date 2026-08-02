@@ -62,7 +62,7 @@ public class SummaryConverter : JsonConverter<Summary>
 
             if (reader.TokenType == JsonTokenType.PropertyName)
             {
-                var propertyName = reader.GetString()!;
+                string propertyName = reader.GetString()!;
                 reader.Read();
 
                 switch (propertyName)
@@ -170,7 +170,7 @@ public class SummaryConverter : JsonConverter<Summary>
         if (reader.TokenType == JsonTokenType.String && long.TryParse(
                 reader.GetString(),
                 CultureInfo.InvariantCulture,
-                out var l)) return l;
+                out long l)) return l;
         return null;
     }
 
@@ -181,7 +181,7 @@ public class SummaryConverter : JsonConverter<Summary>
         if (reader.TokenType == JsonTokenType.String && int.TryParse(
                 reader.GetString(),
                 CultureInfo.InvariantCulture,
-                out var i)) return i;
+                out int i)) return i;
         return null;
     }
 

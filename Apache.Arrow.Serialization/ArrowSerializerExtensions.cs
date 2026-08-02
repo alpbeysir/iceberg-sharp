@@ -28,7 +28,7 @@ public static class ArrowSerializerExtensions
     /// </summary>
     public static byte[] SerializeToBytes<T>(this T value) where T : IArrowSerializer<T>
     {
-        var batch = T.ToRecordBatch(value);
+        RecordBatch batch = T.ToRecordBatch(value);
         return RecordBatchToBytes(batch);
     }
 
@@ -37,7 +37,7 @@ public static class ArrowSerializerExtensions
     /// </summary>
     public static T DeserializeFromBytes<T>(byte[] data) where T : IArrowSerializer<T>
     {
-        var batch = BytesToRecordBatch(data);
+        RecordBatch batch = BytesToRecordBatch(data);
         return T.FromRecordBatch(batch);
     }
 
@@ -46,7 +46,7 @@ public static class ArrowSerializerExtensions
     /// </summary>
     public static void SerializeToStream<T>(this T value, Stream destination) where T : IArrowSerializer<T>
     {
-        var batch = T.ToRecordBatch(value);
+        RecordBatch batch = T.ToRecordBatch(value);
         WriteRecordBatch(batch, destination);
     }
 
@@ -55,7 +55,7 @@ public static class ArrowSerializerExtensions
     /// </summary>
     public static T DeserializeFromStream<T>(Stream source) where T : IArrowSerializer<T>
     {
-        var batch = ReadRecordBatch(source);
+        RecordBatch batch = ReadRecordBatch(source);
         return T.FromRecordBatch(batch);
     }
 
@@ -81,7 +81,7 @@ public static class ArrowSerializerExtensions
     /// </summary>
     public static byte[] SerializeListToBytes<T>(this IEnumerable<T> items) where T : IArrowSerializer<T>
     {
-        var batch = items.ToRecordBatch();
+        RecordBatch batch = items.ToRecordBatch();
         return RecordBatchToBytes(batch);
     }
 
@@ -90,7 +90,7 @@ public static class ArrowSerializerExtensions
     /// </summary>
     public static IReadOnlyList<T> DeserializeListFromBytes<T>(byte[] data) where T : IArrowSerializer<T>
     {
-        var batch = BytesToRecordBatch(data);
+        RecordBatch batch = BytesToRecordBatch(data);
         return T.ListFromRecordBatch(batch);
     }
 
@@ -99,7 +99,7 @@ public static class ArrowSerializerExtensions
     /// </summary>
     public static byte[] RecordBatchToBytes(RecordBatch batch)
     {
-        using var ms = new MemoryStream();
+        using MemoryStream ms = new MemoryStream();
         WriteRecordBatch(batch, ms);
         return ms.ToArray();
     }
@@ -109,7 +109,7 @@ public static class ArrowSerializerExtensions
     /// </summary>
     public static void WriteRecordBatch(RecordBatch batch, Stream destination)
     {
-        var writer = new ArrowStreamWriter(destination, batch.Schema, leaveOpen: true);
+        ArrowStreamWriter writer = new ArrowStreamWriter(destination, batch.Schema, leaveOpen: true);
         writer.WriteRecordBatch(batch);
         writer.WriteEnd();
         writer.Dispose();
@@ -120,7 +120,7 @@ public static class ArrowSerializerExtensions
     /// </summary>
     public static RecordBatch BytesToRecordBatch(byte[] data)
     {
-        using var ms = new MemoryStream(data);
+        using MemoryStream ms = new MemoryStream(data);
         return ReadRecordBatch(ms);
     }
 
@@ -129,9 +129,9 @@ public static class ArrowSerializerExtensions
     /// </summary>
     public static RecordBatch ReadRecordBatch(Stream source)
     {
-        using var reader = new ArrowStreamReader(source, leaveOpen: true);
-        var batch = reader.ReadNextRecordBatch()
-            ?? throw new InvalidOperationException("No RecordBatch found in Arrow IPC stream.");
+        using ArrowStreamReader reader = new ArrowStreamReader(source, leaveOpen: true);
+        RecordBatch batch = reader.ReadNextRecordBatch()
+                            ?? throw new InvalidOperationException("No RecordBatch found in Arrow IPC stream.");
         return batch;
     }
 }

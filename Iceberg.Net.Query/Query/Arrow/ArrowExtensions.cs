@@ -196,7 +196,7 @@ public static partial class ArrowExtensions
     {
         // Get Key (Index)
         IArrowArray? keys = dictArr.Indices;
-        var key = keys.GetInt64Value(index);
+        long? key = keys.GetInt64Value(index);
 
         if (!key.HasValue) return null;
 
@@ -209,7 +209,7 @@ public static partial class ArrowExtensions
     {
         if (bytes.IsEmpty) return "x''";
 
-        var truncated = false;
+        bool truncated = false;
         ReadOnlySpan<byte> target = bytes;
 
         if (bytes.Length > 20)
@@ -218,11 +218,11 @@ public static partial class ArrowExtensions
             truncated = true;
         }
 
-        var chars = new char[target.Length * 2];
+        char[] chars = new char[target.Length * 2];
 
-        for (var i = 0; i < target.Length; i++)
+        for (int i = 0; i < target.Length; i++)
         {
-            var b = target[i];
+            byte b = target[i];
             chars[i * 2] = HexLookup[b >> 4];
             chars[i * 2 + 1] = HexLookup[b & 0xF];
         }
@@ -233,15 +233,15 @@ public static partial class ArrowExtensions
 
     private static string FormatDate32(Date32Array arr, int index)
     {
-        var days = arr.GetValue(index) ?? 0;
+        int days = arr.GetValue(index) ?? 0;
         return new DateTime(1970, 1, 1).AddDays(days).ToString("yyyy-MM-dd");
     }
 
     private static string FormatTimestamp(TimestampArray arr, int index)
     {
-        var v = arr.GetValue(index) ?? 0;
+        long v = arr.GetValue(index) ?? 0;
         TimeUnit? unit = (arr.Data.DataType as TimestampType)?.Unit;
-        var ticks = unit switch
+        long ticks = unit switch
         {
             TimeUnit.Nanosecond => v / 100L,
             TimeUnit.Microsecond => v * 10L,
@@ -260,7 +260,7 @@ public static partial class ArrowExtensions
 
     private static string FormatTime32(Time32Array arr, int index)
     {
-        var v = arr.GetValue(index) ?? 0;
+        int v = arr.GetValue(index) ?? 0;
         TimeUnit? unit = (arr.Data.DataType as Time32Type)?.Unit;
         TimeSpan span = unit switch
         {
@@ -271,17 +271,17 @@ public static partial class ArrowExtensions
 
     private static string FormatTime64(Time64Array arr, int index)
     {
-        var v = arr.GetValue(index) ?? 0;
+        long v = arr.GetValue(index) ?? 0;
         TimeUnit? unit = (arr.Data.DataType as Time64Type)?.Unit;
-        var ticks = unit switch { TimeUnit.Nanosecond => v / 100L, _ => v * 10L };
+        long ticks = unit switch { TimeUnit.Nanosecond => v / 100L, _ => v * 10L };
         return TimeSpan.FromTicks(ticks).ToString();
     }
 
     private static string FormatDuration(DurationArray arr, int index)
     {
-        var v = arr.GetValue(index) ?? 0;
+        long v = arr.GetValue(index) ?? 0;
         TimeUnit? unit = (arr.Data.DataType as DurationType)?.Unit;
-        var suffix = unit switch
+        string suffix = unit switch
         {
             TimeUnit.Nanosecond => "ns",
             TimeUnit.Microsecond => "us",
@@ -293,16 +293,16 @@ public static partial class ArrowExtensions
 
     private static string FormatList(ListArray arr, int index)
     {
-        var start = arr.ValueOffsets[index];
-        var end = arr.ValueOffsets[index + 1];
+        int start = arr.ValueOffsets[index];
+        int end = arr.ValueOffsets[index + 1];
         IEnumerable<string> items = Enumerable.Range(start, end - start).Select(i => arr.Values.FormatValue(i));
         return $"[{string.Join(", ", items)}]";
     }
 
     private static string FormatLargeList(LargeListArray arr, int index)
     {
-        var start = (int)arr.ValueOffsets[index];
-        var end = (int)arr.ValueOffsets[index + 1];
+        int start = (int)arr.ValueOffsets[index];
+        int end = (int)arr.ValueOffsets[index + 1];
         IEnumerable<string> items = Enumerable.Range(start, end - start).Select(i => arr.Values.FormatValue(i));
         return $"[{string.Join(", ", items)}]";
     }
@@ -310,10 +310,10 @@ public static partial class ArrowExtensions
     private static string FormatFixedSizeList(FixedSizeListArray arr, int index)
     {
         FixedSizeListType? type = (FixedSizeListType)arr.Data.DataType;
-        var width = type.ListSize;
+        int width = type.ListSize;
 
-        var start = index * width;
-        var count = width;
+        int start = index * width;
+        int count = width;
 
         IEnumerable<string> items = Enumerable.Range(start, count)
             .Select(i => arr.Values.FormatValue(i));
@@ -384,7 +384,7 @@ public static partial class ArrowExtensions
 
         if (array is Date32Array d32)
         {
-            var daysSinceEpoch = d32.GetValue(index)!.Value;
+            int daysSinceEpoch = d32.GetValue(index)!.Value;
             return DateOnly.FromDayNumber(UnixEpochDayNumber + daysSinceEpoch);
         }
 
@@ -404,7 +404,7 @@ public static partial class ArrowExtensions
         // Time32 (Seconds / Milliseconds)
         if (array is Time32Array t32)
         {
-            var ms = t32.GetMilliSeconds(index); // Arrow Helper
+            int? ms = t32.GetMilliSeconds(index); // Arrow Helper
             if (ms.HasValue)
                 return new TimeOnly(0, 0, 0).Add(TimeSpan.FromMilliseconds(ms.Value));
 
@@ -414,10 +414,10 @@ public static partial class ArrowExtensions
         // Time64 (Microseconds / Nanoseconds)
         if (array is Time64Array t64)
         {
-            var v = t64.GetValue(index)!.Value;
+            long v = t64.GetValue(index)!.Value;
             TimeUnit? unit = (t64.Data.DataType as Time64Type)?.Unit;
 
-            var ticks = unit switch
+            long ticks = unit switch
             {
                 TimeUnit.Nanosecond => v / 100L, // 100ns = 1 tick
                 _ => v * 10L // Microsecond -> 100ns
@@ -437,13 +437,13 @@ public static partial class ArrowExtensions
 
         if (array is TimestampArray tsArr)
         {
-            var v = tsArr.GetValue(index);
+            long? v = tsArr.GetValue(index);
             if (!v.HasValue) return null;
 
             TimeUnit? unit = (tsArr.Data.DataType as TimestampType)?.Unit;
 
             // A. Calculate UTC Ticks
-            var ticks = unit switch
+            long ticks = unit switch
             {
                 TimeUnit.Nanosecond => v.Value / 100L,
                 TimeUnit.Microsecond => v.Value * 10L,
@@ -451,7 +451,7 @@ public static partial class ArrowExtensions
                 TimeUnit.Second => v.Value * 10000000L,
                 _ => v.Value
             };
-            var utcTicks = DateTime.UnixEpoch.Ticks + ticks;
+            long utcTicks = DateTime.UnixEpoch.Ticks + ticks;
 
             // Calculate Offset
             TimeSpan offset = TimeSpan.Zero;
@@ -462,14 +462,14 @@ public static partial class ArrowExtensions
 
         if (array is Date32Array d32)
         {
-            var days = d32.GetValue(index);
+            int? days = d32.GetValue(index);
             if (!days.HasValue) return null;
             return new DateTimeOffset(new DateTime(1970, 1, 1).AddDays(days.Value), TimeSpan.Zero);
         }
 
         if (array is Date64Array d64)
         {
-            var ms = d64.GetValue(index);
+            long? ms = d64.GetValue(index);
             if (!ms.HasValue) return null;
             return new DateTimeOffset(new DateTime(1970, 1, 1).AddMilliseconds(ms.Value), TimeSpan.Zero);
         }
@@ -480,14 +480,14 @@ public static partial class ArrowExtensions
 
     private static DateTime ConvertTimestamp(TimestampArray arr, int index)
     {
-        var v = arr.GetValue(index).GetValueOrDefault();
+        long v = arr.GetValue(index).GetValueOrDefault();
 
         // Check Timezone
         TimestampType? type = arr.Data.DataType as TimestampType;
         TimeUnit? unit = type?.Unit;
 
         // C# DateTime Ticks = 100ns
-        var ticks = unit switch
+        long ticks = unit switch
         {
             TimeUnit.Nanosecond => v / 100L,
             TimeUnit.Microsecond => v * 10L,
@@ -515,7 +515,7 @@ public static partial class ArrowExtensions
 
     private static TimeSpan ConvertTime32(Time32Array arr, int index)
     {
-        var v = arr.GetValue(index).GetValueOrDefault();
+        int v = arr.GetValue(index).GetValueOrDefault();
         TimeUnit? unit = (arr.Data.DataType as Time32Type)?.Unit;
         return unit switch
         {
@@ -526,10 +526,10 @@ public static partial class ArrowExtensions
 
     private static TimeSpan ConvertTime64(Time64Array arr, int index)
     {
-        var v = arr.GetValue(index).GetValueOrDefault();
+        long v = arr.GetValue(index).GetValueOrDefault();
         TimeUnit? unit = (arr.Data.DataType as Time64Type)?.Unit;
 
-        var ticks = unit switch
+        long ticks = unit switch
         {
             TimeUnit.Nanosecond => v / 100L,
             _ => v * 10L // Microsecond
@@ -539,10 +539,10 @@ public static partial class ArrowExtensions
 
     private static TimeSpan ConvertDuration(DurationArray arr, int index)
     {
-        var v = arr.GetValue(index).GetValueOrDefault();
+        long v = arr.GetValue(index).GetValueOrDefault();
         TimeUnit? unit = (arr.Data.DataType as DurationType)?.Unit;
 
-        var ticks = unit switch
+        long ticks = unit switch
         {
             TimeUnit.Nanosecond => v / 100L,
             TimeUnit.Microsecond => v * 10L,

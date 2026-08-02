@@ -16,9 +16,9 @@ public static class ArrowTypeResolver
     {
         List<Field> fields = new();
 
-        for (var i = 0; i < reader.FieldCount; i++)
+        for (int i = 0; i < reader.FieldCount; i++)
         {
-            var name = reader.GetName(i);
+            string name = reader.GetName(i);
             Type netType = reader.GetFieldType(i);
 
             // 1. Resolve Arrow Type 
@@ -120,7 +120,7 @@ public static class ArrowTypeResolver
             DynamicallyAccessedMemberTypes.PublicProperties | DynamicallyAccessedMemberTypes.PublicFields)]
         Type type)
     {
-        var isNullable = !type.IsValueType || Nullable.GetUnderlyingType(type) != null;
+        bool isNullable = !type.IsValueType || Nullable.GetUnderlyingType(type) != null;
 
         IArrowType arrowType = GetArrowTypeFromNetType(type);
 

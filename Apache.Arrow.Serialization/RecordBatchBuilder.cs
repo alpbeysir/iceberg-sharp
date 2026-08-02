@@ -48,34 +48,34 @@ public static class RecordBatchBuilder
         var fields = new List<Field>();
         var builders = new List<IColumnBuilder>();
 
-        foreach (var prop in properties)
+        foreach (PropertyInfo prop in properties)
         {
-            var propType = prop.PropertyType;
-            var nullabilityInfo = NullabilityInfoContext.Create(prop);
-            var refNullable = nullabilityInfo.WriteState == NullabilityState.Nullable;
+            Type propType = prop.PropertyType;
+            NullabilityInfo nullabilityInfo = NullabilityInfoContext.Create(prop);
+            bool refNullable = nullabilityInfo.WriteState == NullabilityState.Nullable;
             DecimalWithAttribute? decimalWith = prop.GetCustomAttribute<DecimalWithAttribute>();
             if (decimalWith is not null && Nullable.GetUnderlyingType(propType) != typeof(SqlDecimal)
                                        && propType != typeof(SqlDecimal))
                 throw new InvalidOperationException(
                     $"[DecimalWith] can only be used on SqlDecimal members, but {prop.Name} is {propType.Name}.");
 
-            var arrowType = decimalWith is null
+            IArrowType arrowType = decimalWith is null
                 ? InferArrowType(propType)
                 : new Decimal128Type(decimalWith.Precision, decimalWith.Scale);
             fields.Add(new Field(prop.Name, arrowType, refNullable));
             builders.Add(CreateColumnBuilder(propType, arrowType));
         }
 
-        var schema = new Schema.Builder();
-        foreach (var f in fields) schema.Field(f);
+        Schema.Builder schema = new Schema.Builder();
+        foreach (Field f in fields) schema.Field(f);
 
         // Populate builders
-        for (var row = 0; row < list.Count; row++)
+        for (int row = 0; row < list.Count; row++)
         {
-            var item = list[row]!;
-            for (var col = 0; col < properties.Length; col++)
+            T item = list[row]!;
+            for (int col = 0; col < properties.Length; col++)
             {
-                var value = properties[col].GetValue(item);
+                object? value = properties[col].GetValue(item);
                 builders[col].Append(value);
             }
         }
@@ -106,7 +106,7 @@ public static class RecordBatchBuilder
 
     private static IArrowType InferArrowType(Type clrType)
     {
-        var underlying = Nullable.GetUnderlyingType(clrType);
+        Type? underlying = Nullable.GetUnderlyingType(clrType);
         if (underlying is not null) return InferArrowType(underlying);
 
         // TODO fix this nullability garbage
@@ -143,32 +143,32 @@ public static class RecordBatchBuilder
         // T[] arrays (not byte[] which is handled above)
         if (clrType.IsArray)
         {
-            var elemType = clrType.GetElementType()!;
-            var elemArrow = InferArrowType(elemType);
+            Type elemType = clrType.GetElementType()!;
+            IArrowType elemArrow = InferArrowType(elemType);
             return new ListType(new Field("element", elemArrow, false));
         }
 
         if (clrType.IsGenericType)
         {
-            var genDef = clrType.GetGenericTypeDefinition();
+            Type genDef = clrType.GetGenericTypeDefinition();
             if (genDef.ImplementsInterface(typeof(IList<>)) || genDef.ImplementsInterface(typeof(ISet<>)))
             {
-                var elemType = clrType.GetGenericArguments()[0];
-                var elemArrow = InferArrowType(elemType);
+                Type elemType = clrType.GetGenericArguments()[0];
+                IArrowType elemArrow = InferArrowType(elemType);
                 return new ListType(new Field("element", elemArrow, false));
             }
 
             if (genDef.ImplementsInterface(typeof(IDictionary<,>)))
             {
                 var args = clrType.GetGenericArguments();
-                var keyArrow = InferArrowType(args[0]);
-                var valArrow = InferArrowType(args[1]);
+                IArrowType keyArrow = InferArrowType(args[0]);
+                IArrowType valArrow = InferArrowType(args[1]);
                 return new MapType(new Field("key", keyArrow, false), new Field("value", valArrow, false));
             }
         }
 
         // Check for [ArrowSerializable] types with source-generated IArrowSerializer<T>
-        var genSchema = GetGeneratedArrowSchema(clrType);
+        Schema? genSchema = GetGeneratedArrowSchema(clrType);
         if (genSchema is not null)
         {
             var structFields = new List<Field>(genSchema.FieldsList);
@@ -185,9 +185,9 @@ public static class RecordBatchBuilder
             {
                 var nestedFields = nestedProps.Select(p =>
                 {
-                    var nullabilityInfo = NullabilityInfoContext.Create(p);
-                    var refNullable = nullabilityInfo.WriteState == NullabilityState.Nullable;
-                    var ft = InferArrowType(p.PropertyType);
+                    NullabilityInfo nullabilityInfo = NullabilityInfoContext.Create(p);
+                    bool refNullable = nullabilityInfo.WriteState == NullabilityState.Nullable;
+                    IArrowType ft = InferArrowType(p.PropertyType);
                     return new Field(p.Name, ft, refNullable);
                 }).ToList();
                 return new StructType(nestedFields);
@@ -203,11 +203,11 @@ public static class RecordBatchBuilder
     /// </summary>
     private static Schema? GetGeneratedArrowSchema(Type clrType)
     {
-        var iface = clrType.GetInterfaces()
+        Type? iface = clrType.GetInterfaces()
             .FirstOrDefault(i => i.IsGenericType && i.GetGenericTypeDefinition() == typeof(IArrowSerializer<>));
         if (iface is null) return null;
 
-        var schemaProp = clrType.GetProperty(
+        PropertyInfo? schemaProp = clrType.GetProperty(
             "ArrowSchema",
             BindingFlags.Public | BindingFlags.Static | BindingFlags.FlattenHierarchy);
         return schemaProp?.GetValue(null) as Schema;
@@ -218,7 +218,7 @@ public static class RecordBatchBuilder
     /// </summary>
     private static MethodInfo? GetGeneratedToRecordBatchList(Type clrType)
     {
-        var listType = typeof(IReadOnlyList<>).MakeGenericType(clrType);
+        Type listType = typeof(IReadOnlyList<>).MakeGenericType(clrType);
         return clrType.GetMethod(
             "ToRecordBatch",
             BindingFlags.Public | BindingFlags.Static | BindingFlags.FlattenHierarchy,
@@ -227,7 +227,7 @@ public static class RecordBatchBuilder
 
     private static IColumnBuilder CreateColumnBuilder(Type clrType, IArrowType arrowType)
     {
-        var underlying = Nullable.GetUnderlyingType(clrType);
+        Type? underlying = Nullable.GetUnderlyingType(clrType);
         if (underlying is not null)
             return CreateColumnBuilder(underlying, arrowType); // inner builders all handle null
 
@@ -319,10 +319,10 @@ public static class RecordBatchBuilder
         // List<T>, T[], HashSet<T> → ListArray
         if (arrowType is ListType listType)
         {
-            var elemClrType = clrType.IsArray
+            Type elemClrType = clrType.IsArray
                 ? clrType.GetElementType()!
                 : clrType.GetGenericArguments()[0];
-            var elemBuilder = CreateColumnBuilder(elemClrType, listType.ValueDataType);
+            IColumnBuilder elemBuilder = CreateColumnBuilder(elemClrType, listType.ValueDataType);
             return new ListColumnBuilder(listType, elemClrType, elemBuilder);
         }
 
@@ -330,8 +330,8 @@ public static class RecordBatchBuilder
         if (arrowType is MapType mapType)
         {
             var args = clrType.GetGenericArguments();
-            var keyBuilder = CreateColumnBuilder(args[0], mapType.KeyField.DataType);
-            var valBuilder = CreateColumnBuilder(args[1], mapType.ValueField.DataType);
+            IColumnBuilder keyBuilder = CreateColumnBuilder(args[0], mapType.KeyField.DataType);
+            IColumnBuilder valBuilder = CreateColumnBuilder(args[1], mapType.ValueField.DataType);
             return new MapColumnBuilder(mapType, args[0], args[1], keyBuilder, valBuilder);
         }
 
@@ -339,7 +339,7 @@ public static class RecordBatchBuilder
         if (arrowType is StructType structType)
         {
             // If the type has source-generated IArrowSerializer<T>, delegate to it
-            var toRecordBatchList = GetGeneratedToRecordBatchList(clrType);
+            MethodInfo? toRecordBatchList = GetGeneratedToRecordBatchList(clrType);
             if (toRecordBatchList is not null)
                 return new SourceGenStructColumnBuilder(clrType, structType, toRecordBatchList);
 
@@ -348,9 +348,9 @@ public static class RecordBatchBuilder
                 .Where(p => p.CanRead)
                 .ToArray();
             var childBuilders = new List<IColumnBuilder>();
-            for (var i = 0; i < nestedProps.Length; i++)
+            for (int i = 0; i < nestedProps.Length; i++)
             {
-                var childArrowType = structType.Fields[i].DataType;
+                IArrowType childArrowType = structType.Fields[i].DataType;
                 childBuilders.Add(CreateColumnBuilder(nestedProps[i].PropertyType, childArrowType));
             }
 
@@ -498,8 +498,8 @@ public static class RecordBatchBuilder
 
         public IArrowArray Build()
         {
-            var b = new Time64Array.Builder(new Time64Type(TimeUnit.Microsecond));
-            foreach (var (v, isNull) in _values)
+            Time64Array.Builder b = new Time64Array.Builder(new Time64Type(TimeUnit.Microsecond));
+            foreach ((TimeOnly v, bool isNull) in _values)
                 if (isNull) b.AppendNull();
                 else b.Append(v);
             return b.Build();
@@ -518,8 +518,8 @@ public static class RecordBatchBuilder
 
         public IArrowArray Build()
         {
-            var b = new DurationArray.Builder(DurationType.Microsecond);
-            foreach (var (v, isNull) in _values)
+            DurationArray.Builder b = new DurationArray.Builder(DurationType.Microsecond);
+            foreach ((TimeSpan v, bool isNull) in _values)
                 if (isNull) b.AppendNull();
                 else b.Append(v);
             return b.Build();
@@ -566,7 +566,7 @@ public static class RecordBatchBuilder
                 return;
             }
 
-            var name = value.ToString()!;
+            string name = value.ToString()!;
             if (!_dict.ContainsKey(name))
                 _dict[name] = (short)_dict.Count;
             _values.Add(name);
@@ -574,13 +574,13 @@ public static class RecordBatchBuilder
 
         public IArrowArray Build()
         {
-            var dictNames = _dict.OrderBy(kv => kv.Value).Select(kv => kv.Key).ToArray();
-            var dictBuilder = new StringArray.Builder();
-            foreach (var n in dictNames) dictBuilder.Append(n);
-            var dictArray = dictBuilder.Build();
+            string[] dictNames = _dict.OrderBy(kv => kv.Value).Select(kv => kv.Key).ToArray();
+            StringArray.Builder dictBuilder = new StringArray.Builder();
+            foreach (string n in dictNames) dictBuilder.Append(n);
+            StringArray dictArray = dictBuilder.Build();
 
-            var idxBuilder = new Int16Array.Builder();
-            foreach (var v in _values)
+            Int16Array.Builder idxBuilder = new Int16Array.Builder();
+            foreach (string? v in _values)
                 if (v is null) idxBuilder.AppendNull();
                 else idxBuilder.Append(_dict[v]);
 
@@ -631,8 +631,8 @@ public static class RecordBatchBuilder
             }
 
             _validity.Add(true);
-            var enumerable = (IEnumerable)value;
-            foreach (var item in enumerable)
+            IEnumerable enumerable = (IEnumerable)value;
+            foreach (object item in enumerable)
             {
                 _elemBuilder.Append(item);
                 _totalElements++;
@@ -643,11 +643,11 @@ public static class RecordBatchBuilder
 
         public IArrowArray Build()
         {
-            var valueArray = _elemBuilder.Build();
-            var length = _validity.Count;
-            var nullCount = _validity.Count(v => !v);
+            IArrowArray valueArray = _elemBuilder.Build();
+            int length = _validity.Count;
+            int nullCount = _validity.Count(v => !v);
 
-            var offsetBuffer = new ArrowBuffer(
+            ArrowBuffer offsetBuffer = new ArrowBuffer(
                 _offsets.SelectMany(BitConverter.GetBytes).ToArray());
 
             ArrowBuffer nullBitmap;
@@ -657,14 +657,14 @@ public static class RecordBatchBuilder
             }
             else
             {
-                var bitmapBytes = new byte[(length + 7) / 8];
-                for (var i = 0; i < length; i++)
+                byte[] bitmapBytes = new byte[(length + 7) / 8];
+                for (int i = 0; i < length; i++)
                     if (_validity[i])
                         bitmapBytes[i / 8] |= (byte)(1 << (i % 8));
                 nullBitmap = new ArrowBuffer(bitmapBytes);
             }
 
-            var data = new ArrayData(
+            ArrayData data = new ArrayData(
                 _listType,
                 length,
                 nullCount,
@@ -706,7 +706,7 @@ public static class RecordBatchBuilder
             }
 
             _validity.Add(true);
-            var dict = (IDictionary)value;
+            IDictionary dict = (IDictionary)value;
             foreach (DictionaryEntry entry in dict)
             {
                 _keyBuilder.Append(entry.Key);
@@ -719,12 +719,12 @@ public static class RecordBatchBuilder
 
         public IArrowArray Build()
         {
-            var keyArray = _keyBuilder.Build();
-            var valArray = _valBuilder.Build();
-            var length = _validity.Count;
-            var nullCount = _validity.Count(v => !v);
+            IArrowArray keyArray = _keyBuilder.Build();
+            IArrowArray valArray = _valBuilder.Build();
+            int length = _validity.Count;
+            int nullCount = _validity.Count(v => !v);
 
-            var offsetBuffer = new ArrowBuffer(
+            ArrowBuffer offsetBuffer = new ArrowBuffer(
                 _offsets.SelectMany(BitConverter.GetBytes).ToArray());
 
             ArrowBuffer nullBitmap;
@@ -734,22 +734,22 @@ public static class RecordBatchBuilder
             }
             else
             {
-                var bitmapBytes = new byte[(length + 7) / 8];
-                for (var i = 0; i < length; i++)
+                byte[] bitmapBytes = new byte[(length + 7) / 8];
+                for (int i = 0; i < length; i++)
                     if (_validity[i])
                         bitmapBytes[i / 8] |= (byte)(1 << (i % 8));
                 nullBitmap = new ArrowBuffer(bitmapBytes);
             }
 
             // MapArray's child is a StructArray of (key, value) entries
-            var entryType = new StructType(new List<Field> { _mapType.KeyField, _mapType.ValueField });
-            var entryArray = new StructArray(
+            StructType entryType = new StructType(new List<Field> { _mapType.KeyField, _mapType.ValueField });
+            StructArray entryArray = new StructArray(
                 entryType,
                 _totalEntries,
                 [keyArray, valArray],
                 ArrowBuffer.Empty);
 
-            var data = new ArrayData(
+            ArrayData data = new ArrayData(
                 _mapType,
                 length,
                 nullCount,
@@ -785,24 +785,24 @@ public static class RecordBatchBuilder
 
         public IArrowArray Build()
         {
-            var length = _items.Count;
-            var nullCount = _items.Count(v => v is null);
+            int length = _items.Count;
+            int nullCount = _items.Count(v => v is null);
 
             // Build a typed list for the source-generated method
-            var listType = typeof(List<>).MakeGenericType(_clrType);
-            var typedList = (IList)Activator.CreateInstance(listType, length)!;
+            Type listType = typeof(List<>).MakeGenericType(_clrType);
+            IList typedList = (IList)Activator.CreateInstance(listType, length)!;
 
             // For null slots, we need a stand-in value (first non-null item)
-            var standIn = _items.FirstOrDefault(v => v is not null);
-            foreach (var item in _items)
+            object? standIn = _items.FirstOrDefault(v => v is not null);
+            foreach (object? item in _items)
                 typedList.Add(item ?? standIn!);
 
             // Call the generated ToRecordBatch(IReadOnlyList<T>)
-            var batch = (RecordBatch)_toRecordBatchList.Invoke(null, [typedList])!;
+            RecordBatch batch = (RecordBatch)_toRecordBatchList.Invoke(null, [typedList])!;
 
             // Extract columns as child arrays for the StructArray
             var childArrays = new IArrowArray[batch.ColumnCount];
-            for (var i = 0; i < batch.ColumnCount; i++)
+            for (int i = 0; i < batch.ColumnCount; i++)
                 childArrays[i] = batch.Column(i);
 
             // Build null bitmap
@@ -813,8 +813,8 @@ public static class RecordBatchBuilder
             }
             else
             {
-                var bitmapBytes = new byte[(length + 7) / 8];
-                for (var i = 0; i < length; i++)
+                byte[] bitmapBytes = new byte[(length + 7) / 8];
+                for (int i = 0; i < length; i++)
                     if (_items[i] is not null)
                         bitmapBytes[i / 8] |= (byte)(1 << (i % 8));
                 nullBitmap = new ArrowBuffer(bitmapBytes);
@@ -844,13 +844,13 @@ public static class RecordBatchBuilder
             {
                 _validity.Add(false);
                 // Append nulls/defaults to all children to keep lengths aligned
-                for (var i = 0; i < _childBuilders.Count; i++)
+                for (int i = 0; i < _childBuilders.Count; i++)
                     _childBuilders[i].Append(null);
             }
             else
             {
                 _validity.Add(true);
-                for (var i = 0; i < _properties.Length; i++)
+                for (int i = 0; i < _properties.Length; i++)
                     _childBuilders[i].Append(_properties[i].GetValue(value));
             }
         }
@@ -858,8 +858,8 @@ public static class RecordBatchBuilder
         public IArrowArray Build()
         {
             var childArrays = _childBuilders.Select(b => b.Build()).ToArray();
-            var length = _validity.Count;
-            var nullCount = _validity.Count(v => !v);
+            int length = _validity.Count;
+            int nullCount = _validity.Count(v => !v);
 
             // Build null bitmap
             ArrowBuffer nullBitmap;
@@ -869,8 +869,8 @@ public static class RecordBatchBuilder
             }
             else
             {
-                var bitmapBytes = new byte[(length + 7) / 8];
-                for (var i = 0; i < length; i++)
+                byte[] bitmapBytes = new byte[(length + 7) / 8];
+                for (int i = 0; i < length; i++)
                     if (_validity[i])
                         bitmapBytes[i / 8] |= (byte)(1 << (i % 8));
                 nullBitmap = new ArrowBuffer(bitmapBytes);

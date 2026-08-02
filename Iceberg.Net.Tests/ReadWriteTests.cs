@@ -1,4 +1,5 @@
 ﻿using Apache.Arrow.Serialization;
+using Iceberg.Net.Catalog;
 using Iceberg.Net.Tests.DataGeneration;
 
 namespace Iceberg.Net.Tests;
@@ -48,7 +49,7 @@ public class ReadWriteTests(RestCatalogFixture fixture) : TableTest(fixture)
 
     private async Task Run<T>(List<T> rows) where T : IArrowSerializer<T>
     {
-        var identifier = await Write(rows);
+        Identifier identifier = await Write(rows);
         await Verify(identifier, rows);
     }
 }

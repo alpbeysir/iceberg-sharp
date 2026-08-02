@@ -28,13 +28,13 @@ public class UseVisitor : ExpressionVisitor
     {
         if (node is MemberExpression me && me.Expression!.Type.Name.Contains("Usable"))
         {
-            var param = ((dynamic)me.Expression!.Evaluate()).Expression;
+            dynamic param = ((dynamic)me.Expression!.Evaluate()).Expression;
             return param;
         }
 
         if (node is MethodCallExpression mc && mc.Method.Name.Contains("As"))
         {
-            var param = (dynamic)mc.Arguments[0].Evaluate();
+            dynamic param = (dynamic)mc.Arguments[0].Evaluate();
             return param;
         }
 
@@ -46,13 +46,13 @@ public static class ExpressionUtilities
 {
     public static Expression Use(Expression<Action> action)
     {
-        var visitor = new UseVisitor();
+        UseVisitor visitor = new UseVisitor();
         return visitor.Visit(action);
     }
 
     public static Expression Use<T>(Expression<Func<T>> action)
     {
-        var visitor = new UseVisitor();
+        UseVisitor visitor = new UseVisitor();
         return ((LambdaExpression)visitor.Visit(action)).Body;
     }
 

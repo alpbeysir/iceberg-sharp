@@ -73,7 +73,7 @@ public class ArrowSerializerGenerator : IIncrementalGenerator
     {
         var emitSchemaJson = context.AnalyzerConfigOptionsProvider.Select(static (options, _) =>
         {
-            options.GlobalOptions.TryGetValue("build_property.ArrowSerializerEmitSchemaJson", out var value);
+            options.GlobalOptions.TryGetValue("build_property.ArrowSerializerEmitSchemaJson", out string? value);
             return string.Equals(value, "true", StringComparison.OrdinalIgnoreCase);
         });
 
@@ -105,7 +105,7 @@ public class ArrowSerializerGenerator : IIncrementalGenerator
         var properties = new List<PropertyModel>();
         var ignoredMemberWarnings = new List<DiagnosticInfo>();
         int declOrder = 0;
-        foreach (var member in typeSymbol.GetMembers())
+        foreach (ISymbol member in typeSymbol.GetMembers())
         {
             // Support both properties and fields
             ITypeSymbol memberType;
@@ -164,9 +164,9 @@ public class ArrowSerializerGenerator : IIncrementalGenerator
             int order = int.MaxValue;
             var propMetadata = new List<KeyValuePair<string, string>>();
 
-            foreach (var attr in member.GetAttributes())
+            foreach (AttributeData attr in member.GetAttributes())
             {
-                var attrName = attr.AttributeClass?.ToDisplayString();
+                string? attrName = attr.AttributeClass?.ToDisplayString();
                 if (attrName == "Apache.Arrow.Serialization.ArrowIgnoreAttribute")
                 {
                     isTransient = true;
@@ -209,8 +209,8 @@ public class ArrowSerializerGenerator : IIncrementalGenerator
                 {
                     if (attr.ConstructorArguments.Length >= 2)
                     {
-                        var key = attr.ConstructorArguments[0].Value as string;
-                        var val = attr.ConstructorArguments[1].Value as string;
+                        string? key = attr.ConstructorArguments[0].Value as string;
+                        string? val = attr.ConstructorArguments[1].Value as string;
                         if (key != null && val != null)
                             propMetadata.Add(new KeyValuePair<string, string>(key, val));
                     }
@@ -226,8 +226,8 @@ public class ArrowSerializerGenerator : IIncrementalGenerator
                 memberType = nullableType.TypeArguments[0];
             }
 
-            var typeInfo = AnalyzeType(memberType, isNullable);
-            var isSqlDecimal = IsSqlDecimal(typeInfo);
+            TypeInfo typeInfo = AnalyzeType(memberType, isNullable);
+            bool isSqlDecimal = IsSqlDecimal(typeInfo);
             if (decimalPrecision is not null && decimalScale is not null)
             {
                 if (typeInfo.Kind != TypeKind2.Decimal)
@@ -298,13 +298,13 @@ public class ArrowSerializerGenerator : IIncrementalGenerator
         });
 
         var typeMetadata = new List<KeyValuePair<string, string>>();
-        foreach (var attr in typeSymbol.GetAttributes())
+        foreach (AttributeData attr in typeSymbol.GetAttributes())
         {
             if (attr.AttributeClass?.ToDisplayString() == "Apache.Arrow.Serialization.ArrowMetadataAttribute"
                 && attr.ConstructorArguments.Length >= 2)
             {
-                var key = attr.ConstructorArguments[0].Value as string;
-                var val = attr.ConstructorArguments[1].Value as string;
+                string? key = attr.ConstructorArguments[0].Value as string;
+                string? val = attr.ConstructorArguments[1].Value as string;
                 if (key != null && val != null)
                     typeMetadata.Add(new KeyValuePair<string, string>(key, val));
             }
@@ -313,7 +313,7 @@ public class ArrowSerializerGenerator : IIncrementalGenerator
         // Determine if constructor-based deserialization is needed
         // This is required when any member is a readonly field (can't use object initializer)
         bool needsConstructor = false;
-        foreach (var p in properties)
+        foreach (PropertyModel p in properties)
         {
             if (p.IsField) { needsConstructor = true; break; }
         }
@@ -326,7 +326,7 @@ public class ArrowSerializerGenerator : IIncrementalGenerator
 
         // Validate and collect diagnostics
         var diagnostics = new List<DiagnosticInfo>(ignoredMemberWarnings);
-        var typeName = typeSymbol.Name;
+        string typeName = typeSymbol.Name;
 
         // ARROW001: non-partial type
         if (ctx.TargetNode is TypeDeclarationSyntax tds && !tds.Modifiers.Any(Microsoft.CodeAnalysis.CSharp.SyntaxKind.PartialKeyword))
@@ -341,7 +341,7 @@ public class ArrowSerializerGenerator : IIncrementalGenerator
         }
 
         // ARROW003: unsupported member types
-        foreach (var p in properties)
+        foreach (PropertyModel p in properties)
         {
             if (p.Type.Kind == TypeKind2.Unknown)
                 diagnostics.Add(new DiagnosticInfo { Id = "ARROW003", Message = $"{p.PropertyName}\t{typeName}\t{p.Type.FullTypeName}", IsError = true });
@@ -349,9 +349,9 @@ public class ArrowSerializerGenerator : IIncrementalGenerator
 
         // ARROW004: duplicate Arrow field names
         var seenFields = new Dictionary<string, string>();
-        foreach (var p in properties)
+        foreach (PropertyModel p in properties)
         {
-            if (seenFields.TryGetValue(p.FieldName, out var existingMember))
+            if (seenFields.TryGetValue(p.FieldName, out string? existingMember))
                 diagnostics.Add(new DiagnosticInfo { Id = "ARROW004", Message = $"{existingMember}\t{p.PropertyName}\t{typeName}\t{p.FieldName}", IsError = true });
             else
                 seenFields[p.FieldName] = p.PropertyName;
@@ -360,7 +360,7 @@ public class ArrowSerializerGenerator : IIncrementalGenerator
         // ARROW005: non-settable properties (no set/init, not in constructor)
         if (ctorParams == null)
         {
-            foreach (var member in typeSymbol.GetMembers())
+            foreach (ISymbol member in typeSymbol.GetMembers())
             {
                 if (!(member is IPropertySymbol ps) || ps.IsStatic || ps.IsIndexer)
                     continue;
@@ -391,12 +391,12 @@ public class ArrowSerializerGenerator : IIncrementalGenerator
 
     private static bool HasArrowSerializableBaseType(INamedTypeSymbol typeSymbol)
     {
-        var baseType = typeSymbol.BaseType;
+        INamedTypeSymbol? baseType = typeSymbol.BaseType;
         while (baseType != null && baseType.SpecialType != SpecialType.System_Object)
         {
-            foreach (var attr in baseType.GetAttributes())
+            foreach (AttributeData attr in baseType.GetAttributes())
             {
-                var attrName = attr.AttributeClass?.ToDisplayString();
+                string? attrName = attr.AttributeClass?.ToDisplayString();
                 if (attrName == "Apache.Arrow.Serialization.ArrowSerializableAttribute" ||
                     attrName == "Apache.Arrow.Serialization.ArrowPolymorphicAttribute")
                     return true;
@@ -408,7 +408,7 @@ public class ArrowSerializerGenerator : IIncrementalGenerator
 
     private static bool ImplementsInterface(INamedTypeSymbol typeSymbol, string interfaceFullName)
     {
-        foreach (var iface in typeSymbol.AllInterfaces)
+        foreach (INamedTypeSymbol iface in typeSymbol.AllInterfaces)
         {
             if (iface.ToDisplayString() == interfaceFullName)
                 return true;
@@ -418,9 +418,9 @@ public class ArrowSerializerGenerator : IIncrementalGenerator
 
     private static bool HasArrowAttributes(ISymbol member)
     {
-        foreach (var attr in member.GetAttributes())
+        foreach (AttributeData attr in member.GetAttributes())
         {
-            var name = attr.AttributeClass?.ToDisplayString();
+            string? name = attr.AttributeClass?.ToDisplayString();
             if (name != null && (name.StartsWith("Apache.Arrow.Serialization.Arrow")
                                  || name == "Apache.Arrow.Serialization.DecimalWithAttribute"))
                 return true;
@@ -435,10 +435,10 @@ public class ArrowSerializerGenerator : IIncrementalGenerator
         if (prop.NullableAnnotation == NullableAnnotation.Annotated)
             return true;
 
-        foreach (var ctor in containingType.Constructors)
+        foreach (IMethodSymbol ctor in containingType.Constructors)
         {
             if (ctor.IsImplicitlyDeclared) continue;
-            foreach (var param in ctor.Parameters)
+            foreach (IParameterSymbol param in ctor.Parameters)
             {
                 if (param.Name.Equals(prop.Name, StringComparison.OrdinalIgnoreCase) && param.HasExplicitDefaultValue)
                     return true;
@@ -456,13 +456,13 @@ public class ArrowSerializerGenerator : IIncrementalGenerator
     private static List<ConstructorParamModel>? ResolveConstructor(INamedTypeSymbol typeSymbol, List<PropertyModel> properties)
     {
         var memberNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        foreach (var p in properties)
+        foreach (PropertyModel p in properties)
             memberNames.Add(p.PropertyName);
 
         IMethodSymbol? bestCtor = null;
         int bestMatch = -1;
 
-        foreach (var ctor in typeSymbol.Constructors)
+        foreach (IMethodSymbol ctor in typeSymbol.Constructors)
         {
             if (ctor.IsStatic || ctor.IsImplicitlyDeclared)
                 continue;
@@ -472,7 +472,7 @@ public class ArrowSerializerGenerator : IIncrementalGenerator
             // Count how many required params match members
             int matchCount = 0;
             bool allRequiredMatch = true;
-            foreach (var param in ctor.Parameters)
+            foreach (IParameterSymbol param in ctor.Parameters)
             {
                 if (memberNames.Contains(param.Name))
                     matchCount++;
@@ -494,7 +494,7 @@ public class ArrowSerializerGenerator : IIncrementalGenerator
             return null;
 
         var result = new List<ConstructorParamModel>();
-        foreach (var param in bestCtor.Parameters)
+        foreach (IParameterSymbol param in bestCtor.Parameters)
         {
             result.Add(new ConstructorParamModel
             {
@@ -514,7 +514,7 @@ public class ArrowSerializerGenerator : IIncrementalGenerator
             isNullable = true;
         }
 
-        var fullName = type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
+        string fullName = type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
 
         // Check for enum
         if (type.TypeKind == TypeKind.Enum)
@@ -528,7 +528,7 @@ public class ArrowSerializerGenerator : IIncrementalGenerator
         }
 
         // Check for nested ArrowSerializable
-        foreach (var attr in type.GetAttributes())
+        foreach (AttributeData attr in type.GetAttributes())
         {
             if (attr.AttributeClass?.ToDisplayString() == "Apache.Arrow.Serialization.ArrowSerializableAttribute")
             {
@@ -544,7 +544,7 @@ public class ArrowSerializerGenerator : IIncrementalGenerator
         // Check for collections
         if (type is INamedTypeSymbol namedType)
         {
-            var origDef = namedType.OriginalDefinition.ToDisplayString();
+            string origDef = namedType.OriginalDefinition.ToDisplayString();
 
             // List<T>, IList<T>, IReadOnlyList<T>
             if (origDef == "System.Collections.Generic.List<T>"
@@ -554,7 +554,7 @@ public class ArrowSerializerGenerator : IIncrementalGenerator
                 || origDef == "System.Collections.Generic.ICollection<T>"
                 || origDef == "System.Collections.Generic.IReadOnlyCollection<T>")
             {
-                var elemType = AnalyzeType(namedType.TypeArguments[0], false);
+                TypeInfo elemType = AnalyzeType(namedType.TypeArguments[0], false);
                 return new TypeInfo
                 {
                     Kind = TypeKind2.List,
@@ -569,8 +569,8 @@ public class ArrowSerializerGenerator : IIncrementalGenerator
                 || origDef == "System.Collections.Generic.IDictionary<TKey, TValue>"
                 || origDef == "System.Collections.Generic.IReadOnlyDictionary<TKey, TValue>")
             {
-                var keyType = AnalyzeType(namedType.TypeArguments[0], false);
-                var valueType = AnalyzeType(namedType.TypeArguments[1], false);
+                TypeInfo keyType = AnalyzeType(namedType.TypeArguments[0], false);
+                TypeInfo valueType = AnalyzeType(namedType.TypeArguments[1], false);
                 return new TypeInfo
                 {
                     Kind = TypeKind2.Dictionary,
@@ -587,7 +587,7 @@ public class ArrowSerializerGenerator : IIncrementalGenerator
                 || origDef == "System.Collections.Generic.IReadOnlySet<T>"
                 || origDef == "System.Collections.Frozen.FrozenSet<T>")
             {
-                var elemType = AnalyzeType(namedType.TypeArguments[0], false);
+                TypeInfo elemType = AnalyzeType(namedType.TypeArguments[0], false);
                 return new TypeInfo
                 {
                     Kind = TypeKind2.Set,
@@ -611,7 +611,7 @@ public class ArrowSerializerGenerator : IIncrementalGenerator
                 };
             }
 
-            var elemType = AnalyzeType(arrayType.ElementType, false);
+            TypeInfo elemType = AnalyzeType(arrayType.ElementType, false);
             return new TypeInfo
             {
                 Kind = TypeKind2.Array,
@@ -622,7 +622,7 @@ public class ArrowSerializerGenerator : IIncrementalGenerator
         }
 
         // Primitive types
-        var kind = fullName switch
+        TypeKind2 kind = fullName switch
         {
             "string" => TypeKind2.String,
             "bool" => TypeKind2.Bool,
@@ -675,10 +675,10 @@ public class ArrowSerializerGenerator : IIncrementalGenerator
     private static void Execute(SourceProductionContext spc, TypeModel model, bool emitSchemaJson)
     {
         // Report diagnostics
-        foreach (var diag in model.Diagnostics)
+        foreach (DiagnosticInfo diag in model.Diagnostics)
         {
-            var parts = diag.Message.Split('\t');
-            var descriptor = diag.Id switch
+            string[] parts = diag.Message.Split('\t');
+            DiagnosticDescriptor? descriptor = diag.Id switch
             {
                 "ARROW001" => NonPartialType,
                 "ARROW002" => NoMatchingConstructor,
@@ -696,20 +696,20 @@ public class ArrowSerializerGenerator : IIncrementalGenerator
 
         // Don't emit code if there are errors
         bool hasErrors = false;
-        foreach (var d in model.Diagnostics)
+        foreach (DiagnosticInfo d in model.Diagnostics)
         {
             if (d.IsError) { hasErrors = true; break; }
         }
         if (hasErrors) return;
 
-        var sb = new StringBuilder();
-        var emitter = new CodeEmitter(sb, model);
+        StringBuilder sb = new StringBuilder();
+        CodeEmitter emitter = new CodeEmitter(sb, model);
         emitter.Emit();
         spc.AddSource($"{model.TypeName}.ArrowSerializer.g.cs", sb.ToString());
 
         if (emitSchemaJson)
         {
-            var jsonSb = new StringBuilder();
+            StringBuilder jsonSb = new StringBuilder();
             JsonSchemaEmitter.Emit(jsonSb, model);
             spc.AddSource($"{model.TypeName}.ArrowSchemaJson.g.cs", jsonSb.ToString());
         }
@@ -722,7 +722,7 @@ public class ArrowSerializerGenerator : IIncrementalGenerator
 
         // Read [ArrowPolymorphic] attribute
         string discriminatorFieldName = "$type";
-        foreach (var attr in typeSymbol.GetAttributes())
+        foreach (AttributeData attr in typeSymbol.GetAttributes())
         {
             if (attr.AttributeClass?.ToDisplayString() == "Apache.Arrow.Serialization.ArrowPolymorphicAttribute")
             {
@@ -736,15 +736,15 @@ public class ArrowSerializerGenerator : IIncrementalGenerator
 
         // Collect [ArrowDerivedType] attributes
         var derivedTypes = new List<DerivedTypeInfo>();
-        foreach (var attr in typeSymbol.GetAttributes())
+        foreach (AttributeData attr in typeSymbol.GetAttributes())
         {
             if (attr.AttributeClass?.ToDisplayString() != "Apache.Arrow.Serialization.ArrowDerivedTypeAttribute")
                 continue;
             if (attr.ConstructorArguments.Length < 2)
                 continue;
 
-            var derivedTypeSymbol = attr.ConstructorArguments[0].Value as INamedTypeSymbol;
-            var discriminator = attr.ConstructorArguments[1].Value as string;
+            INamedTypeSymbol? derivedTypeSymbol = attr.ConstructorArguments[0].Value as INamedTypeSymbol;
+            string? discriminator = attr.ConstructorArguments[1].Value as string;
             if (derivedTypeSymbol == null || discriminator == null)
                 continue;
 
@@ -763,9 +763,9 @@ public class ArrowSerializerGenerator : IIncrementalGenerator
         // Build union of all properties (deduplicated by FieldName, all nullable)
         var unionProps = new List<PropertyModel>();
         var seenFields = new HashSet<string>();
-        foreach (var dt in derivedTypes)
+        foreach (DerivedTypeInfo dt in derivedTypes)
         {
-            foreach (var prop in dt.Properties)
+            foreach (PropertyModel prop in dt.Properties)
             {
                 if (seenFields.Add(prop.FieldName))
                 {
@@ -787,13 +787,13 @@ public class ArrowSerializerGenerator : IIncrementalGenerator
 
         // Collect metadata
         var typeMetadata = new List<KeyValuePair<string, string>>();
-        foreach (var attr in typeSymbol.GetAttributes())
+        foreach (AttributeData attr in typeSymbol.GetAttributes())
         {
             if (attr.AttributeClass?.ToDisplayString() == "Apache.Arrow.Serialization.ArrowMetadataAttribute"
                 && attr.ConstructorArguments.Length >= 2)
             {
-                var key = attr.ConstructorArguments[0].Value as string;
-                var val = attr.ConstructorArguments[1].Value as string;
+                string? key = attr.ConstructorArguments[0].Value as string;
+                string? val = attr.ConstructorArguments[1].Value as string;
                 if (key != null && val != null)
                     typeMetadata.Add(new KeyValuePair<string, string>(key, val));
             }
@@ -820,7 +820,7 @@ public class ArrowSerializerGenerator : IIncrementalGenerator
     {
         var properties = new List<PropertyModel>();
         int declOrder = 0;
-        foreach (var member in typeSymbol.GetMembers())
+        foreach (ISymbol member in typeSymbol.GetMembers())
         {
             if (!(member is IPropertySymbol prop))
                 continue;
@@ -838,9 +838,9 @@ public class ArrowSerializerGenerator : IIncrementalGenerator
             int order = int.MaxValue;
             var propMetadata = new List<KeyValuePair<string, string>>();
 
-            foreach (var attr in prop.GetAttributes())
+            foreach (AttributeData attr in prop.GetAttributes())
             {
-                var attrName = attr.AttributeClass?.ToDisplayString();
+                string? attrName = attr.AttributeClass?.ToDisplayString();
                 if (attrName == "Apache.Arrow.Serialization.ArrowIgnoreAttribute")
                     isTransient = true;
                 else if (attrName == "Apache.Arrow.Serialization.ArrowTypeAttribute")
@@ -873,8 +873,8 @@ public class ArrowSerializerGenerator : IIncrementalGenerator
                 {
                     if (attr.ConstructorArguments.Length >= 2)
                     {
-                        var key = attr.ConstructorArguments[0].Value as string;
-                        var val = attr.ConstructorArguments[1].Value as string;
+                        string? key = attr.ConstructorArguments[0].Value as string;
+                        string? val = attr.ConstructorArguments[1].Value as string;
                         if (key != null && val != null)
                             propMetadata.Add(new KeyValuePair<string, string>(key, val));
                     }
@@ -884,12 +884,12 @@ public class ArrowSerializerGenerator : IIncrementalGenerator
             if (isTransient)
                 continue;
 
-            var propType = prop.Type;
+            ITypeSymbol propType = prop.Type;
             bool isNullable = propType.NullableAnnotation == NullableAnnotation.Annotated;
             if (isNullable && propType is INamedTypeSymbol { OriginalDefinition.SpecialType: SpecialType.System_Nullable_T } nullableType)
                 propType = nullableType.TypeArguments[0];
 
-            var typeInfo = AnalyzeType(propType, isNullable);
+            TypeInfo typeInfo = AnalyzeType(propType, isNullable);
             if (decimalPrecision is not null && decimalScale is not null && typeInfo.Kind == TypeKind2.Decimal)
                 typeInfo = typeInfo.WithOverride($"decimal128({decimalPrecision},{decimalScale})");
             if (converterTypeName2 != null)
@@ -922,8 +922,8 @@ public class ArrowSerializerGenerator : IIncrementalGenerator
 
     private static void ExecutePolymorphic(SourceProductionContext spc, PolymorphicModel model)
     {
-        var sb = new StringBuilder();
-        var emitter = new PolymorphicCodeEmitter(sb, model);
+        StringBuilder sb = new StringBuilder();
+        PolymorphicCodeEmitter emitter = new PolymorphicCodeEmitter(sb, model);
         emitter.Emit();
         spc.AddSource($"{model.TypeName}.ArrowPolymorphic.g.cs", sb.ToString());
     }

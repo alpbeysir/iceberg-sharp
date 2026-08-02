@@ -45,7 +45,7 @@ public class BitmapBuilder
     public BitmapBuilder Append(bool value)
     {
         // 1. Shift the bit into our 64-bit CPU register staging buffer
-        var bit = value ? 1UL : 0UL;
+        ulong bit = value ? 1UL : 0UL;
         _stagingBuffer |= bit << _stagingCount;
         _stagingCount++;
         SetBitCount += (int)bit;
@@ -76,8 +76,8 @@ public class BitmapBuilder
         {
             EnsureAdditionalCapacity(validBits);
 
-            var targetByteOffset = Length / 8;
-            var bytesToCopy = BitUtility.ByteCount(validBits);
+            int targetByteOffset = Length / 8;
+            int bytesToCopy = BitUtility.ByteCount(validBits);
 
             source[..bytesToCopy].CopyTo(Span[targetByteOffset..]);
 
@@ -88,7 +88,7 @@ public class BitmapBuilder
         else
         {
             // Fallback if bits are completely unaligned
-            for (var i = 0; i < validBits; i++)
+            for (int i = 0; i < validBits; i++)
                 Append(source.IsEmpty || BitUtility.GetBit(source, i));
         }
 
@@ -107,7 +107,7 @@ public class BitmapBuilder
     private void FlushStagingBuffer()
     {
         EnsureAdditionalCapacity(0); // Check capacity before writing 8 bytes
-        var targetByteIndex = (Length - 64) / 8;
+        int targetByteIndex = (Length - 64) / 8;
 
         // Write full 8-byte ulong directly down to memory
         MemoryMarshal.Write(Span[targetByteIndex..], in _stagingBuffer);
@@ -118,14 +118,14 @@ public class BitmapBuilder
 
     private void FlushPartialStagingBytes()
     {
-        var bytesToWrite = (_stagingCount + 7) / 8;
+        int bytesToWrite = (_stagingCount + 7) / 8;
         EnsureAdditionalCapacity(0);
 
-        var targetByteIndex = (Length - _stagingCount) / 8;
-        var tempBuffer = _stagingBuffer;
+        int targetByteIndex = (Length - _stagingCount) / 8;
+        ulong tempBuffer = _stagingBuffer;
 
         Span<byte> span = Span;
-        for (var i = 0; i < bytesToWrite; i++)
+        for (int i = 0; i < bytesToWrite; i++)
         {
             span[targetByteIndex + i] = (byte)(tempBuffer & 0xFF);
             tempBuffer >>= 8;
@@ -141,8 +141,8 @@ public class BitmapBuilder
     /// </summary>
     private static int CountBitsSimd(ReadOnlySpan<byte> bytes, int totalValidBits)
     {
-        var count = 0;
-        var i = 0;
+        int count = 0;
+        int i = 0;
 
         // Process with hardware SIMD vectors if available
         if (Vector.IsHardwareAccelerated && bytes.Length >= VectorSize)
@@ -150,7 +150,7 @@ public class BitmapBuilder
             {
                 Vector<byte> vector = new(bytes.Slice(i, VectorSize));
                 // Vectorized population count across all elements
-                for (var j = 0; j < VectorSize; j++) count += BitOperations.PopCount(vector[j]);
+                for (int j = 0; j < VectorSize; j++) count += BitOperations.PopCount(vector[j]);
                 i += VectorSize;
             }
 
@@ -158,13 +158,13 @@ public class BitmapBuilder
         for (; i < bytes.Length; i++) count += BitOperations.PopCount(bytes[i]);
 
         // Clean up excess bit padding if the trailing byte wasn't fully utilized
-        var totalExpectedBytes = BitUtility.ByteCount(totalValidBits);
-        var structuralBitsInLastByte = totalValidBits % 8;
+        int totalExpectedBytes = BitUtility.ByteCount(totalValidBits);
+        int structuralBitsInLastByte = totalValidBits % 8;
         if (structuralBitsInLastByte > 0 && bytes.Length >= totalExpectedBytes)
         {
-            var lastByte = bytes[totalExpectedBytes - 1];
-            var excessBits = 8 - structuralBitsInLastByte;
-            var maskedOutBits = (byte)(lastByte >> structuralBitsInLastByte);
+            byte lastByte = bytes[totalExpectedBytes - 1];
+            int excessBits = 8 - structuralBitsInLastByte;
+            byte maskedOutBits = (byte)(lastByte >> structuralBitsInLastByte);
             count -= BitOperations.PopCount(maskedOutBits);
         }
 
@@ -176,7 +176,7 @@ public class BitmapBuilder
     {
         Flush();
         if (Allocator == allocator) return new ArrowBuffer(Memory);
-        var bufferLength = checked((int)BitUtility.RoundUpToMultipleOf64(Memory.Length));
+        int bufferLength = checked((int)BitUtility.RoundUpToMultipleOf64(Memory.Length));
         MemoryAllocator? memoryAllocator = allocator ?? MemoryAllocator.Default.Value;
         IMemoryOwner<byte>? memoryOwner = memoryAllocator.Allocate(bufferLength);
         Memory[..].CopyTo(memoryOwner.Memory);
@@ -239,7 +239,7 @@ public class BitmapBuilder
     {
         if (requiredCapacity > Capacity)
         {
-            var byteCount = Math.Max(BitUtility.ByteCount(requiredCapacity), Memory.Length * 2);
+            int byteCount = Math.Max(BitUtility.ByteCount(requiredCapacity), Memory.Length * 2);
             Reallocate(byteCount);
             Capacity = byteCount * 8;
         }

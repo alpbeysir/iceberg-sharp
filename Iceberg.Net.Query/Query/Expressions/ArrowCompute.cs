@@ -113,7 +113,7 @@ public static class ArrowCompute
     {
         if (l.IsEmpty) return Span<T>.Empty;
 
-        var len = l.Length;
+        int len = l.Length;
         Span<T> result = memConfig switch
         {
             MemoryConfig.Left => l[..len],
@@ -124,12 +124,12 @@ public static class ArrowCompute
         Func<Vector<T>, Vector<T>, Vector<T>> vectorSelector = GetVectorOp<T>(expressionType);
         Func<T, T, T> scalarSelector = GetScalarOp<T>(expressionType);
 
-        var i = 0;
-        var vecSize = Vector<T>.Count;
+        int i = 0;
+        int vecSize = Vector<T>.Count;
 
         if (Vector.IsHardwareAccelerated && len >= vecSize)
         {
-            var vecEnd = len - len % vecSize;
+            int vecEnd = len - len % vecSize;
             for (; i < vecEnd; i += vecSize)
             {
                 Vector<T> vl = new(l.Slice(i, vecSize));
@@ -156,7 +156,7 @@ public static class ArrowCompute
     {
         if (right.IsEmpty) return Span<T>.Empty;
 
-        var len = right.Length;
+        int len = right.Length;
         Span<T> result = memConfig switch
         {
             MemoryConfig.Right => right[..len],
@@ -167,12 +167,12 @@ public static class ArrowCompute
         Func<T, T, T> scalarSelector = GetScalarOp<T>(expressionType);
         Vector<T> scalarVec = new(left);
 
-        var i = 0;
-        var vecSize = Vector<T>.Count;
+        int i = 0;
+        int vecSize = Vector<T>.Count;
 
         if (Vector.IsHardwareAccelerated && right.Length >= vecSize)
         {
-            var vecEnd = right.Length - right.Length % vecSize;
+            int vecEnd = right.Length - right.Length % vecSize;
             for (; i < vecEnd; i += vecSize)
             {
                 Vector<T> vr = new(right.Slice(i, vecSize));
@@ -198,7 +198,7 @@ public static class ArrowCompute
     {
         if (left.IsEmpty) return Span<T>.Empty;
 
-        var len = left.Length;
+        int len = left.Length;
         Span<T> result = memConfig switch
         {
             MemoryConfig.Left => left[..len],
@@ -209,12 +209,12 @@ public static class ArrowCompute
         Func<T, T, T> scalarSelector = GetScalarOp<T>(expressionType);
         Vector<T> scalarVec = new(right);
 
-        var i = 0;
-        var vecSize = Vector<T>.Count;
+        int i = 0;
+        int vecSize = Vector<T>.Count;
 
         if (Vector.IsHardwareAccelerated && left.Length >= vecSize)
         {
-            var vecEnd = left.Length - left.Length % vecSize;
+            int vecEnd = left.Length - left.Length % vecSize;
             for (; i < vecEnd; i += vecSize)
             {
                 Vector<T> vl = new(left.Slice(i, vecSize));
@@ -232,17 +232,17 @@ public static class ArrowCompute
     {
         if (Unsafe.SizeOf<T>() == sizeof(long))
         {
-            var llong = Unsafe.As<T, long>(ref l);
-            var rlong = Unsafe.As<T, long>(ref r);
-            var res = func2(llong, rlong);
+            long llong = Unsafe.As<T, long>(ref l);
+            long rlong = Unsafe.As<T, long>(ref r);
+            long res = func2(llong, rlong);
             return Unsafe.As<long, T>(ref res);
         }
 
         if (Unsafe.SizeOf<T>() == sizeof(int))
         {
-            var lint = Unsafe.As<T, int>(ref l);
-            var rint = Unsafe.As<T, int>(ref r);
-            var res = func(lint, rint);
+            int lint = Unsafe.As<T, int>(ref l);
+            int rint = Unsafe.As<T, int>(ref r);
+            int res = func(lint, rint);
             return Unsafe.As<int, T>(ref res);
         }
 
@@ -279,7 +279,7 @@ public static class ArrowCompute
         ExpressionType expressionType,
         MemoryConfig memConfig = MemoryConfig.None)
     {
-        var byteLen = l.Bytes.Length;
+        int byteLen = l.Bytes.Length;
 
         Span<byte> resultBytes = memConfig switch
         {
@@ -294,12 +294,12 @@ public static class ArrowCompute
         Func<Vector<byte>, Vector<byte>, Vector<byte>> vectorSelector = GetByteVectorOp(expressionType);
         Func<byte, byte, byte> scalarSelector = GetByteScalarOp(expressionType);
 
-        var i = 0;
-        var vecSize = Vector<byte>.Count;
+        int i = 0;
+        int vecSize = Vector<byte>.Count;
 
         if (Vector.IsHardwareAccelerated && byteLen >= vecSize)
         {
-            var vecEnd = byteLen - byteLen % vecSize;
+            int vecEnd = byteLen - byteLen % vecSize;
             for (; i < vecEnd; i += vecSize)
             {
                 Vector<byte> vl = new(l.Bytes.Slice(i, vecSize));
@@ -347,7 +347,7 @@ public static class ArrowCompute
             result = ArenaAllocate<TResult>(ctx.Arena, buffer.Length);
 
         // TODO optimize here by choosing unchecked if values are within range
-        for (var i = 0; i < buffer.Length; i++) result[i] = TResult.CreateChecked(buffer[i]);
+        for (int i = 0; i < buffer.Length; i++) result[i] = TResult.CreateChecked(buffer[i]);
 
         return result;
     }
@@ -359,16 +359,16 @@ public static class ArrowCompute
         ReadOnlySpan<byte> bitmap = array.Values;
 
         (int Offset, int Length) offsetAndLength = range.GetOffsetAndLength(array.Length);
-        var currentBit = offsetAndLength.Offset;
-        var bitsRemaining = offsetAndLength.Length;
+        int currentBit = offsetAndLength.Offset;
+        int bitsRemaining = offsetAndLength.Length;
 
         if (bitsRemaining <= 0) return true;
 
         // 1. Handle Head (Unsynchronized bits up to the next byte boundary)
-        var headBits = (8 - (currentBit & 7)) & 7;
+        int headBits = (8 - (currentBit & 7)) & 7;
         if (headBits > 0)
         {
-            var bitsToRead = Math.Min(headBits, bitsRemaining);
+            int bitsToRead = Math.Min(headBits, bitsRemaining);
             if (!MatchScalar(bitmap, currentBit, bitsToRead, true))
                 return false;
 
@@ -379,9 +379,9 @@ public static class ArrowCompute
         if (bitsRemaining <= 0) return true;
 
         // Move to byte-based tracking
-        var byteIndex = currentBit >> 3;
-        var byteLength = bitsRemaining >> 3;
-        var tailBits = bitsRemaining & 7;
+        int byteIndex = currentBit >> 3;
+        int byteLength = bitsRemaining >> 3;
+        int tailBits = bitsRemaining & 7;
 
         // 2. Vectorized Loop (Process full Vector chunks)
         if (Vector.IsHardwareAccelerated && byteLength >= VectorSize)
@@ -428,14 +428,14 @@ public static class ArrowCompute
         ReadOnlySpan<byte> bitmap = array.Values;
 
         (int Offset, int Length) offsetAndLength = range.GetOffsetAndLength(array.Length);
-        var currentBit = offsetAndLength.Offset;
-        var bitsRemaining = offsetAndLength.Length;
+        int currentBit = offsetAndLength.Offset;
+        int bitsRemaining = offsetAndLength.Length;
 
         // 1. Handle Head
-        var headBits = (8 - (currentBit & 7)) & 7;
+        int headBits = (8 - (currentBit & 7)) & 7;
         if (headBits > 0)
         {
-            var bitsToRead = Math.Min(headBits, bitsRemaining);
+            int bitsToRead = Math.Min(headBits, bitsRemaining);
             if (MatchScalar(bitmap, currentBit, bitsToRead, false))
                 return true;
 
@@ -445,9 +445,9 @@ public static class ArrowCompute
 
         if (bitsRemaining <= 0) return false;
 
-        var byteIndex = currentBit >> 3;
-        var byteLength = bitsRemaining >> 3;
-        var tailBits = bitsRemaining & 7;
+        int byteIndex = currentBit >> 3;
+        int byteLength = bitsRemaining >> 3;
+        int tailBits = bitsRemaining & 7;
 
         // 2. Vectorized Loop
         if (Vector.IsHardwareAccelerated && byteLength >= VectorSize)
@@ -491,13 +491,13 @@ public static class ArrowCompute
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     private static bool MatchScalar(ReadOnlySpan<byte> bitmap, int bitOffset, int length, bool expected)
     {
-        var byteIndex = bitOffset >> 3;
-        var bitPos = bitOffset & 7;
+        int byteIndex = bitOffset >> 3;
+        int bitPos = bitOffset & 7;
 
         // Create a mask for the bits we care about in this byte
         // e.g., if bitPos = 2 and length = 3, we want bits 2, 3, and 4.
-        var mask = (byte)(((1 << length) - 1) << bitPos);
-        var value = (byte)(bitmap[byteIndex] & mask);
+        byte mask = (byte)(((1 << length) - 1) << bitPos);
+        byte value = (byte)(bitmap[byteIndex] & mask);
 
         if (expected)
             // For 'All', the masked bits must match the mask itself (all 1s)
@@ -516,20 +516,20 @@ public static class ArrowCompute
         Span<T> mask)
         where T : struct, INumber<T>
     {
-        var bitLength = mask.Length;
-        var byteLength = (bitLength + 7) / 8;
+        int bitLength = mask.Length;
+        int byteLength = (bitLength + 7) / 8;
         Span<byte> destination = ArenaAllocate<byte>(ctx.Arena, byteLength);
 
-        var i = 0;
-        var vecSize = Vector<T>.Count;
+        int i = 0;
+        int vecSize = Vector<T>.Count;
 
         if (Vector.IsHardwareAccelerated && mask.Length >= vecSize)
         {
-            var vecEnd = mask.Length - mask.Length % vecSize;
+            int vecEnd = mask.Length - mask.Length % vecSize;
             for (; i < vecEnd; i += vecSize)
             {
                 Vector<T> vec = new(mask.Slice(i, vecSize));
-                for (var j = 0; j < vecSize; j++)
+                for (int j = 0; j < vecSize; j++)
                     if (vec[j] != T.Zero)
                         BitUtility.SetBit(destination, i + j);
             }
