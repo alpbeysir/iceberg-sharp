@@ -45,7 +45,7 @@ public record S3Config
         if (customEndpoint is not null) return customEndpoint;
 
         string? customRegion = resolve("s3.region");
-        var region = customRegion ?? "us-east-1";
+        string region = customRegion ?? "us-east-1";
         return $"https://s3.{region}.amazonaws.com/";
     }
 }

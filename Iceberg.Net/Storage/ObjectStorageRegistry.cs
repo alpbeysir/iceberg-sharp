@@ -10,7 +10,7 @@ public static class ObjectStorageRegistry
 
     public static void Register<TStorage>() where TStorage : IObjectStorage
     {
-        foreach (var scheme in TStorage.Schemes)
+        foreach (string scheme in TStorage.Schemes)
         {
             if (string.IsNullOrWhiteSpace(scheme))
                 throw new InvalidOperationException($"{typeof(TStorage).FullName} declared an empty URI scheme");
@@ -45,7 +45,7 @@ public static class ObjectStorageRegistry
         if (credential is null) return registration.Create(resolver);
 
         PropertyResolver fallback = resolver;
-        resolver = key => credential.Config.TryGetValue(key, out var value) ? value : fallback(key);
+        resolver = key => credential.Config.TryGetValue(key, out string? value) ? value : fallback(key);
 
         return registration.Create(resolver);
     }

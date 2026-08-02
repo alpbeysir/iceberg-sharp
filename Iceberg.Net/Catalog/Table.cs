@@ -23,7 +23,7 @@ public sealed record Table : INode
     {
         get
         {
-            var success = Uri.TryCreate(Metadata!.Location + '/', UriKind.RelativeOrAbsolute, out Uri? folder);
+            bool success = Uri.TryCreate(Metadata!.Location + '/', UriKind.RelativeOrAbsolute, out Uri? folder);
             return !success ? throw new FormatException("Location URI was malformed") : folder!;
         }
     }

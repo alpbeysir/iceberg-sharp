@@ -63,7 +63,7 @@ public sealed class S3SeekableReadStream : Stream
         _segmentSize = segmentSize;
 
         // Start background consumers
-        for (var i = 0; i < concurrentWorkers; i++)
+        for (int i = 0; i < concurrentWorkers; i++)
             _ = Task.Run(ProcessPrefetchQueueAsync);
     }
 
@@ -87,7 +87,7 @@ public sealed class S3SeekableReadStream : Stream
         const int maxSegments = 8;
         const int prefetchCount = 4;
         const int workers = 2;
-        var fileSize = response.ContentLength;
+        long fileSize = response.ContentLength;
 
         return new S3SeekableReadStream(client, s3Uri, fileSize, maxSegments, prefetchCount, chunkSize, workers);
     }
@@ -96,8 +96,8 @@ public sealed class S3SeekableReadStream : Stream
     {
         if (Position >= Length) return 0;
 
-        var totalRead = 0;
-        var bytesToRead = (int)Math.Min(buffer.Length, Length - Position);
+        int totalRead = 0;
+        int bytesToRead = (int)Math.Min(buffer.Length, Length - Position);
 
         while (totalRead < bytesToRead)
         {
@@ -108,9 +108,9 @@ public sealed class S3SeekableReadStream : Stream
                 miss++;
 
                 // Signal prefetch for subsequent segments
-                for (var i = 1; i <= _prefetchCount; i++)
+                for (int i = 1; i <= _prefetchCount; i++)
                 {
-                    var nextPos = Position + i * _segmentSize;
+                    long nextPos = Position + i * _segmentSize;
                     if (nextPos < Length) _prefetchChannel.Writer.TryWrite(nextPos);
                 }
 
@@ -120,9 +120,9 @@ public sealed class S3SeekableReadStream : Stream
 
             segment.LastAccess = DateTime.UtcNow.Ticks;
 
-            var offsetInSegment = (int)(Position - segment.Start);
-            var availableInSegment = (int)(segment.End - Position);
-            var toCopy = Math.Min(availableInSegment, bytesToRead - totalRead);
+            int offsetInSegment = (int)(Position - segment.Start);
+            int availableInSegment = (int)(segment.End - Position);
+            int toCopy = Math.Min(availableInSegment, bytesToRead - totalRead);
 
             segment.Data.Memory.Span.Slice(offsetInSegment, toCopy)
                 .CopyTo(buffer.Slice(totalRead, toCopy));
@@ -148,8 +148,8 @@ public sealed class S3SeekableReadStream : Stream
         StreamSegment? existing = GetSegment(pos);
         if (existing != null) return existing;
 
-        var start = pos / _segmentSize * _segmentSize;
-        var end = Math.Min(start + _segmentSize, Length);
+        long start = pos / _segmentSize * _segmentSize;
+        long end = Math.Min(start + _segmentSize, Length);
 
         GetObjectRequest request = new()
         {
@@ -185,7 +185,7 @@ public sealed class S3SeekableReadStream : Stream
 
     private async Task ProcessPrefetchQueueAsync()
     {
-        await foreach (var pos in _prefetchChannel.Reader.ReadAllAsync(_cts.Token))
+        await foreach (long pos in _prefetchChannel.Reader.ReadAllAsync(_cts.Token))
             try
             {
                 if (GetSegment(pos) == null) await DownloadSegmentAsync(pos);

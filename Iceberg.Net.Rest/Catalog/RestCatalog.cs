@@ -22,9 +22,9 @@ public record TypedCatalogConfig(CatalogConfig CatalogConfig, UserConfig UserCon
 
     public string? Resolve(string key)
     {
-        CatalogConfig.Defaults.TryGetValue(key, out var catalogDefault);
-        UserConfig.CatalogConfig.TryGetValue(key, out var userOverride);
-        CatalogConfig.Overrides.TryGetValue(key, out var catalogOverride);
+        CatalogConfig.Defaults.TryGetValue(key, out string? catalogDefault);
+        UserConfig.CatalogConfig.TryGetValue(key, out string? userOverride);
+        CatalogConfig.Overrides.TryGetValue(key, out string? catalogOverride);
         return catalogOverride ?? userOverride ?? catalogDefault;
     }
 }
@@ -160,7 +160,7 @@ public sealed class RestCatalog : ICatalog
         CancellationToken cancellationToken = default)
     {
         Rest.Namespace ns = new();
-        foreach (var part in identifier) ns.Add(part);
+        foreach (string part in identifier) ns.Add(part);
         CreateNamespaceRequest request = new(ns, properties ?? new Dictionary<string, string>());
         try
         {

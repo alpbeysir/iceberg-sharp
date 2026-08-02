@@ -178,7 +178,7 @@ public sealed class S3SequentialMultipartUploadStream : Stream
                 _bufferPosition = 0;
             }
 
-            var copySize = Math.Min(span.Length, _buffer.Memory.Length - _bufferPosition);
+            int copySize = Math.Min(span.Length, _buffer.Memory.Length - _bufferPosition);
             Span<byte> bufferSlice = _buffer.Memory.Span.Slice(_bufferPosition, copySize);
             ReadOnlySpan<byte> sourceSlice = span[..copySize];
             sourceSlice.CopyTo(bufferSlice);
