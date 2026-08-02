@@ -188,7 +188,8 @@ public sealed class TableOperations
             TableProperties.DefaultFileFormatDefault);
         IDataFileFormat dataFileFormat = DataFileFormatRegistry.Resolve(
             configuredFormat,
-            table.Properties);
+            table.Properties,
+            _catalog.LoggerFactory);
         await using PathAndFile<ISequentialFile> dataFile = await CreateDataFile(
             dataFileFormat.FileExtension,
             cancellationToken);
@@ -685,9 +686,13 @@ public sealed class TableOperations
             table,
             dataFile.FilePath,
             cancellationToken);
+        using IDisposable? readScope = _logger.BeginScope(
+            "Data file {DataFilePath}",
+            dataFile.FilePath);
         IDataFileFormat dataFileFormat = DataFileFormatRegistry.Resolve(
             dataFile.FileFormat,
-            table.Properties);
+            table.Properties,
+            _catalog.LoggerFactory);
         await dataFileFormat.ReadAsync(
             storageFile.File,
             schema,

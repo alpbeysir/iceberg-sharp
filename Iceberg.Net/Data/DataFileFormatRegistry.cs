@@ -1,5 +1,7 @@
 using System.Collections.Concurrent;
 using Iceberg.Net.Catalog;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 
 namespace Iceberg.Net.Data;
 
@@ -16,7 +18,9 @@ public static class DataFileFormatRegistry
                 throw new InvalidOperationException(
                     $"{typeof(TFormat).FullName} declared an empty data file format");
 
-            Registration registration = new(typeof(TFormat), TFormat.Create);
+            Registration registration = new(
+                typeof(TFormat),
+                (properties, loggerFactory) => TFormat.Create(properties, loggerFactory));
             Registrations.AddOrUpdate(
                 format,
                 registration,
@@ -29,7 +33,8 @@ public static class DataFileFormatRegistry
 
     public static IDataFileFormat Resolve(
         string format,
-        TablePropertyResolver properties)
+        TablePropertyResolver properties,
+        ILoggerFactory? loggerFactory = null)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(format);
 
@@ -37,10 +42,16 @@ public static class DataFileFormatRegistry
             throw new NotSupportedException(
                 $"No data file format provider is registered for '{format}'");
 
-        return registration.Create(properties);
+        return (IDataFileFormat)registration.Create(
+            properties,
+            loggerFactory ?? NullLoggerFactory.Instance);
     }
+
+    private delegate object CreateFormat(
+        TablePropertyResolver properties,
+        ILoggerFactory loggerFactory);
 
     private sealed record Registration(
         Type FormatType,
-        Func<TablePropertyResolver, IDataFileFormat> Create);
+        CreateFormat Create);
 }

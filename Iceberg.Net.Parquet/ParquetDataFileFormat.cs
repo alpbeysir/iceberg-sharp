@@ -6,21 +6,28 @@ using Iceberg.Net.Catalog;
 using Iceberg.Net.Data;
 using Iceberg.Net.Diagnostics;
 using Iceberg.Net.Schemas;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 using ParquetSharp;
 using ParquetSharp.Arrow;
 using Schema = Iceberg.Net.Schemas.Schema;
 
 namespace Iceberg.Net.Parquet;
 
-public sealed class ParquetDataFileFormat(TablePropertyResolver properties) : IDataFileFormat
+public sealed class ParquetDataFileFormat(
+    TablePropertyResolver properties,
+    ILoggerFactory? loggerFactory = null) : IDataFileFormat
 {
+    private readonly ILogger<ParquetDataFileFormat> _logger =
+        (loggerFactory ?? NullLoggerFactory.Instance).CreateLogger<ParquetDataFileFormat>();
+
     public static IReadOnlySet<string> Formats { get; } =
         new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "parquet" };
 
-    public static IDataFileFormat Create(TablePropertyResolver properties)
-    {
-        return new ParquetDataFileFormat(properties);
-    }
+    public static IDataFileFormat Create(
+        TablePropertyResolver properties,
+        ILoggerFactory loggerFactory) =>
+        new ParquetDataFileFormat(properties, loggerFactory);
 
     public string Format => "parquet";
 
@@ -47,16 +54,42 @@ public sealed class ParquetDataFileFormat(TablePropertyResolver properties) : ID
                 Enumerable.Range(0, arrowReader.NumRowGroups).ToArray(),
                 ResolveColumnIndices(arrowReader.SchemaManifest, fieldIds));
 
+        long totalRows = arrowReader.ParquetReader.FileMetaData.NumRows;
+        long rowsRead = 0;
+        int lastLoggedPercentage = -5;
+        LogReadProgress(rowsRead, totalRows, ref lastLoggedPercentage);
+
         while (!cancellationToken.IsCancellationRequested)
         {
             RecordBatch? batch = await recordBatchReader.ReadNextRecordBatchAsync(cancellationToken);
             if (batch is null) break;
+            rowsRead += batch.Length;
+            LogReadProgress(rowsRead, totalRows, ref lastLoggedPercentage);
             await PipelineMetrics.WriteAsync(
                 results,
                 batch,
                 PipelineStage.DataFileRead,
                 cancellationToken);
         }
+    }
+
+    private void LogReadProgress(
+        long rowsRead,
+        long totalRows,
+        ref int lastLoggedPercentage)
+    {
+        int percentage = totalRows == 0
+            ? 100
+            : Math.Min(100, (int)(rowsRead * 100d / totalRows));
+        int milestone = percentage / 5 * 5;
+        if (milestone <= lastLoggedPercentage) return;
+
+        lastLoggedPercentage = milestone;
+        _logger.LogTrace(
+            "Parquet file read progress: {Percentage}% ({RowsRead} of {TotalRows} rows)",
+            milestone,
+            rowsRead,
+            totalRows);
     }
 
     private static int[] ResolveColumnIndices(
@@ -126,7 +159,7 @@ public sealed class ParquetDataFileFormat(TablePropertyResolver properties) : ID
             using (batch)
             {
                 // TODO for now have to clone due to Arrow limitations
-                arrowWriter.WriteBufferedRecordBatch(batch.Clone());
+                arrowWriter.WriteBufferedRecordBatch(batch);
                 written += batch.Length;
             }
         }

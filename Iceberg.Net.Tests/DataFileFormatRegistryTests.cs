@@ -2,6 +2,7 @@ using System.Threading.Channels;
 using Apache.Arrow;
 using Iceberg.Net.Catalog;
 using Iceberg.Net.Data;
+using Microsoft.Extensions.Logging;
 using Schema = Iceberg.Net.Schemas.Schema;
 
 namespace Iceberg.Net.Tests;
@@ -36,10 +37,10 @@ public class DataFileFormatRegistryTests
         public static IReadOnlySet<string> Formats { get; } =
             new HashSet<string> { "registry-test" };
 
-        public static IDataFileFormat Create(TablePropertyResolver properties)
-        {
-            return new TestDataFileFormat(properties);
-        }
+        public static IDataFileFormat Create(
+            TablePropertyResolver properties,
+            ILoggerFactory loggerFactory) =>
+            new TestDataFileFormat(properties);
 
         public string ConfiguredValue => properties.GetString("registry-test")!;
 

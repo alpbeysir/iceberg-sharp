@@ -2,6 +2,7 @@ using Apache.Arrow;
 using EngineeredWood.IO;
 using Iceberg.Net.Catalog;
 using Iceberg.Net.Storage;
+using Microsoft.Extensions.Logging;
 using System.Threading.Channels;
 using Schema = Iceberg.Net.Schemas.Schema;
 
@@ -11,10 +12,9 @@ public interface IDataFileFormat
 {
     static virtual IReadOnlySet<string> Formats { get; } = new HashSet<string>();
 
-    static virtual IDataFileFormat Create(TablePropertyResolver properties)
-    {
-        throw new NotSupportedException("The data file format implementation does not provide a static factory");
-    }
+    static abstract IDataFileFormat Create(
+        TablePropertyResolver properties,
+        ILoggerFactory loggerFactory);
 
     string Format { get; }
 
