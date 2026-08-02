@@ -1,3 +1,5 @@
+using Iceberg.Net.Storage;
+
 namespace Iceberg.Net.S3;
 
 public record S3Config
@@ -8,15 +10,17 @@ public record S3Config
     public required string SecretAccessKey;
     public string? SessionToken;
 
-    public static S3Config FromProperties(IReadOnlyDictionary<string, string> properties)
+    public static S3Config FromResolver(PropertyResolver resolve)
     {
-        properties.TryGetValue("s3.session-token", out var sessionToken);
-        properties.TryGetValue("s3.path-style-access", out var pathStyleAccess);
+        string? sessionToken = resolve("s3.session-token");
+        string? pathStyleAccess = resolve("s3.path-style-access");
         return new S3Config
         {
-            Endpoint = ResolveEndpoint(properties),
-            AccessKeyId = properties["s3.access-key-id"],
-            SecretAccessKey = properties["s3.secret-access-key"],
+            Endpoint = ResolveEndpoint(resolve),
+            AccessKeyId = resolve("s3.access-key-id")
+                ?? throw new InvalidOperationException("Missing required object storage property 's3.access-key-id'"),
+            SecretAccessKey = resolve("s3.secret-access-key")
+                ?? throw new InvalidOperationException("Missing required object storage property 's3.secret-access-key'"),
             SessionToken = sessionToken,
             ForcePathStyle = bool.TryParse(pathStyleAccess, out bool forcePathStyle) && forcePathStyle
         };
@@ -35,12 +39,12 @@ public record S3Config
         return properties;
     }
 
-    private static string ResolveEndpoint(IReadOnlyDictionary<string, string> properties)
+    private static string ResolveEndpoint(PropertyResolver resolve)
     {
-        bool hasCustomEndpoint = properties.TryGetValue("s3.endpoint", out var customEndpoint);
-        if (hasCustomEndpoint) return customEndpoint!;
+        string? customEndpoint = resolve("s3.endpoint");
+        if (customEndpoint is not null) return customEndpoint;
 
-        properties.TryGetValue("s3.region", out var customRegion);
+        string? customRegion = resolve("s3.region");
         var region = customRegion ?? "us-east-1";
         return $"https://s3.{region}.amazonaws.com/";
     }

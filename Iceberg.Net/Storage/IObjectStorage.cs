@@ -1,10 +1,12 @@
 namespace Iceberg.Net.Storage;
 
+public delegate string? PropertyResolver(string key);
+
 public interface IObjectStorage
 {
     static virtual IReadOnlySet<string> Schemes { get; } = new HashSet<string>();
 
-    static virtual IObjectStorage Create(IReadOnlyDictionary<string, string> properties)
+    static virtual IObjectStorage Create(PropertyResolver resolve)
     {
         throw new NotSupportedException("The object storage implementation does not provide a static factory");
     }

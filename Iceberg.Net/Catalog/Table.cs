@@ -6,13 +6,10 @@ namespace Iceberg.Net.Catalog;
 
 public sealed record Table : INode
 {
-    private readonly Lazy<IObjectStorage> _objectStorageLazy;
-
     public Table(Identifier identifier, ICatalog catalog)
     {
         Identifier = identifier;
         Catalog = catalog;
-        _objectStorageLazy = new Lazy<IObjectStorage>(GetObjectStorage);
     }
 
     public bool IsLoaded => Metadata is not null;
@@ -38,8 +35,6 @@ public sealed record Table : INode
     public Identifier Identifier { get; }
     public ICatalog Catalog { get; }
 
-    public IObjectStorage ObjectStorage => _objectStorageLazy.Value;
-
     internal void Initialize(
         TableMetadata? metadata,
         IReadOnlyList<StorageCredential>? storageCredentials,
@@ -50,12 +45,19 @@ public sealed record Table : INode
         ObjectStorageProperties = objectStorageProperties?.ToDictionary() ?? ObjectStorageProperties;
     }
 
-    private IObjectStorage GetObjectStorage()
+    internal ValueTask<Stream> Open(
+        Uri uri,
+        FileMode fileMode = FileMode.Open,
+        CancellationToken cancellationToken = default)
     {
-        var properties = new Dictionary<string, string>(Catalog.ObjectStorageProperties, StringComparer.Ordinal);
-        if (ObjectStorageProperties is not null)
-            foreach (KeyValuePair<string, string> property in ObjectStorageProperties)
-                properties[property.Key] = property.Value;
-        return ObjectStorageRegistry.CreateRouter(properties, StorageCredentials);
+        return ObjectStorageRegistry.Resolve(uri, Resolve, StorageCredentials)
+            .Open(uri, fileMode, cancellationToken);
+    }
+
+    private string? Resolve(string key)
+    {
+        return ObjectStorageProperties is not null && ObjectStorageProperties.TryGetValue(key, out string? value)
+            ? value
+            : Catalog.Resolve(key);
     }
 }

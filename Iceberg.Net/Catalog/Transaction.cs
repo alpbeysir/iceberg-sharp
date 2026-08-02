@@ -22,29 +22,12 @@ namespace Iceberg.Net.Catalog;
 
 public sealed class Transaction(Table table, bool commitOnDispose = false) : IAsyncDisposable
 {
-    private readonly List<ITableRequirement> _requirements = [];
-    private readonly List<ITableUpdate> _updates = [];
-
     private Table Table { get; set; } = table;
 
     public async ValueTask DisposeAsync()
     {
         if (commitOnDispose)
             await Commit();
-    }
-
-    private IEnumerable<PathAndStream> AllFiles(long? snapshotId)
-    {
-        Snapshot snapshot = GetSnapshotOrLatest(snapshotId);
-        PathAndStream manifestListFile = OpenFile(snapshot.ManifestList).GetAwaiter().GetResult();
-        using IFileReader<ManifestListEntry> manifestListReader = ManifestListEntry.GetReader(manifestListFile.Stream);
-        foreach (ManifestListEntry manifestListEntry in manifestListReader.NextEntries)
-        {
-            PathAndStream manifestFile = OpenFile(manifestListEntry.ManifestPath).GetAwaiter().GetResult();
-            using IFileReader<ManifestEntry> manifestReader = ManifestEntry.GetReader(manifestFile.Stream);
-            foreach (ManifestEntry manifestEntry in manifestReader.NextEntries)
-                yield return OpenFile(manifestEntry.DataFile.FilePath).GetAwaiter().GetResult();
-        }
     }
 
     public IEnumerable<TRow> ReadRows<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.AllProperties)] TRow>(
@@ -189,7 +172,11 @@ public sealed class Transaction(Table table, bool commitOnDispose = false) : IAs
         PartitionSpec partitionSpec = new([], 0);
         SortOrder sortOrder = new([], 0);
 
-        await EnsureTableInitialized(schema, partitionSpec, sortOrder, cancellationToken);
+        PendingChanges pendingChanges = await EnsureTableInitialized(
+            schema,
+            partitionSpec,
+            sortOrder,
+            cancellationToken);
 
         schema = GetSchema();
 
@@ -257,19 +244,19 @@ public sealed class Transaction(Table table, bool commitOnDispose = false) : IAs
 
         Snapshot snapshot = await snapshotCreate;
 
-        StageChanges(
-            [],
-            [
-                new SetCurrentSchemaTableUpdate((int)schema.SchemaId!),
-                new AddSnapshotTableUpdate(snapshot),
-                new SetSnapshotRefTableUpdate(
-                    Utils.InitialBranch,
-                    SnapshotReferenceType.Branch,
-                    snapshotId,
-                    null,
-                    null,
-                    null)
-            ]);
+        pendingChanges.Updates.AddRange(
+        [
+            new SetCurrentSchemaTableUpdate((int)schema.SchemaId!),
+            new AddSnapshotTableUpdate(snapshot),
+            new SetSnapshotRefTableUpdate(
+                Utils.InitialBranch,
+                SnapshotReferenceType.Branch,
+                snapshotId,
+                null,
+                null,
+                null)
+        ]);
+        await CommitChanges(pendingChanges, cancellationToken);
     }
 
     private async ValueTask ReadDataFileAsync(
@@ -507,7 +494,7 @@ public sealed class Transaction(Table table, bool commitOnDispose = false) : IAs
     private async ValueTask<PathAndStream> NewDataFile(CancellationToken cancellationToken = default)
     {
         Uri parquetFilePath = new(Table.DataFolderUri, Utils.GetParquetFileName(0, 0, Guid.NewGuid()));
-        Stream parquetStream = await Table.ObjectStorage.Open(
+        Stream parquetStream = await Table.Open(
             parquetFilePath,
             FileMode.CreateNew,
             cancellationToken);
@@ -519,7 +506,7 @@ public sealed class Transaction(Table table, bool commitOnDispose = false) : IAs
         Uri manifestFilePath = new(
             Table.MetadataFolderUri,
             ManifestEntry.GetFileName(Guid.NewGuid(), 0));
-        Stream stream = await Table.ObjectStorage.Open(
+        Stream stream = await Table.Open(
             manifestFilePath,
             FileMode.CreateNew,
             cancellationToken);
@@ -534,7 +521,7 @@ public sealed class Transaction(Table table, bool commitOnDispose = false) : IAs
         Uri manifestListFilePath = new(
             Table.MetadataFolderUri,
             ManifestListEntry.GetFileName(snapshotId, sequenceNumber, Guid.NewGuid()));
-        Stream manifestListStream = await Table.ObjectStorage.Open(
+        Stream manifestListStream = await Table.Open(
             manifestListFilePath,
             FileMode.CreateNew,
             cancellationToken);
@@ -548,19 +535,20 @@ public sealed class Transaction(Table table, bool commitOnDispose = false) : IAs
         var success = Uri.TryCreate(path, UriKind.RelativeOrAbsolute, out Uri? uri);
         if (!success) throw new ArgumentException($"Invalid URI: {path}");
 
-        Stream stream = await Table.ObjectStorage.Open(
+        Stream stream = await Table.Open(
             uri!,
             FileMode.Open,
             cancellationToken);
         return new PathAndStream(uri!, stream);
     }
 
-    private async Task EnsureTableInitialized(
+    private async Task<PendingChanges> EnsureTableInitialized(
         Schema schema,
         PartitionSpec partitionSpec,
         SortOrder sortOrder,
         CancellationToken cancellationToken = default)
     {
+        PendingChanges pendingChanges = new([], []);
         if (!Table.IsLoaded)
             try
             {
@@ -574,40 +562,37 @@ public sealed class Transaction(Table table, bool commitOnDispose = false) : IAs
                     schema,
                     true,
                     cancellationToken);
-                StageChanges(
-                    [new AssertCreate()],
-                    [
-                        new SetLocationTableUpdate(Table.Metadata!.Location),
-                        new AddSchemaTableUpdate(Table.Metadata!.Schemas[0]),
-                        new AddPartitionSpecTableUpdate(partitionSpec),
-                        new AddSortOrderTableUpdate(sortOrder)
-                    ]);
+                pendingChanges.Requirements.Add(new AssertCreate());
+                pendingChanges.Updates.AddRange(
+                [
+                    new SetLocationTableUpdate(Table.Metadata!.Location),
+                    new AddSchemaTableUpdate(Table.Metadata!.Schemas[0]),
+                    new AddPartitionSpecTableUpdate(partitionSpec),
+                    new AddSortOrderTableUpdate(sortOrder)
+                ]);
             }
+
+        return pendingChanges;
     }
 
-    public async Task Commit(CancellationToken cancellationToken = default)
+    public Task Commit(CancellationToken cancellationToken = default)
     {
-        // nothing to commit
-        if (_updates.Count == 0) return;
+        return Task.CompletedTask;
+    }
 
+    private async Task CommitChanges(PendingChanges pendingChanges, CancellationToken cancellationToken)
+    {
         // TODO retry (could also be handled in catalog)
-        Table response = await Table.Catalog.UpdateTableAsync(
+        Table = await Table.Catalog.UpdateTableAsync(
             Table.Identifier,
-            _updates,
-            _requirements,
+            pendingChanges.Updates,
+            pendingChanges.Requirements,
             cancellationToken);
-        _updates.Clear();
-        _requirements.Clear();
-
-        Table = response;
     }
 
-    private void StageChanges(List<ITableRequirement> requirements, List<ITableUpdate> updates)
-    {
-        Table.Metadata!.Apply(updates);
-        _requirements.AddRange(requirements);
-        _updates.AddRange(updates);
-    }
+    private sealed record PendingChanges(
+        List<ITableRequirement> Requirements,
+        List<ITableUpdate> Updates);
 
     private Snapshot GetSnapshotOrLatest(long? snapshotId)
     {

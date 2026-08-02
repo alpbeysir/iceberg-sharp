@@ -13,9 +13,9 @@ public class S3ObjectStorage(S3Config config) : IObjectStorage
         "s3"
     };
 
-    public static IObjectStorage Create(IReadOnlyDictionary<string, string> properties)
+    public static IObjectStorage Create(PropertyResolver resolve)
     {
-        return new S3ObjectStorage(S3Config.FromProperties(properties));
+        return new S3ObjectStorage(S3Config.FromResolver(resolve));
     }
 
     private readonly AmazonS3Client _client = CreateS3Client(config);

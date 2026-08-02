@@ -11,7 +11,7 @@ namespace Iceberg.Net.Serialization;
 [JsonSerializable(typeof(StructField))]
 [JsonSerializable(typeof(ListType))]
 [JsonSerializable(typeof(MapType))]
-[JsonSerializable(typeof(Schemas.Schema))]
+[JsonSerializable(typeof(Schema))]
 [JsonSerializable(typeof(List<PartitionField>))]
 [JsonSerializable(typeof(ITableUpdate))]
 [JsonSerializable(typeof(ITableRequirement))]

@@ -7,7 +7,7 @@ namespace Iceberg.Net.Catalog;
 
 public interface ICatalog : IDisposable
 {
-    public IReadOnlyDictionary<string, string> ObjectStorageProperties { get; }
+    string? Resolve(string key);
 
     public async Task<Table> CreateTableAsync(
         Identifier identifier,

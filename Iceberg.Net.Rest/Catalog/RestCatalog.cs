@@ -20,20 +20,7 @@ public record TypedCatalogConfig(CatalogConfig CatalogConfig, UserConfig UserCon
     public string? Prefix => Resolve("prefix");
     public string NamespaceSeparator => Uri.UnescapeDataString(Resolve("namespace-separator") ?? "%1F");
 
-    public IReadOnlyDictionary<string, string> Properties
-    {
-        get
-        {
-            var properties = new Dictionary<string, string>(CatalogConfig.Defaults, StringComparer.Ordinal);
-            foreach (KeyValuePair<string, string> property in UserConfig.CatalogConfig)
-                properties[property.Key] = property.Value;
-            foreach (KeyValuePair<string, string> property in CatalogConfig.Overrides)
-                properties[property.Key] = property.Value;
-            return properties;
-        }
-    }
-
-    private string? Resolve(string key)
+    public string? Resolve(string key)
     {
         CatalogConfig.Defaults.TryGetValue(key, out var catalogDefault);
         UserConfig.CatalogConfig.TryGetValue(key, out var userOverride);
@@ -63,7 +50,10 @@ public sealed class RestCatalog : ICatalog
     private UserConfig UserConfig { get; }
     public TypedCatalogConfig CatalogConfig { get; }
 
-    public IReadOnlyDictionary<string, string> ObjectStorageProperties => CatalogConfig.Properties;
+    public string? Resolve(string key)
+    {
+        return CatalogConfig.Resolve(key);
+    }
 
     private string EncodeNamespace(Identifier identifier)
     {

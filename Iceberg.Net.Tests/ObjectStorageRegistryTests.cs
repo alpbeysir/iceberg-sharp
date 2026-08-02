@@ -6,7 +6,7 @@ namespace Iceberg.Net.Tests;
 public class ObjectStorageRegistryTests
 {
     [Fact]
-    public async Task RoutesBySchemeAndAppliesMostSpecificCredential()
+    public async Task ResolvesBySchemeAndAppliesMostSpecificCredential()
     {
         ObjectStorageRegistry.Register<TestObjectStorage>();
         var properties = new Dictionary<string, string> { ["source"] = "catalog", ["catalog-only"] = "value" };
@@ -20,9 +20,13 @@ public class ObjectStorageRegistryTests
                 "registry-test://bucket/table/")
         ];
 
-        IObjectStorage router = ObjectStorageRegistry.CreateRouter(properties, credentials);
-        await router.Open(
-            new Uri("registry-test://bucket/table/data.parquet"),
+        var uri = new Uri("registry-test://bucket/table/data.parquet");
+        IObjectStorage storage = ObjectStorageRegistry.Resolve(
+            uri,
+            key => properties.TryGetValue(key, out string? value) ? value : null,
+            credentials);
+        await storage.Open(
+            uri,
             cancellationToken: TestContext.Current.CancellationToken);
 
         Assert.Equal("table", TestObjectStorage.LastProperties["source"]);
@@ -37,9 +41,14 @@ public class ObjectStorageRegistryTests
 
         public static IReadOnlySet<string> Schemes { get; } = new HashSet<string> { "registry-test" };
 
-        public static IObjectStorage Create(IReadOnlyDictionary<string, string> properties)
+        public static IObjectStorage Create(PropertyResolver resolve)
         {
-            LastProperties = properties;
+            LastProperties = new Dictionary<string, string>
+            {
+                ["source"] = resolve("source")!,
+                ["catalog-only"] = resolve("catalog-only")!,
+                ["credential-only"] = resolve("credential-only")!
+            };
             return new TestObjectStorage();
         }
 
