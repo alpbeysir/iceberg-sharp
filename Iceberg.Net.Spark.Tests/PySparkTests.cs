@@ -41,7 +41,7 @@ public partial class PySparkTests(SparkRestCatalogFixture restFixture, PySparkFi
 
         ManifestListEntry? unprunedManifestListEntry = null;
         Channel<ManifestEntry> entries = Channel.CreateUnbounded<ManifestEntry>();
-        await table.Operations().ReadManifestEntries(
+        await table.Operations().ReadManifests(
             entries.Writer,
             manifestListPredicate: entry =>
             {
@@ -79,7 +79,7 @@ public partial class PySparkTests(SparkRestCatalogFixture restFixture, PySparkFi
 
         ManifestListEntry? prunedManifestListEntry = null;
         Channel<ManifestEntry> prunedEntries = Channel.CreateUnbounded<ManifestEntry>();
-        await table.Operations().ReadManifestEntries(
+        await table.Operations().ReadManifests(
             prunedEntries.Writer,
             manifestListPredicate: entry =>
             {

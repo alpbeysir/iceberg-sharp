@@ -96,7 +96,7 @@ public partial class PySparkTests
     private static async Task<List<DataFile>> ReadActiveDataFiles(Table table)
     {
         Channel<ManifestEntry> entries = Channel.CreateUnbounded<ManifestEntry>();
-        await table.Operations().ReadManifestEntries(
+        await table.Operations().ReadManifests(
             entries.Writer,
             cancellationToken: TestContext.Current.CancellationToken);
         entries.Writer.Complete();

@@ -491,12 +491,12 @@ public sealed class TableOperations
                 FullMode = BoundedChannelFullMode.Wait
             });
 
-        Task manifestRead = ReadManifestEntries(
+        Task manifestRead = ReadManifests(
             table,
             manifestEntries.Writer,
             snapshotId,
             null,
-            null,
+            entry => entry.Status != Status.Deleted,
             null,
             null,
             cancellationToken);
@@ -508,10 +508,7 @@ public sealed class TableOperations
                 CancellationToken = cancellationToken,
                 MaxDegreeOfParallelism = 16
             },
-            async (entry, token) =>
-            {
-                await ReadDataFileAsync(table, entry.DataFile, results, fieldIds, token);
-            });
+            async (entry, token) => { await ReadDataFileAsync(table, entry.DataFile, results, fieldIds, token); });
 
         await manifestRead;
         manifestEntries.Writer.Complete();
@@ -519,7 +516,7 @@ public sealed class TableOperations
         await dataFileReaders;
     }
 
-    public async Task ReadManifestEntries(
+    public async Task ReadManifests(
         ChannelWriter<ManifestEntry> results,
         long? snapshotId = null,
         Func<ManifestListEntry, bool>? manifestListPredicate = null,
@@ -529,7 +526,7 @@ public sealed class TableOperations
         CancellationToken cancellationToken = default)
     {
         Table table = GetTable();
-        await ReadManifestEntries(
+        await ReadManifests(
             table,
             results,
             snapshotId,
@@ -540,7 +537,7 @@ public sealed class TableOperations
             cancellationToken);
     }
 
-    private async Task ReadManifestEntries(
+    private async Task ReadManifests(
         Table table,
         ChannelWriter<ManifestEntry> results,
         long? snapshotId,

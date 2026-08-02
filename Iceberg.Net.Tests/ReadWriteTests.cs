@@ -73,7 +73,7 @@ public class ReadWriteTests(RestCatalogFixture fixture) : TableTest(fixture)
                       throw new InvalidOperationException($"Table '{identifier}' was not found.");
 
         Channel<ManifestEntry> manifestListFiltered = Channel.CreateUnbounded<ManifestEntry>();
-        await table.Operations().ReadManifestEntries(
+        await table.Operations().ReadManifests(
             manifestListFiltered.Writer,
             manifestListPredicate: _ => false,
             cancellationToken: TestContext.Current.CancellationToken);
@@ -81,7 +81,7 @@ public class ReadWriteTests(RestCatalogFixture fixture) : TableTest(fixture)
         Assert.False(manifestListFiltered.Reader.TryRead(out _));
 
         Channel<ManifestEntry> manifestEntryFiltered = Channel.CreateUnbounded<ManifestEntry>();
-        await table.Operations().ReadManifestEntries(
+        await table.Operations().ReadManifests(
             manifestEntryFiltered.Writer,
             manifestEntryPredicate: _ => false,
             cancellationToken: TestContext.Current.CancellationToken);
