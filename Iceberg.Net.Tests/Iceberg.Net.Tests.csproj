@@ -33,6 +33,7 @@
     <ItemGroup>
         <ProjectReference Include="..\Iceberg.Net.DuckUtils\Iceberg.Net.DuckUtils.csproj" />
         <ProjectReference Include="..\Iceberg.Net\Iceberg.Net.csproj" />
+        <ProjectReference Include="..\Iceberg.Net.Parquet\Iceberg.Net.Parquet.csproj" />
         <ProjectReference Include="..\Iceberg.Net.Rest\Iceberg.Net.Rest.csproj" />
         <ProjectReference Include="..\Iceberg.Net.S3\Iceberg.Net.S3.csproj" />
         <ProjectReference Include="..\Apache.Arrow.Serialization.Generator\Apache.Arrow.Serialization.Generator.csproj" OutputItemType="Analyzer" />

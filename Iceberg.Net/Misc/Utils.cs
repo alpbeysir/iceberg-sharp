@@ -5,7 +5,6 @@ using Avro;
 using Iceberg.Net.Catalog;
 using Iceberg.Net.Metadata;
 using Iceberg.Net.Schemas;
-using ParquetSharp.Schema;
 using Schema = Iceberg.Net.Schemas.Schema;
 
 namespace Iceberg.Net.Misc;
@@ -115,11 +114,6 @@ public static class Utils
         return member is PropertyInfo p1 ? p1.PropertyType : ((FieldInfo)member).FieldType;
     }
 
-    public static string GetParquetFileName(int num, int unknown, Guid guid)
-    {
-        return $"{num:D5}-{unknown}-{guid}.parquet";
-    }
-
     public static long GenerateSnapshotId()
     {
         Guid uuid = Guid.NewGuid();
@@ -161,21 +155,6 @@ public static class Utils
                 Content.Deletes => "deletes",
                 _ => throw new ArgumentOutOfRangeException(nameof(content), content, null)
             };
-        }
-    }
-
-
-    extension(Node node)
-    {
-        public void Visit(Action<Node> visitor)
-        {
-            visitor(node);
-            if (node is GroupNode groupNode)
-                foreach (Node child in groupNode.Fields)
-                {
-                    child.Visit(visitor);
-                    child.Dispose();
-                }
         }
     }
 

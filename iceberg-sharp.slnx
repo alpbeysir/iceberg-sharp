@@ -4,6 +4,7 @@
   <Project Path="Iceberg.Net.DuckUtils/Iceberg.Net.DuckUtils.csproj" />
   <Project Path="Iceberg.Net.Query/Iceberg.Net.Query.csproj" />
   <Project Path="Iceberg.Net.QueryTests\Iceberg.Net.QueryTests.csproj" />
+  <Project Path="Iceberg.Net.Parquet/Iceberg.Net.Parquet.csproj" />
   <Project Path="Iceberg.Net.Rest/Iceberg.Net.Rest.csproj" />
   <Project Path="Iceberg.Net.S3/Iceberg.Net.S3.csproj" />
   <Project Path="Iceberg.Net.Tests/Iceberg.Net.Tests.csproj" />

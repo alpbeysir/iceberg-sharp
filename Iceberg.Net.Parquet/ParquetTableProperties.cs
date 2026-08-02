@@ -1,20 +1,13 @@
+using Iceberg.Net.Catalog;
 using ParquetSharp;
 using ParquetSharp.Arrow;
 
-namespace Iceberg.Net.Catalog;
+namespace Iceberg.Net.Parquet;
 
 internal static class ParquetTableProperties
 {
     public static WriterProperties CreateWriterProperties(TablePropertyResolver properties)
     {
-        string fileFormat = properties.GetString(
-            TableProperties.DefaultFileFormat,
-            TableProperties.DefaultFileFormatDefault);
-        if (!fileFormat.Equals("parquet", StringComparison.OrdinalIgnoreCase))
-            throw new NotSupportedException(
-                $"Table property '{TableProperties.DefaultFileFormat}' is '{fileFormat}', " +
-                "but this client currently supports writing only Parquet data files.");
-
         using WriterPropertiesBuilder builder = new();
         // Preserve the existing row-count cap. This is deliberately not derived from
         // write.parquet.row-group-size-bytes, which is a byte target rather than a row count.

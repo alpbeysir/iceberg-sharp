@@ -1,4 +1,6 @@
 ﻿using Iceberg.Net.Catalog;
+using Iceberg.Net.Data;
+using Iceberg.Net.Parquet;
 using Iceberg.Net.S3;
 using Iceberg.Net.Storage;
 using Iceberg.Net.Tests;
@@ -16,6 +18,7 @@ public sealed class RestCatalogFixture : IAsyncLifetime
 
     public async ValueTask InitializeAsync()
     {
+        DataFileFormatRegistry.Register<ParquetDataFileFormat>();
         ObjectStorageRegistry.Register<S3ObjectStorage>();
         S3Config storageConfig = new()
         {

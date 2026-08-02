@@ -1,5 +1,4 @@
-﻿<Project Sdk="Microsoft.NET.Sdk">
-
+<Project Sdk="Microsoft.NET.Sdk">
     <PropertyGroup>
         <TargetFramework>net10.0</TargetFramework>
         <LangVersion>latest</LangVersion>
@@ -9,10 +8,8 @@
         <IsAotCompatible>true</IsAotCompatible>
         <WarningsAsErrors>true</WarningsAsErrors>
     </PropertyGroup>
-
     <ItemGroup>
-        <PackageReference Include="Apache.Avro"/>
-        <ProjectReference Include="..\Apache.Arrow.Serialization\Apache.Arrow.Serialization.csproj"/>
+        <PackageReference Include="ParquetSharp" />
+        <ProjectReference Include="..\Iceberg.Net\Iceberg.Net.csproj" />
     </ItemGroup>
-
 </Project>

@@ -2,10 +2,10 @@
 using System.Diagnostics.CodeAnalysis;
 using System.Threading.Channels;
 using Apache.Arrow;
-using Apache.Arrow.Ipc;
 using Apache.Arrow.Serialization;
 using Avro.File;
 using Avro.Generic;
+using Iceberg.Net.Data;
 using Iceberg.Net.Metadata;
 using Iceberg.Net.Misc;
 using Iceberg.Net.Query;
@@ -13,8 +13,6 @@ using Iceberg.Net.Rest.TableRequirement;
 using Iceberg.Net.Rest.TableUpdate;
 using Iceberg.Net.Schemas;
 using Iceberg.Net.Storage;
-using ParquetSharp;
-using ParquetSharp.Arrow;
 using Schema = Iceberg.Net.Schemas.Schema;
 using SortOrder = Iceberg.Net.Metadata.SortOrder;
 
@@ -261,24 +259,13 @@ public sealed class TableOperations(Table table)
         CancellationToken cancellationToken)
     {
         await using PathAndStream dataFileStream = await OpenFile(dataFile.FilePath, cancellationToken);
-
-        using ArrowReaderProperties arrowReaderProperties = ArrowReaderProperties.GetDefault();
-        ParquetTableProperties.ApplyReaderProperties(arrowReaderProperties, Table.Properties);
-        using ReaderProperties parquetReaderProperties = ReaderProperties.GetDefaultReaderProperties();
-        using FileReader arrowReader = new(
+        IDataFileFormat dataFileFormat = DataFileFormatRegistry.Resolve(
+            dataFile.FileFormat,
+            Table.Properties);
+        await dataFileFormat.ReadAsync(
             dataFileStream.Stream,
-            parquetReaderProperties,
-            arrowReaderProperties,
-            true);
-        using IArrowArrayStream recordBatchReader = arrowReader.GetRecordBatchReader();
-
-        while (!cancellationToken.IsCancellationRequested)
-        {
-            // TODO exceptions are swallowed
-            RecordBatch? batch = await recordBatchReader.ReadNextRecordBatchAsync(cancellationToken);
-            if (batch is null) break;
-            await results.Writer.WriteAsync(batch, cancellationToken);
-        }
+            results.Writer,
+            cancellationToken);
     }
 
     private async Task WriteDataFileAsync(
@@ -287,33 +274,25 @@ public sealed class TableOperations(Table table)
         Channel<DataFileWriteResult> results,
         CancellationToken cancellationToken)
     {
-        using WriterProperties parquetWriterProperties =
-            ParquetTableProperties.CreateWriterProperties(Table.Properties);
-        await using PathAndStream dataFile = await CreateDataFile(cancellationToken);
-        using ArrowWriterProperties arrowWriterProperties = ArrowWriterProperties.GetDefault();
-        Apache.Arrow.Schema arrowSchema = ArrowSchema.FromSchema(schema);
-        using FileWriter arrowWriter = new(
+        string configuredFormat = Table.Properties.GetString(
+            TableProperties.DefaultFileFormat,
+            TableProperties.DefaultFileFormatDefault);
+        IDataFileFormat dataFileFormat = DataFileFormatRegistry.Resolve(
+            configuredFormat,
+            Table.Properties);
+        await using PathAndStream dataFile = await CreateDataFile(
+            dataFileFormat.FileExtension,
+            cancellationToken);
+        long written = await dataFileFormat.WriteAsync(
             dataFile.Stream,
-            arrowSchema,
-            parquetWriterProperties,
-            arrowWriterProperties,
-            true);
-
-        long written = 0;
-
-        await foreach (RecordBatch batch in batches.Reader.ReadAllAsync(cancellationToken))
-        {
-            // TODO for now have to clone due to arrow limitations
-            arrowWriter.WriteBufferedRecordBatch(batch.Clone());
-            written += batch.Length;
-            batch.Dispose();
-        }
-
-        arrowWriter.Close();
+            schema,
+            batches.Reader,
+            cancellationToken);
 
         await results.Writer.WriteAsync(
             new DataFileWriteResult(
                 dataFile.Path,
+                dataFileFormat.Format,
                 written,
                 dataFile.Stream.Length),
             cancellationToken);
@@ -464,7 +443,7 @@ public sealed class TableOperations(Table table)
                 {
                     Content = DataFileContent.Data,
                     FilePath = entry.Location.AbsoluteUri,
-                    FileFormat = "parquet",
+                    FileFormat = entry.Format,
                     Partition = new GenericRecord(Utils.EmptyPartitionAvroSchema),
                     RecordCount = entry.RecordCount,
                     FileSizeInBytes = entry.FileSize
@@ -486,14 +465,25 @@ public sealed class TableOperations(Table table)
         await manifestFile.DisposeAsync();
     }
 
-    private async ValueTask<PathAndStream> CreateDataFile(CancellationToken cancellationToken = default)
+    private async ValueTask<PathAndStream> CreateDataFile(
+        string fileExtension,
+        CancellationToken cancellationToken = default)
     {
-        Uri parquetFilePath = new(Table.DataFolderUri, Utils.GetParquetFileName(0, 0, Guid.NewGuid()));
-        Stream parquetStream = await Table.Open(
-            parquetFilePath,
+        if (string.IsNullOrWhiteSpace(fileExtension) ||
+            !fileExtension.StartsWith('.') ||
+            fileExtension.Contains('/') ||
+            fileExtension.Contains('\\'))
+            throw new InvalidOperationException(
+                $"Data file format returned invalid file extension '{fileExtension}'");
+
+        Uri dataFilePath = new(
+            Table.DataFolderUri,
+            $"00000-0-{Guid.NewGuid()}{fileExtension}");
+        Stream dataFileStream = await Table.Open(
+            dataFilePath,
             FileMode.CreateNew,
             cancellationToken);
-        return new PathAndStream(parquetFilePath, parquetStream);
+        return new PathAndStream(dataFilePath, dataFileStream);
     }
 
     private async ValueTask<PathAndStream> CreateManifestFile(CancellationToken cancellationToken = default)
