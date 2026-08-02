@@ -16,16 +16,35 @@ using SortOrder = Iceberg.Net.Metadata.SortOrder;
 
 namespace Iceberg.Net.Catalog;
 
-public sealed class TableOperations(Table table)
+public sealed class TableOperations
 {
-    private Table Table { get; set; } = table;
+    private readonly Identifier _identifier;
+    private readonly ICatalog _catalog;
+    private Table? _table;
 
-    public async Task FastAppendRowsAot<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.AllProperties)] TRow>(
-        IEnumerable<TRow> rows,
-        CancellationToken cancellationToken = default) where TRow : IArrowSerializer<TRow>
+    public TableOperations(Table table)
     {
-        int schemaId = Table.Metadata?.CurrentSchemaId ?? 0;
-        int nextFieldId = (Table.Metadata?.LastColumnId ?? 0) + 1;
+        _identifier = table.Identifier;
+        _catalog = table.Catalog;
+        _table = table;
+    }
+
+    public TableOperations(Identifier identifier, ICatalog catalog)
+    {
+        _identifier = identifier;
+        _catalog = catalog;
+    }
+
+    private Table CurrentTable => _table ??
+                                  throw new InvalidOperationException("The table has not been loaded or created.");
+
+    public async Task
+        FastAppendRowsAot<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.AllProperties)] TRow>(
+            IEnumerable<TRow> rows,
+            CancellationToken cancellationToken = default) where TRow : IArrowSerializer<TRow>
+    {
+        int schemaId = _table?.Metadata.CurrentSchemaId ?? 0;
+        int nextFieldId = (_table?.Metadata.LastColumnId ?? 0) + 1;
         Schema schema = CSharpSchema.ToIcebergSchema(typeof(TRow), schemaId, _ => nextFieldId++);
 
         Channel<RecordBatch> channel = Channel.CreateBounded<RecordBatch>(
@@ -58,8 +77,8 @@ public sealed class TableOperations(Table table)
         IEnumerable<TRow> rows,
         CancellationToken cancellationToken = default)
     {
-        int schemaId = Table.Metadata?.CurrentSchemaId ?? 0;
-        int nextFieldId = (Table.Metadata?.LastColumnId ?? 0) + 1;
+        int schemaId = _table?.Metadata.CurrentSchemaId ?? 0;
+        int nextFieldId = (_table?.Metadata.LastColumnId ?? 0) + 1;
         Schema schema = CSharpSchema.ToIcebergSchema(typeof(TRow), schemaId, _ => nextFieldId++);
 
         Channel<RecordBatch> channel = Channel.CreateBounded<RecordBatch>(
@@ -100,7 +119,12 @@ public sealed class TableOperations(Table table)
             sortOrder,
             cancellationToken);
 
-        schema = GetSchema();
+        Schema tableSchema = GetSchema();
+        if (!new IcebergTypeComparer().Equals(schema, tableSchema))
+            throw new InvalidOperationException(
+                "The appended row schema does not match the table schema.");
+
+        schema = tableSchema;
 
         Channel<DataFileWriteResult> dataFiles = Channel.CreateBounded<DataFileWriteResult>(
             new BoundedChannelOptions(1024)
@@ -125,9 +149,9 @@ public sealed class TableOperations(Table table)
             });
 
         Task existingSnapshotRead = Task.CompletedTask;
-        if (Table.Metadata!.CurrentSnapshotId > 0)
-            existingSnapshotRead = new TableScan(Table).ReadSnapshotAsync(
-                Table.Metadata!.CurrentSnapshotId.Value,
+        if (CurrentTable.Metadata.CurrentSnapshotId > 0)
+            existingSnapshotRead = new TableScan(CurrentTable).ReadSnapshotAsync(
+                CurrentTable.Metadata.CurrentSnapshotId.Value,
                 existingManifests.Writer,
                 cancellationToken);
 
@@ -187,16 +211,16 @@ public sealed class TableOperations(Table table)
         Channel<DataFileWriteResult> results,
         CancellationToken cancellationToken)
     {
-        string configuredFormat = Table.Properties.GetString(
+        string configuredFormat = CurrentTable.Properties.GetString(
             TableProperties.DefaultFileFormat,
             TableProperties.DefaultFileFormatDefault);
         IDataFileFormat dataFileFormat = DataFileFormatRegistry.Resolve(
             configuredFormat,
-            Table.Properties);
+            CurrentTable.Properties);
         await using PathAndFile<ISequentialFile> dataFile = await CreateDataFile(
             dataFileFormat.FileExtension,
             cancellationToken);
-        using SequentialFileStream dataFileStream = new(dataFile.File);
+        await using SequentialFileStream dataFileStream = new(dataFile.File);
         long written = await dataFileFormat.WriteAsync(
             dataFileStream,
             schema,
@@ -220,7 +244,7 @@ public sealed class TableOperations(Table table)
         int schemaId,
         CancellationToken cancellationToken = default)
     {
-        long sequenceNumber = (long)Table.Metadata!.LastSequenceNumber! + 1;
+        long sequenceNumber = (long)CurrentTable.Metadata.LastSequenceNumber! + 1;
         Summary summary = new() { Operation = SummaryOperation.Append };
 
         PathAndFile<ISequentialFile> manifestListFile = await CreateManifestListFile(
@@ -228,7 +252,7 @@ public sealed class TableOperations(Table table)
             sequenceNumber,
             cancellationToken);
 
-        using (SequentialFileStream manifestListStream = new(manifestListFile.File))
+        await using (SequentialFileStream manifestListStream = new(manifestListFile.File))
         using (ManifestWriter<ManifestListEntry> manifestListAppender = ManifestIO.CreateManifestListWriter(
                    manifestListStream,
                    snapshotId,
@@ -294,7 +318,7 @@ public sealed class TableOperations(Table table)
         long addedRowsCount = 0;
         int addedDataFilesCount = 0;
 
-        using (SequentialFileStream manifestStream = new(manifestFile.File))
+        await using (SequentialFileStream manifestStream = new(manifestFile.File))
         using (ManifestWriter<ManifestEntry> manifestAppender = ManifestIO.CreateManifestWriter(
                    manifestStream,
                    schema,
@@ -350,9 +374,9 @@ public sealed class TableOperations(Table table)
                 $"Data file format returned invalid file extension '{fileExtension}'");
 
         Uri dataFilePath = new(
-            Table.DataFolderUri,
+            CurrentTable.DataFolderUri,
             $"00000-0-{Guid.NewGuid()}{fileExtension}");
-        ISequentialFile dataFile = await Table.CreateFile(
+        ISequentialFile dataFile = await CurrentTable.CreateFile(
             dataFilePath,
             overwrite: true,
             cancellationToken: cancellationToken);
@@ -363,9 +387,9 @@ public sealed class TableOperations(Table table)
         CancellationToken cancellationToken = default)
     {
         Uri manifestFilePath = new(
-            Table.MetadataFolderUri,
+            CurrentTable.MetadataFolderUri,
             ManifestEntry.GetFileName(Guid.NewGuid(), 0));
-        ISequentialFile file = await Table.CreateFile(
+        ISequentialFile file = await CurrentTable.CreateFile(
             manifestFilePath,
             overwrite: true,
             cancellationToken: cancellationToken);
@@ -378,9 +402,9 @@ public sealed class TableOperations(Table table)
         CancellationToken cancellationToken = default)
     {
         Uri manifestListFilePath = new(
-            Table.MetadataFolderUri,
+            CurrentTable.MetadataFolderUri,
             ManifestListEntry.GetFileName(snapshotId, sequenceNumber, Guid.NewGuid()));
-        ISequentialFile manifestListFile = await Table.CreateFile(
+        ISequentialFile manifestListFile = await CurrentTable.CreateFile(
             manifestListFilePath,
             overwrite: true,
             cancellationToken: cancellationToken);
@@ -394,24 +418,23 @@ public sealed class TableOperations(Table table)
         CancellationToken cancellationToken = default)
     {
         PendingChanges pendingChanges = new([], []);
-        if (Table.IsLoaded) return pendingChanges;
-        try
+        if (_table is not null) return pendingChanges;
+
+        _table = await _catalog.LoadTableAsync(
+            _identifier,
+            cancellationToken: cancellationToken);
+        if (_table is null)
         {
-            Table =
-                await Table.Catalog.LoadTableAsync(Table.Identifier, cancellationToken: cancellationToken);
-        }
-        catch (Exception)
-        {
-            Table = await Table.Catalog.CreateTableAsync(
-                Table.Identifier,
+            _table = await _catalog.CreateTableAsync(
+                _identifier,
                 schema,
                 true,
                 cancellationToken);
             pendingChanges.Requirements.Add(new AssertCreate());
             pendingChanges.Updates.AddRange(
             [
-                new SetLocationTableUpdate(Table.Metadata!.Location),
-                new AddSchemaTableUpdate(Table.Metadata!.Schemas[0]),
+                new SetLocationTableUpdate(CurrentTable.Metadata.Location),
+                new AddSchemaTableUpdate(CurrentTable.Metadata.Schemas[0]),
                 new AddPartitionSpecTableUpdate(partitionSpec),
                 new AddSortOrderTableUpdate(sortOrder)
             ]);
@@ -423,8 +446,8 @@ public sealed class TableOperations(Table table)
     private async Task CommitChanges(PendingChanges pendingChanges, CancellationToken cancellationToken)
     {
         // TODO retry (could also be handled in catalog)
-        Table = await Table.Catalog.UpdateTableAsync(
-            Table,
+        _table = await _catalog.UpdateTableAsync(
+            CurrentTable,
             pendingChanges.Updates,
             pendingChanges.Requirements,
             cancellationToken);
@@ -436,6 +459,6 @@ public sealed class TableOperations(Table table)
 
     private Schema GetSchema()
     {
-        return Table.Metadata!.SchemasById[Table.Metadata!.CurrentSchemaId!.Value];
+        return CurrentTable.Metadata.SchemasById[CurrentTable.Metadata.CurrentSchemaId!.Value];
     }
 }

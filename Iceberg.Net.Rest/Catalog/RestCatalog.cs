@@ -99,9 +99,8 @@ public sealed class RestCatalog : ICatalog
             request,
             EncodeNamespace(identifier.GetParent()),
             cancellationToken: cancellationToken);
-        return new Table(identifier, this)
+        return new Table(identifier, this, response.Metadata)
         {
-            Metadata = response.Metadata,
             PropertyResolver = CreatePropertyResolver(response.Config),
             StorageCredentials = response.StorageCredentials?.ToArray() ?? []
         };
@@ -132,22 +131,28 @@ public sealed class RestCatalog : ICatalog
         };
     }
 
-    public async Task<Table> LoadTableAsync(
+    public async Task<Table?> LoadTableAsync(
         Identifier identifier,
         Snapshots snapshots = Snapshots.All,
         CancellationToken cancellationToken = default)
     {
-        LoadTableResult response = await ApiClient.LoadTableAsync(
-            EncodeNamespace(identifier.GetParent()),
-            identifier.GetTableName(),
-            snapshots: snapshots,
-            cancellationToken: cancellationToken);
-        return new Table(identifier, this)
+        try
         {
-            Metadata = response.Metadata,
-            PropertyResolver = CreatePropertyResolver(response.Config),
-            StorageCredentials = response.StorageCredentials?.ToArray() ?? []
-        };
+            LoadTableResult response = await ApiClient.LoadTableAsync(
+                EncodeNamespace(identifier.GetParent()),
+                identifier.GetTableName(),
+                snapshots: snapshots,
+                cancellationToken: cancellationToken);
+            return new Table(identifier, this, response.Metadata)
+            {
+                PropertyResolver = CreatePropertyResolver(response.Config),
+                StorageCredentials = response.StorageCredentials?.ToArray() ?? []
+            };
+        }
+        catch (IcebergRestException exception) when (exception.StatusCode == (int)HttpStatusCode.NotFound)
+        {
+            return null;
+        }
     }
 
     public Namespace GetNamespace(Identifier identifier, CancellationToken cancellationToken = default)
@@ -242,8 +247,13 @@ public sealed class RestCatalog : ICatalog
         {
             ListTablesResponse resp =
                 await ApiClient.ListTablesAsync(EncodeNamespace(ns), pageToken, PageSize, cancellationToken);
-            foreach (TableIdentifier table in resp.Identifiers)
-                yield return new Table(table.ToIdentifier(), this);
+            foreach (TableIdentifier tableIdentifier in resp.Identifiers)
+            {
+                Table? table = await LoadTableAsync(
+                    tableIdentifier.ToIdentifier(),
+                    cancellationToken: cancellationToken);
+                if (table is not null) yield return table;
+            }
 
             pageToken = resp.NextPageToken;
         } while (pageToken != null);

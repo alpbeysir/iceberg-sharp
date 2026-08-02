@@ -12,7 +12,7 @@ public class TableTest(RestCatalogFixture fixture)
     {
         Identifier identifier = GetTableName<T>();
 
-        TableOperations tableOperations = new(new Table(identifier, Catalog));
+        TableOperations tableOperations = new(identifier, Catalog);
         await tableOperations.FastAppendRows(rows, TestContext.Current.CancellationToken);
 
         return identifier;
@@ -20,7 +20,8 @@ public class TableTest(RestCatalogFixture fixture)
 
     protected async Task Verify<T>(Identifier identifier, List<T> original) where T : IArrowSerializer<T>
     {
-        Table loadedTable = await Catalog.LoadTableAsync(identifier);
+        Table loadedTable = await Catalog.LoadTableAsync(identifier) ??
+                            throw new InvalidOperationException($"Table '{identifier}' was not found.");
         TableScan scan = new(loadedTable);
         var readRows = scan.ReadRows<T>().ToList();
         readRows.Should()

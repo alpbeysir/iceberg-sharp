@@ -13,7 +13,8 @@ namespace Iceberg.Net.Catalog;
 public sealed class TableScan(Table table)
 {
     public IEnumerable<TRow> ReadRows<
-        [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.AllProperties)] TRow>(
+        [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.AllProperties)]
+        TRow>(
         long? snapshotId = null) where TRow : IArrowSerializer<TRow>
     {
         Channel<RecordBatch> columnBuffers = Channel.CreateBounded<RecordBatch>(
@@ -33,13 +34,11 @@ public sealed class TableScan(Table table)
         }
     }
 
-    public async Task ReadArrow(
+    private async Task ReadArrow(
         long? snapshotId,
         ChannelWriter<RecordBatch> results,
         CancellationToken cancellationToken = default)
     {
-        if (!table.IsLoaded) throw new InvalidOperationException("Cannot read uninitialized table");
-
         Snapshot snapshot = GetSnapshotOrLatest(snapshotId);
 
         Channel<ManifestListEntry> manifestListEntries = Channel.CreateBounded<ManifestListEntry>(
@@ -67,10 +66,7 @@ public sealed class TableScan(Table table)
                 CancellationToken = cancellationToken,
                 MaxDegreeOfParallelism = 4
             },
-            async (entry, token) =>
-            {
-                await ReadManifestAsync(entry, manifestEntries.Writer, token);
-            });
+            async (entry, token) => { await ReadManifestAsync(entry, manifestEntries.Writer, token); });
 
         Task dataFileReaders = Parallel.ForEachAsync(
             manifestEntries.Reader.ReadAllAsync(cancellationToken),
@@ -79,10 +75,7 @@ public sealed class TableScan(Table table)
                 CancellationToken = cancellationToken,
                 MaxDegreeOfParallelism = 16
             },
-            async (entry, token) =>
-            {
-                await ReadDataFileAsync(entry.DataFile, results, token);
-            });
+            async (entry, token) => { await ReadDataFileAsync(entry.DataFile, results, token); });
 
         await snapshotRead;
         manifestListEntries.Writer.Complete();
@@ -98,12 +91,12 @@ public sealed class TableScan(Table table)
         ChannelWriter<ManifestListEntry> results,
         CancellationToken cancellationToken = default)
     {
-        Snapshot snapshot = table.Metadata!.SnapshotsById[snapshotId];
+        Snapshot snapshot = table.Metadata.SnapshotsById[snapshotId];
 
         await using PathAndFile<IRandomAccessFile> manifestListFile = await OpenFile(
             snapshot.ManifestList,
             cancellationToken);
-        using RandomAccessFileStream manifestListStream = new(manifestListFile.File);
+        await using RandomAccessFileStream manifestListStream = new(manifestListFile.File);
         await ManifestIO.ReadManifestListAsync(
             manifestListStream,
             results,
@@ -118,7 +111,7 @@ public sealed class TableScan(Table table)
         await using PathAndFile<IRandomAccessFile> manifestFile = await OpenFile(
             manifestListEntry.ManifestPath,
             cancellationToken);
-        using RandomAccessFileStream manifestStream = new(manifestFile.File);
+        await using RandomAccessFileStream manifestStream = new(manifestFile.File);
         await ManifestIO.ReadManifestAsync(
             manifestStream,
             results,
@@ -143,7 +136,7 @@ public sealed class TableScan(Table table)
         await using PathAndFile<IRandomAccessFile> storageFile = await OpenFile(
             dataFile.FilePath,
             cancellationToken);
-        using RandomAccessFileStream dataFileStream = new(storageFile.File);
+        await using RandomAccessFileStream dataFileStream = new(storageFile.File);
         IDataFileFormat dataFileFormat = DataFileFormatRegistry.Resolve(
             dataFile.FileFormat,
             table.Properties);
@@ -167,11 +160,11 @@ public sealed class TableScan(Table table)
     private Snapshot GetSnapshotOrLatest(long? snapshotId)
     {
         if (snapshotId is not null)
-            return table.Metadata!.SnapshotsById.TryGetValue(snapshotId.Value, out Snapshot? result)
+            return table.Metadata.SnapshotsById.TryGetValue(snapshotId.Value, out Snapshot? result)
                 ? result
                 : throw new ArgumentOutOfRangeException(nameof(snapshotId));
 
-        long currentSnapshotId = table.Metadata!.CurrentSnapshotId ??
+        long currentSnapshotId = table.Metadata.CurrentSnapshotId ??
                                  throw new InvalidOperationException("Table doesn't have any snapshots");
         return table.Metadata.SnapshotsById.TryGetValue(currentSnapshotId, out Snapshot? currentSnapshot)
             ? currentSnapshot

@@ -52,7 +52,7 @@ public interface ICatalog : IDisposable
         List<ITableRequirement> requirements,
         CancellationToken cancellationToken = default);
 
-    Task<Table> LoadTableAsync(
+    Task<Table?> LoadTableAsync(
         Identifier identifier,
         Snapshots snapshots = Snapshots.All,
         CancellationToken cancellationToken = default);

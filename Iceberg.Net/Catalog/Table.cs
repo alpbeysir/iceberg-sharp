@@ -5,23 +5,22 @@ using Iceberg.Net.Storage;
 
 namespace Iceberg.Net.Catalog;
 
-public sealed record Table(Identifier Identifier, ICatalog Catalog) : INode
+public sealed record Table(
+    Identifier Identifier,
+    ICatalog Catalog,
+    TableMetadata Metadata) : INode
 {
-    public bool IsLoaded => Metadata is not null;
-
-    public TableMetadata? Metadata { get; init; }
-
     public PropertyResolver? PropertyResolver { get; init; }
 
     public IReadOnlyList<StorageCredential> StorageCredentials { get; init; } = [];
 
-    public TablePropertyResolver Properties => new(Metadata?.Properties);
+    public TablePropertyResolver Properties => new(Metadata.Properties);
 
     private Uri BaseFolderUri
     {
         get
         {
-            bool success = Uri.TryCreate(Metadata!.Location + '/', UriKind.RelativeOrAbsolute, out Uri? folder);
+            bool success = Uri.TryCreate(Metadata.Location + '/', UriKind.RelativeOrAbsolute, out Uri? folder);
             return !success ? throw new FormatException("Location URI was malformed") : folder!;
         }
     }

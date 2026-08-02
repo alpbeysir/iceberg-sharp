@@ -38,13 +38,25 @@ public class CatalogTests(RestCatalogFixture fixture)
             properties,
             TestContext.Current.CancellationToken);
 
-        table.Metadata!.FormatVersion.Should().Be(1);
+        table.Metadata.FormatVersion.Should().Be(1);
         table.Metadata.Properties[TableProperties.Comment].Should().Be("created with table properties");
         var namespaces = _catalog.ListTablesAsync(fixture.BaseNamespace, TestContext.Current.CancellationToken);
         bool contains = await namespaces.AnyAsync(
             x => x.Identifier == identifier,
             TestContext.Current.CancellationToken);
         contains.Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task LoadMissingTableReturnsNull()
+    {
+        Identifier identifier = [.. fixture.BaseNamespace, $"missing_{Guid.NewGuid():N}"];
+
+        Table? table = await _catalog.LoadTableAsync(
+            identifier,
+            cancellationToken: TestContext.Current.CancellationToken);
+
+        table.Should().BeNull();
     }
 
     [Fact]

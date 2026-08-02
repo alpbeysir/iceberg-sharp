@@ -6,43 +6,52 @@ public class IcebergTypeComparer : IEqualityComparer<IIcebergType>
     {
         if (ReferenceEquals(x, y)) return true;
         if (x == null || y == null) return false;
-        if (x.GetType() != y.GetType()) return false;
 
-        return x switch
+        return (x, y) switch
         {
-            PrimitiveType p => p.Equals(y),
-            StructType s => s.Fields.SequenceEqual(((StructType)y).Fields, new StructFieldComparer()),
-            ListType l => l.ElementId == ((ListType)y).ElementId &&
-                          l.ElementRequired == ((ListType)y).ElementRequired &&
-                          Equals(l.Element, ((ListType)y).Element),
-            MapType m => m.KeyId == ((MapType)y).KeyId &&
-                         m.ValueId == ((MapType)y).ValueId &&
-                         m.ValueRequired == ((MapType)y).ValueRequired &&
-                         Equals(m.Key, ((MapType)y).Key) &&
-                         Equals(m.Value, ((MapType)y).Value),
-            _ => x.Equals(y)
+            (PrimitiveType xPrimitive, PrimitiveType yPrimitive) =>
+                PrimitiveType.Parse(xPrimitive.Name).Name == PrimitiveType.Parse(yPrimitive.Name).Name,
+            (StructType xStruct, StructType yStruct) =>
+                xStruct.Fields.SequenceEqual(yStruct.Fields, new StructFieldComparer()),
+            (ListType xList, ListType yList) =>
+                xList.ElementRequired == yList.ElementRequired &&
+                Equals(xList.Element, yList.Element),
+            (MapType xMap, MapType yMap) =>
+                xMap.ValueRequired == yMap.ValueRequired &&
+                Equals(xMap.Key, yMap.Key) &&
+                Equals(xMap.Value, yMap.Value),
+            _ => false
         };
     }
 
     public int GetHashCode(IIcebergType obj)
     {
         HashCode hc = new();
-        hc.Add(obj.GetType());
         switch (obj)
         {
+            case PrimitiveType primitiveType:
+                hc.Add(typeof(PrimitiveType));
+                hc.Add(PrimitiveType.Parse(primitiveType.Name).Name);
+                break;
             case StructType s:
+                hc.Add(typeof(StructType));
                 foreach (StructField f in s.Fields) hc.Add(f, new StructFieldComparer());
                 break;
             case ListType l:
-                hc.Add(l.ElementId);
+                hc.Add(typeof(ListType));
+                hc.Add(l.ElementRequired);
                 hc.Add(l.Element, this);
                 break;
             case MapType m:
-                hc.Add(m.KeyId);
+                hc.Add(typeof(MapType));
+                hc.Add(m.ValueRequired);
                 hc.Add(m.Key, this);
                 hc.Add(m.Value, this);
                 break;
-            default: hc.Add(obj); break;
+            default:
+                hc.Add(obj.GetType());
+                hc.Add(obj);
+                break;
         }
 
         return hc.ToHashCode();
@@ -53,12 +62,12 @@ public class StructFieldComparer : IEqualityComparer<StructField>
 {
     public bool Equals(StructField? x, StructField? y)
     {
-        return x?.Id == y?.Id && x?.Name == y?.Name && x?.Required == y?.Required &&
+        return x?.Name == y?.Name && x?.Required == y?.Required &&
                new IcebergTypeComparer().Equals(x?.FieldType, y?.FieldType);
     }
 
     public int GetHashCode(StructField obj)
     {
-        return HashCode.Combine(obj.Id, obj.Name, obj.Required, new IcebergTypeComparer().GetHashCode(obj.FieldType));
+        return HashCode.Combine(obj.Name, obj.Required, new IcebergTypeComparer().GetHashCode(obj.FieldType));
     }
 }

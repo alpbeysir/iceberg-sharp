@@ -120,15 +120,15 @@ public class TablePropertyResolverTests
         string location,
         IReadOnlyDictionary<string, string> properties)
     {
-        return new Table(new Identifier(["test", "table"]), null!)
-        {
-            Metadata = new TableMetadata
+        return new Table(
+            new Identifier(["test", "table"]),
+            null!,
+            new TableMetadata
             {
                 FormatVersion = 2,
                 TableUuid = Guid.NewGuid().ToString(),
                 Location = location,
                 Properties = properties
-            }
-        };
+            });
     }
 }
