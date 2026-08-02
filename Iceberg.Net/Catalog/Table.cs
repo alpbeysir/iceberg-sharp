@@ -21,6 +21,11 @@ public sealed record Table(
 
     public TablePropertyResolver Properties => new(Metadata.Properties);
 
+    public TableOperations Operations()
+    {
+        return new TableOperations(this);
+    }
+
     private Uri BaseFolderUri
     {
         get

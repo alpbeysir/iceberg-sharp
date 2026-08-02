@@ -54,7 +54,7 @@ public class ReadWriteTests(RestCatalogFixture fixture) : TableTest(fixture)
                       throw new InvalidOperationException($"Table '{identifier}' was not found.");
 
         InvalidOperationException exception = Assert.Throws<InvalidOperationException>(() =>
-            new TableScan(table).ReadRows<MismatchedReadSchemaRow>().ToList());
+            table.Operations().ReadRows<MismatchedReadSchemaRow>().ToList());
 
         Assert.Contains(nameof(MismatchedReadSchemaRow.Extra), exception.Message);
         Assert.Contains("snapshot", exception.Message);
@@ -85,7 +85,7 @@ public class ReadWriteTests(RestCatalogFixture fixture) : TableTest(fixture)
             properties,
             TestContext.Current.CancellationToken);
 
-        TableOperations tableOperations = new(table);
+        TableOperations tableOperations = table.Operations();
         await tableOperations.FastAppendRowsAot(rows, TestContext.Current.CancellationToken);
 
         Table updatedTable = await Catalog.LoadTableAsync(

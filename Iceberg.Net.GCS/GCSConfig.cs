@@ -4,11 +4,11 @@ namespace Iceberg.Net.GCS;
 
 public sealed record GCSConfig
 {
-    public string? AccessToken { get; init; }
+    public string? AccessToken { get; private init; }
 
-    public bool NoAuth { get; init; }
+    public bool NoAuth { get; private init; }
 
-    public string? ServiceHost { get; init; }
+    public string? ServiceHost { get; private init; }
 
     public static GCSConfig FromResolver(PropertyResolver resolve)
     {

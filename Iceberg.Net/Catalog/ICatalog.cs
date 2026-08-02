@@ -13,6 +13,11 @@ public interface ICatalog : IDisposable
 
     string? Resolve(string key);
 
+    TableOperations Operations(Identifier identifier)
+    {
+        return new TableOperations(identifier, this);
+    }
+
     public async Task<Table> CreateTableAsync(
         Identifier identifier,
         Schemas.Schema schema,

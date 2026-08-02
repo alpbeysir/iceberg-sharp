@@ -68,7 +68,7 @@ public class PySparkTests(SparkRestCatalogFixture restFixture, PySparkFixture py
         Assert.Equal(["category", "region"], spec.Fields.Select(field => field.Name));
 
         Channel<ManifestEntry> entries = Channel.CreateUnbounded<ManifestEntry>();
-        await new TableScan(table).ReadManifestEntries(
+        await table.Operations().ReadManifestEntries(
             entries.Writer,
             cancellationToken: TestContext.Current.CancellationToken);
         entries.Writer.Complete();

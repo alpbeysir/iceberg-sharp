@@ -1,4 +1,5 @@
-﻿using System.Diagnostics.CodeAnalysis;
+﻿using System.Diagnostics;
+using System.Diagnostics.CodeAnalysis;
 using System.Threading.Channels;
 using Apache.Arrow;
 using Apache.Arrow.Serialization;
@@ -25,7 +26,7 @@ public sealed class TableOperations
     private readonly ILogger<TableOperations> _logger;
     private Table? _table;
 
-    public TableOperations(Table table)
+    internal TableOperations(Table table)
     {
         _identifier = table.Identifier;
         _catalog = table.Catalog;
@@ -33,7 +34,7 @@ public sealed class TableOperations
         _table = table;
     }
 
-    public TableOperations(Identifier identifier, ICatalog catalog)
+    internal TableOperations(Identifier identifier, ICatalog catalog)
     {
         _identifier = identifier;
         _catalog = catalog;
@@ -163,9 +164,11 @@ public sealed class TableOperations
             });
 
         Task existingSnapshotRead = Task.CompletedTask;
-        if (CurrentTable.Metadata.CurrentSnapshotId > 0)
-            existingSnapshotRead = new TableScan(CurrentTable).ReadSnapshotAsync(
-                CurrentTable.Metadata.CurrentSnapshotId.Value,
+        Table currentTable = CurrentTable;
+        if (currentTable.Metadata.CurrentSnapshotId > 0)
+            existingSnapshotRead = ReadSnapshotAsync(
+                currentTable,
+                currentTable.Metadata.CurrentSnapshotId.Value,
                 existingManifests.Writer,
                 cancellationToken);
 
@@ -520,6 +523,269 @@ public sealed class TableOperations
             pendingChanges.Updates,
             pendingChanges.Requirements,
             cancellationToken);
+    }
+
+    public IEnumerable<TRow> ReadRows<
+        [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.AllProperties)]
+        TRow>(long? snapshotId = null) where TRow : IArrowSerializer<TRow>
+    {
+        Table table = CurrentTable;
+        Snapshot snapshot = GetSnapshotOrLatest(table, snapshotId);
+        Schema snapshotSchema = GetSnapshotSchema(table, snapshot);
+        VerifyRowSchema<TRow>(snapshot, snapshotSchema);
+
+        Channel<RecordBatch> columnBuffers = Channel.CreateBounded<RecordBatch>(
+            new BoundedChannelOptions(512)
+            {
+                FullMode = BoundedChannelFullMode.Wait
+            });
+
+        Task read = ReadArrow(table, snapshot.SnapshotId, columnBuffers.Writer);
+        _ = read.ContinueWith(
+            completed => columnBuffers.Writer.TryComplete(completed.Exception?.GetBaseException()),
+            TaskScheduler.Default);
+
+        long rowCount = 0;
+        foreach (RecordBatch batch in columnBuffers.Reader.ReadAllAsync().ToBlockingEnumerable())
+        {
+            IReadOnlyList<TRow> rows = TRow.ListFromRecordBatch(batch);
+            foreach (TRow row in rows)
+            {
+                rowCount++;
+                yield return row;
+            }
+
+            batch.Dispose();
+        }
+
+        read.GetAwaiter().GetResult();
+
+        _logger.LogInformation(
+            "Completed scan of table {TableIdentifier} with {RowCount} rows",
+            _identifier.ToString(),
+            rowCount);
+    }
+
+    private async Task ReadArrow(
+        Table table,
+        long snapshotId,
+        ChannelWriter<RecordBatch> results,
+        CancellationToken cancellationToken = default)
+    {
+        Channel<ManifestEntry> manifestEntries = Channel.CreateBounded<ManifestEntry>(
+            new BoundedChannelOptions(8192)
+            {
+                FullMode = BoundedChannelFullMode.Wait
+            });
+
+        Task manifestRead = ReadManifestEntries(
+            table,
+            manifestEntries.Writer,
+            snapshotId,
+            cancellationToken);
+
+        Task dataFileReaders = Parallel.ForEachAsync(
+            manifestEntries.Reader.ReadAllAsync(cancellationToken),
+            new ParallelOptions
+            {
+                CancellationToken = cancellationToken,
+                MaxDegreeOfParallelism = 16
+            },
+            async (entry, token) => { await ReadDataFileAsync(table, entry.DataFile, results, token); });
+
+        await manifestRead;
+        manifestEntries.Writer.Complete();
+
+        await dataFileReaders;
+    }
+
+    public async Task ReadManifestEntries(
+        ChannelWriter<ManifestEntry> results,
+        long? snapshotId = null,
+        CancellationToken cancellationToken = default)
+    {
+        Table table = CurrentTable;
+        await ReadManifestEntries(table, results, snapshotId, cancellationToken);
+    }
+
+    private async Task ReadManifestEntries(
+        Table table,
+        ChannelWriter<ManifestEntry> results,
+        long? snapshotId,
+        CancellationToken cancellationToken)
+    {
+        Snapshot snapshot = GetSnapshotOrLatest(table, snapshotId);
+        _logger.LogInformation(
+            "Scanning table {TableIdentifier} at snapshot {SnapshotId}",
+            _identifier.ToString(),
+            snapshot.SnapshotId);
+
+        Channel<ManifestListEntry> manifestListEntries = Channel.CreateBounded<ManifestListEntry>(
+            new BoundedChannelOptions(8192)
+            {
+                FullMode = BoundedChannelFullMode.Wait,
+                SingleWriter = true
+            });
+
+        Task snapshotRead = ReadSnapshotAsync(
+            table,
+            snapshot.SnapshotId,
+            manifestListEntries.Writer,
+            cancellationToken);
+
+        Task manifestReaders = Parallel.ForEachAsync(
+            manifestListEntries.Reader.ReadAllAsync(cancellationToken),
+            new ParallelOptions
+            {
+                CancellationToken = cancellationToken,
+                MaxDegreeOfParallelism = 16
+            },
+            async (entry, token) => { await ReadManifestAsync(table, entry, results, token); });
+
+        await snapshotRead;
+        manifestListEntries.Writer.Complete();
+        await manifestReaders;
+        _logger.LogDebug(
+            "Completed manifest scan for table {TableIdentifier} at snapshot {SnapshotId}",
+            _identifier.ToString(),
+            snapshot.SnapshotId);
+    }
+
+    private async Task ReadSnapshotAsync(
+        Table table,
+        long snapshotId,
+        ChannelWriter<ManifestListEntry> results,
+        CancellationToken cancellationToken = default)
+    {
+        Snapshot snapshot = table.Metadata.SnapshotsById[snapshotId];
+        _logger.LogDebug(
+            "Reading manifest list {ManifestListPath} for snapshot {SnapshotId}",
+            snapshot.ManifestList,
+            snapshotId);
+        Schema schema = GetSnapshotSchema(table, snapshot);
+
+        await using PathAndFile<IRandomAccessFile> manifestListFile = await OpenFile(
+            table,
+            snapshot.ManifestList,
+            cancellationToken);
+        await using RandomAccessFileStream manifestListStream = new(manifestListFile.File);
+        await ManifestIO.ReadManifestListAsync(
+            manifestListStream,
+            results,
+            schema,
+            table.Metadata.PartitionSpecs,
+            cancellationToken);
+    }
+
+    private async Task ReadManifestAsync(
+        Table table,
+        ManifestListEntry manifestListEntry,
+        ChannelWriter<ManifestEntry> results,
+        CancellationToken cancellationToken)
+    {
+        _logger.LogDebug(
+            "Reading manifest {ManifestPath} for table {TableIdentifier}",
+            manifestListEntry.ManifestPath,
+            _identifier.ToString());
+        await using PathAndFile<IRandomAccessFile> manifestFile = await OpenFile(
+            table,
+            manifestListEntry.ManifestPath,
+            cancellationToken);
+        await using RandomAccessFileStream manifestStream = new(manifestFile.File);
+        await ManifestIO.ReadManifestAsync(
+            manifestStream,
+            results,
+            entry =>
+            {
+                // TODO only inherit if status = added
+                return entry with
+                {
+                    FileSequenceNumber = entry.FileSequenceNumber ?? manifestListEntry.SequenceNumber,
+                    SequenceNumber = entry.SequenceNumber ?? manifestListEntry.SequenceNumber,
+                    SnapshotId = entry.SnapshotId ?? manifestListEntry.AddedSnapshotId
+                };
+            },
+            cancellationToken);
+    }
+
+    private async Task ReadDataFileAsync(
+        Table table,
+        DataFile dataFile,
+        ChannelWriter<RecordBatch> results,
+        CancellationToken cancellationToken)
+    {
+        _logger.LogDebug(
+            "Reading data file {DataFilePath} for table {TableIdentifier}",
+            dataFile.FilePath,
+            _identifier.ToString());
+        await using PathAndFile<IRandomAccessFile> storageFile = await OpenFile(
+            table,
+            dataFile.FilePath,
+            cancellationToken);
+        await using RandomAccessFileStream dataFileStream = new(storageFile.File);
+        IDataFileFormat dataFileFormat = DataFileFormatRegistry.Resolve(
+            dataFile.FileFormat,
+            table.Properties);
+        await dataFileFormat.ReadAsync(
+            dataFileStream,
+            results,
+            cancellationToken);
+    }
+
+    private static async Task<PathAndFile<IRandomAccessFile>> OpenFile(
+        Table table,
+        string path,
+        CancellationToken cancellationToken = default)
+    {
+        if (!Uri.TryCreate(path, UriKind.RelativeOrAbsolute, out Uri? uri))
+            throw new ArgumentException($"Invalid URI: {path}");
+
+        IRandomAccessFile file = await table.ReadFile(uri, cancellationToken);
+        return new PathAndFile<IRandomAccessFile>(uri, file);
+    }
+
+    private static Snapshot GetSnapshotOrLatest(Table table, long? snapshotId)
+    {
+        if (snapshotId is not null)
+            return table.Metadata.SnapshotsById.TryGetValue(snapshotId.Value, out Snapshot? result)
+                ? result
+                : throw new ArgumentOutOfRangeException(nameof(snapshotId));
+
+        long currentSnapshotId = table.Metadata.CurrentSnapshotId ??
+                                 throw new InvalidOperationException("Table doesn't have any snapshots");
+        return table.Metadata.SnapshotsById.TryGetValue(currentSnapshotId, out Snapshot? currentSnapshot)
+            ? currentSnapshot
+            : throw new UnreachableException("Could not find the current snapshot");
+    }
+
+    private static Schema GetSnapshotSchema(Table table, Snapshot snapshot)
+    {
+        int schemaId = snapshot.SchemaId ?? table.Metadata.CurrentSchemaId ??
+            throw new InvalidDataException("Table metadata does not identify a schema for the snapshot.");
+        return table.Metadata.SchemasById.TryGetValue(schemaId, out Schema? schema)
+            ? schema
+            : throw new InvalidDataException(
+                $"Snapshot {snapshot.SnapshotId} refers to unknown schema ID {schemaId}.");
+    }
+
+    private static void VerifyRowSchema<
+        [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.AllProperties)]
+        TRow>(Snapshot snapshot, Schema snapshotSchema)
+    {
+        IReadOnlyDictionary<string, int> fieldIds = SchemaUtilities.FieldIdsByPath(snapshotSchema);
+        Schema requestedSchema = CSharpSchemas.ToIcebergSchema(
+            typeof(TRow),
+            snapshotSchema.SchemaId,
+            path => fieldIds.TryGetValue(path, out int fieldId)
+                ? fieldId
+                : throw new InvalidOperationException(
+                    $"Requested row type '{typeof(TRow).FullName}' contains field '{path}' that is not present " +
+                    $"in schema {snapshotSchema.SchemaId} of snapshot {snapshot.SnapshotId}."));
+
+        if (!new IcebergTypeComparer().Equals(requestedSchema, snapshotSchema))
+            throw new InvalidOperationException(
+                $"Requested row type '{typeof(TRow).FullName}' does not match schema " +
+                $"{snapshotSchema.SchemaId} of snapshot {snapshot.SnapshotId}.");
     }
 
     private sealed record PendingChanges(

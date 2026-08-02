@@ -7,7 +7,7 @@ using Iceberg.Net.Misc;
 
 namespace Iceberg.Net.Query;
 
-public class IcebergQueryProvider<TRow>(TableScan tableScan) : IQueryProvider
+public class IcebergQueryProvider<TRow>(TableOperations tableOperations) : IQueryProvider
     where TRow : IArrowSerializer<TRow>
 {
     public IQueryable CreateQuery(Expression expression)
@@ -32,7 +32,7 @@ public class IcebergQueryProvider<TRow>(TableScan tableScan) : IQueryProvider
 
         // var steps = QueryStepVisitor.ConstructSteps(expression, [typeof(TResult), typeof(TRow)]);
 
-        IQueryable<TRow> sourceQueryable = tableScan.ReadRows<TRow>().AsQueryable();
+        IQueryable<TRow> sourceQueryable = tableOperations.ReadRows<TRow>().AsQueryable();
         Expression rewritten = ExpressionReplacer<TRow>.Replace(expression, sourceQueryable);
         return sourceQueryable.Provider.Execute<TResult>(rewritten);
     }

@@ -12,7 +12,7 @@ public class TableTest(RestCatalogFixture fixture)
     {
         Identifier identifier = GetTableName();
 
-        TableOperations tableOperations = new(identifier, Catalog);
+        TableOperations tableOperations = Catalog.Operations(identifier);
         await tableOperations.FastAppendRows(rows, TestContext.Current.CancellationToken);
 
         return identifier;
@@ -22,8 +22,8 @@ public class TableTest(RestCatalogFixture fixture)
     {
         Table loadedTable = await Catalog.LoadTableAsync(identifier) ??
                             throw new InvalidOperationException($"Table '{identifier}' was not found.");
-        TableScan scan = new(loadedTable);
-        var readRows = scan.ReadRows<T>().ToList();
+        TableOperations operations = loadedTable.Operations();
+        var readRows = operations.ReadRows<T>().ToList();
         readRows.Should()
             .BeEquivalentTo(
                 original,
