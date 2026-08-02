@@ -2,6 +2,7 @@
 using System.Threading.Channels;
 using Apache.Arrow;
 using Apache.Arrow.Serialization;
+using EngineeredWood.IO;
 using Iceberg.Net.Data;
 using Iceberg.Net.Metadata;
 using Iceberg.Net.Misc;
@@ -192,11 +193,12 @@ public sealed class TableOperations(Table table)
         IDataFileFormat dataFileFormat = DataFileFormatRegistry.Resolve(
             configuredFormat,
             Table.Properties);
-        await using PathAndStream dataFile = await CreateDataFile(
+        await using PathAndFile<ISequentialFile> dataFile = await CreateDataFile(
             dataFileFormat.FileExtension,
             cancellationToken);
+        using SequentialFileStream dataFileStream = new(dataFile.File);
         long written = await dataFileFormat.WriteAsync(
-            dataFile.Stream,
+            dataFileStream,
             schema,
             batches.Reader,
             cancellationToken);
@@ -206,7 +208,7 @@ public sealed class TableOperations(Table table)
                 dataFile.Path,
                 dataFileFormat.Format,
                 written,
-                dataFile.Stream.Length),
+                dataFile.File.Position),
             cancellationToken);
     }
 
@@ -221,10 +223,14 @@ public sealed class TableOperations(Table table)
         long sequenceNumber = (long)Table.Metadata!.LastSequenceNumber! + 1;
         Summary summary = new() { Operation = SummaryOperation.Append };
 
-        PathAndStream manifestListFile = await CreateManifestListFile(snapshotId, sequenceNumber, cancellationToken);
+        PathAndFile<ISequentialFile> manifestListFile = await CreateManifestListFile(
+            snapshotId,
+            sequenceNumber,
+            cancellationToken);
 
+        using (SequentialFileStream manifestListStream = new(manifestListFile.File))
         using (ManifestWriter<ManifestListEntry> manifestListAppender = ManifestIO.CreateManifestListWriter(
-                   manifestListFile.Stream,
+                   manifestListStream,
                    snapshotId,
                    null,
                    sequenceNumber))
@@ -282,14 +288,15 @@ public sealed class TableOperations(Table table)
         Channel<ManifestFileWriteResult> results,
         CancellationToken cancellationToken)
     {
-        PathAndStream manifestFile = await CreateManifestFile(cancellationToken);
+        PathAndFile<ISequentialFile> manifestFile = await CreateManifestFile(cancellationToken);
 
         long addedFilesSize = 0;
         long addedRowsCount = 0;
         int addedDataFilesCount = 0;
 
+        using (SequentialFileStream manifestStream = new(manifestFile.File))
         using (ManifestWriter<ManifestEntry> manifestAppender = ManifestIO.CreateManifestWriter(
-                   manifestFile.Stream,
+                   manifestStream,
                    schema,
                    partitionSpec,
                    Content.Data))
@@ -322,7 +329,7 @@ public sealed class TableOperations(Table table)
         await results.Writer.WriteAsync(
             new ManifestFileWriteResult(
                 manifestFile.Path,
-                manifestFile.Stream.Length,
+                manifestFile.File.Position,
                 addedRowsCount,
                 addedDataFilesCount,
                 addedFilesSize),
@@ -331,7 +338,7 @@ public sealed class TableOperations(Table table)
         await manifestFile.DisposeAsync();
     }
 
-    private async ValueTask<PathAndStream> CreateDataFile(
+    private async ValueTask<PathAndFile<ISequentialFile>> CreateDataFile(
         string fileExtension,
         CancellationToken cancellationToken = default)
     {
@@ -345,26 +352,25 @@ public sealed class TableOperations(Table table)
         Uri dataFilePath = new(
             Table.DataFolderUri,
             $"00000-0-{Guid.NewGuid()}{fileExtension}");
-        Stream dataFileStream = await Table.Open(
+        ISequentialFile dataFile = await Table.Create(
             dataFilePath,
-            FileMode.CreateNew,
-            cancellationToken);
-        return new PathAndStream(dataFilePath, dataFileStream);
+            cancellationToken: cancellationToken);
+        return new PathAndFile<ISequentialFile>(dataFilePath, dataFile);
     }
 
-    private async ValueTask<PathAndStream> CreateManifestFile(CancellationToken cancellationToken = default)
+    private async ValueTask<PathAndFile<ISequentialFile>> CreateManifestFile(
+        CancellationToken cancellationToken = default)
     {
         Uri manifestFilePath = new(
             Table.MetadataFolderUri,
             ManifestEntry.GetFileName(Guid.NewGuid(), 0));
-        Stream stream = await Table.Open(
+        ISequentialFile file = await Table.Create(
             manifestFilePath,
-            FileMode.CreateNew,
-            cancellationToken);
-        return new PathAndStream(manifestFilePath, stream);
+            cancellationToken: cancellationToken);
+        return new PathAndFile<ISequentialFile>(manifestFilePath, file);
     }
 
-    private async ValueTask<PathAndStream> CreateManifestListFile(
+    private async ValueTask<PathAndFile<ISequentialFile>> CreateManifestListFile(
         long snapshotId,
         long sequenceNumber,
         CancellationToken cancellationToken = default)
@@ -372,11 +378,10 @@ public sealed class TableOperations(Table table)
         Uri manifestListFilePath = new(
             Table.MetadataFolderUri,
             ManifestListEntry.GetFileName(snapshotId, sequenceNumber, Guid.NewGuid()));
-        Stream manifestListStream = await Table.Open(
+        ISequentialFile manifestListFile = await Table.Create(
             manifestListFilePath,
-            FileMode.CreateNew,
-            cancellationToken);
-        return new PathAndStream(manifestListFilePath, manifestListStream);
+            cancellationToken: cancellationToken);
+        return new PathAndFile<ISequentialFile>(manifestListFilePath, manifestListFile);
     }
 
     private async Task<PendingChanges> EnsureTableInitialized(

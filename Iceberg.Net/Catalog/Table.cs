@@ -1,4 +1,5 @@
-﻿using Iceberg.Net.Metadata;
+﻿using EngineeredWood.IO;
+using Iceberg.Net.Metadata;
 using Iceberg.Net.Rest;
 using Iceberg.Net.Storage;
 
@@ -33,13 +34,21 @@ public sealed record Table(Identifier Identifier, ICatalog Catalog) : INode
         TableProperties.WriteDataLocation,
         "data/");
 
-    internal ValueTask<Stream> Open(
+    internal ValueTask<IRandomAccessFile> OpenRead(
         Uri uri,
-        FileMode fileMode = FileMode.Open,
         CancellationToken cancellationToken = default)
     {
-        return ObjectStorageRegistry.Resolve(uri, Resolve, StorageCredentials)
-            .Open(uri, fileMode, cancellationToken);
+        ITableFileSystem fileSystem = TableFileSystemRegistry.Resolve(uri, Resolve, StorageCredentials);
+        return fileSystem.OpenReadAsync(GetFileSystemPath(uri), cancellationToken);
+    }
+
+    internal ValueTask<ISequentialFile> Create(
+        Uri uri,
+        bool overwrite = false,
+        CancellationToken cancellationToken = default)
+    {
+        ITableFileSystem fileSystem = TableFileSystemRegistry.Resolve(uri, Resolve, StorageCredentials);
+        return fileSystem.CreateAsync(GetFileSystemPath(uri), overwrite, cancellationToken);
     }
 
     private string? Resolve(string key)
@@ -59,5 +68,10 @@ public sealed record Table(Identifier Identifier, ICatalog Catalog) : INode
         return location.AbsoluteUri.EndsWith('/')
             ? location
             : new Uri(location.AbsoluteUri + '/', UriKind.Absolute);
+    }
+
+    private static string GetFileSystemPath(Uri uri)
+    {
+        return uri.GetComponents(UriComponents.Path, UriFormat.Unescaped).TrimStart('/');
     }
 }

@@ -3,6 +3,7 @@ using System.Diagnostics.CodeAnalysis;
 using System.Threading.Channels;
 using Apache.Arrow;
 using Apache.Arrow.Serialization;
+using EngineeredWood.IO;
 using Iceberg.Net.Data;
 using Iceberg.Net.Metadata;
 using Iceberg.Net.Storage;
@@ -99,11 +100,12 @@ public sealed class TableScan(Table table)
     {
         Snapshot snapshot = table.Metadata!.SnapshotsById[snapshotId];
 
-        await using PathAndStream manifestListFile = await OpenFile(
+        await using PathAndFile<IRandomAccessFile> manifestListFile = await OpenFile(
             snapshot.ManifestList,
             cancellationToken);
+        using RandomAccessFileStream manifestListStream = new(manifestListFile.File);
         await ManifestIO.ReadManifestListAsync(
-            manifestListFile.Stream,
+            manifestListStream,
             results,
             cancellationToken);
     }
@@ -113,11 +115,12 @@ public sealed class TableScan(Table table)
         ChannelWriter<ManifestEntry> results,
         CancellationToken cancellationToken)
     {
-        await using PathAndStream manifestFile = await OpenFile(
+        await using PathAndFile<IRandomAccessFile> manifestFile = await OpenFile(
             manifestListEntry.ManifestPath,
             cancellationToken);
+        using RandomAccessFileStream manifestStream = new(manifestFile.File);
         await ManifestIO.ReadManifestAsync(
-            manifestFile.Stream,
+            manifestStream,
             results,
             entry =>
             {
@@ -137,27 +140,28 @@ public sealed class TableScan(Table table)
         ChannelWriter<RecordBatch> results,
         CancellationToken cancellationToken)
     {
-        await using PathAndStream dataFileStream = await OpenFile(
+        await using PathAndFile<IRandomAccessFile> storageFile = await OpenFile(
             dataFile.FilePath,
             cancellationToken);
+        using RandomAccessFileStream dataFileStream = new(storageFile.File);
         IDataFileFormat dataFileFormat = DataFileFormatRegistry.Resolve(
             dataFile.FileFormat,
             table.Properties);
         await dataFileFormat.ReadAsync(
-            dataFileStream.Stream,
+            dataFileStream,
             results,
             cancellationToken);
     }
 
-    private async Task<PathAndStream> OpenFile(
+    private async Task<PathAndFile<IRandomAccessFile>> OpenFile(
         string path,
         CancellationToken cancellationToken = default)
     {
         if (!Uri.TryCreate(path, UriKind.RelativeOrAbsolute, out Uri? uri))
             throw new ArgumentException($"Invalid URI: {path}");
 
-        Stream stream = await table.Open(uri, FileMode.Open, cancellationToken);
-        return new PathAndStream(uri, stream);
+        IRandomAccessFile file = await table.OpenRead(uri, cancellationToken);
+        return new PathAndFile<IRandomAccessFile>(uri, file);
     }
 
     private Snapshot GetSnapshotOrLatest(long? snapshotId)

@@ -31,7 +31,9 @@
     </ItemGroup>
 
     <ItemGroup>
+        <ProjectReference Include="..\Iceberg.Net.Azure\Iceberg.Net.Azure.csproj" />
         <ProjectReference Include="..\Iceberg.Net.DuckUtils\Iceberg.Net.DuckUtils.csproj" />
+        <ProjectReference Include="..\Iceberg.Net.GCS\Iceberg.Net.GCS.csproj" />
         <ProjectReference Include="..\Iceberg.Net\Iceberg.Net.csproj" />
         <ProjectReference Include="..\Iceberg.Net.Parquet\Iceberg.Net.Parquet.csproj" />
         <ProjectReference Include="..\Iceberg.Net.Rest\Iceberg.Net.Rest.csproj" />

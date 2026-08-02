@@ -19,7 +19,7 @@ public sealed class RestCatalogFixture : IAsyncLifetime
     public async ValueTask InitializeAsync()
     {
         DataFileFormatRegistry.Register<ParquetDataFileFormat>();
-        ObjectStorageRegistry.Register<S3ObjectStorage>();
+        TableFileSystemRegistry.Register<S3TableFileSystemFactory>();
         S3Config storageConfig = new()
         {
             Endpoint = "http://127.0.0.1:8333",

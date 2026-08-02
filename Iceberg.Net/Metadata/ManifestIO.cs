@@ -51,7 +51,7 @@ internal static class ManifestIO
             ["snapshot-id"] = Utf8(snapshotId),
             ["parent-snapshot-id"] = Utf8(parentSnapshotId),
             ["sequence-number"] = Utf8(sequenceNumber),
-            ["format-version"] = "2"u8.ToArray()
+            ["format-version"] = [.. "2"u8]
         };
 
         return new ManifestWriter<ManifestListEntry>(
@@ -245,6 +245,7 @@ internal static class ManifestIO
             WriteNullableBytes(writer, summary.LowerBound);
             WriteNullableBytes(writer, summary.UpperBound);
         }
+
         writer.WriteLong(0);
     }
 
@@ -288,6 +289,7 @@ internal static class ManifestIO
             writer.WriteInt(key);
             writer.WriteLong(value);
         }
+
         writer.WriteLong(0);
     }
 
@@ -320,6 +322,7 @@ internal static class ManifestIO
             writer.WriteInt(key);
             writer.WriteBytes(value);
         }
+
         writer.WriteLong(0);
     }
 

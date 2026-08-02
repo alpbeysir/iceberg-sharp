@@ -4,13 +4,11 @@
         <LangVersion>latest</LangVersion>
         <ImplicitUsings>enable</ImplicitUsings>
         <Nullable>enable</Nullable>
-        <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
         <IsAotCompatible>true</IsAotCompatible>
         <WarningsAsErrors>true</WarningsAsErrors>
     </PropertyGroup>
     <ItemGroup>
-        <PackageReference Include="AWSSDK.S3" />
-        <PackageReference Include="EngineeredWood.Aws" />
+        <PackageReference Include="EngineeredWood.Gcs" />
         <ProjectReference Include="..\Iceberg.Net\Iceberg.Net.csproj" />
     </ItemGroup>
 </Project>
