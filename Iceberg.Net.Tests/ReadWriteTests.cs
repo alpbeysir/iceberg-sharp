@@ -46,9 +46,9 @@ public class ReadWriteTests(RestCatalogFixture fixture) : TableTest(fixture)
     [AutoIcebergData]
     public async Task ParquetTablePropertiesAreApplied(List<MySimpleRow> rows)
     {
-        Identifier identifier = GetTableName<MySimpleRow>();
+        Identifier identifier = GetTableName();
         int nextFieldId = 1;
-        Schema schema = CSharpSchema.ToIcebergSchema(typeof(MySimpleRow), 0, _ => nextFieldId++);
+        Schema schema = CSharpSchemas.ToIcebergSchema(typeof(MySimpleRow), 0, _ => nextFieldId++);
         var properties = new Dictionary<string, string>
         {
             [TableProperties.DefaultFileFormat] = "parquet",

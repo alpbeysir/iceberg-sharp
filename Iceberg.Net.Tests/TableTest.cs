@@ -10,7 +10,7 @@ public class TableTest(RestCatalogFixture fixture)
 
     protected async Task<Identifier> Write<T>(List<T> rows)
     {
-        Identifier identifier = GetTableName<T>();
+        Identifier identifier = GetTableName();
 
         TableOperations tableOperations = new(identifier, Catalog);
         await tableOperations.FastAppendRows(rows, TestContext.Current.CancellationToken);
@@ -37,7 +37,7 @@ public class TableTest(RestCatalogFixture fixture)
                     .WithStrictOrdering());
     }
 
-    protected Identifier GetTableName<T>()
+    protected Identifier GetTableName()
     {
         string tableName =
             $"{GetType().Name}_{TestContext.Current.Test?.TestCase?.TestMethod?.MethodName}";

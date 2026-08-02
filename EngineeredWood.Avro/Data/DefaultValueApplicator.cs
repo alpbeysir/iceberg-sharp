@@ -1,26 +1,25 @@
 // Copyright (c) clast-project. All rights reserved.
 // Licensed under the Apache License, Version 2.0. See LICENSE in the project root for license information.
 
-using System.Text.Json;
 using EngineeredWood.Avro.Schema;
 
 namespace EngineeredWood.Avro.Data;
 
 /// <summary>
-/// Appends Avro default values (from JSON) into column builders.
+/// Appends Avro default values into column builders.
 /// </summary>
 internal static class DefaultValueApplicator
 {
     /// <summary>
-    /// Appends a default value to a builder based on the schema type and JSON element.
+    /// Appends a default value to a builder based on the schema type.
     /// </summary>
-    public static void AppendDefault(IColumnBuilder builder, JsonElement defaultValue, AvroSchemaNode schema)
+    public static void AppendDefault(IColumnBuilder builder, AvroValue defaultValue, AvroSchemaNode schema)
     {
         // Avro spec: for unions, the default must match the first branch type.
         // A null default for a nullable union means AppendNull.
         if (schema is AvroUnionSchema union)
         {
-            if (defaultValue.ValueKind == JsonValueKind.Null)
+            if (defaultValue.Kind == AvroValueKind.Null)
             {
                 builder.AppendNull();
                 return;
@@ -36,7 +35,7 @@ internal static class DefaultValueApplicator
     }
 
     private static void AppendTypedDefault(
-        IColumnBuilder builder, JsonElement defaultValue, AvroSchemaNode schema)
+        IColumnBuilder builder, AvroValue defaultValue, AvroSchemaNode schema)
     {
         // Handle logical types on primitives first
         if (schema is AvroPrimitiveSchema { LogicalType: not null } prim)
@@ -60,14 +59,14 @@ internal static class DefaultValueApplicator
     /// Returns true if handled.
     /// </summary>
     private static bool AppendLogicalDefault(
-        IColumnBuilder builder, JsonElement defaultValue, AvroPrimitiveSchema schema)
+        IColumnBuilder builder, AvroValue defaultValue, AvroPrimitiveSchema schema)
     {
         switch (schema.LogicalType)
         {
             case "date":
                 if (builder is Date32Builder db)
                 {
-                    db.AppendDefault(defaultValue.GetInt32());
+                    db.AppendDefault(defaultValue.AsInt32);
                     return true;
                 }
                 break;
@@ -75,7 +74,7 @@ internal static class DefaultValueApplicator
             case "time-millis":
                 if (builder is Time32MillisBuilder tmb)
                 {
-                    tmb.AppendDefault(defaultValue.GetInt32());
+                    tmb.AppendDefault(defaultValue.AsInt32);
                     return true;
                 }
                 break;
@@ -83,7 +82,7 @@ internal static class DefaultValueApplicator
             case "time-micros":
                 if (builder is Time64MicrosBuilder tucb)
                 {
-                    tucb.AppendDefault(defaultValue.GetInt64());
+                    tucb.AppendDefault(defaultValue.AsInt64);
                     return true;
                 }
                 break;
@@ -91,7 +90,7 @@ internal static class DefaultValueApplicator
             case "time-nanos":
                 if (builder is Time64NanosBuilder tnb)
                 {
-                    tnb.AppendDefault(defaultValue.GetInt64());
+                    tnb.AppendDefault(defaultValue.AsInt64);
                     return true;
                 }
                 break;
@@ -101,7 +100,7 @@ internal static class DefaultValueApplicator
                 or "timestamp-nanos" or "local-timestamp-nanos":
                 if (builder is TimestampBuilder tsb)
                 {
-                    tsb.AppendDefault(defaultValue.GetInt64());
+                    tsb.AppendDefault(defaultValue.AsInt64);
                     return true;
                 }
                 break;
@@ -110,7 +109,7 @@ internal static class DefaultValueApplicator
                 // Avro decimal default on bytes: JSON string of Unicode-escaped bytes
                 if (builder is DecimalBytesBuilder dbb)
                 {
-                    var beBytes = DecodeAvroBytes(defaultValue.GetString()!);
+                    var beBytes = DecodeAvroBytes(defaultValue.AsString);
                     dbb.AppendDefaultFromBigEndian(beBytes);
                     return true;
                 }
@@ -119,12 +118,12 @@ internal static class DefaultValueApplicator
             case "uuid":
                 if (builder is Data.StringBuilder sb)
                 {
-                    sb.AppendDefault(defaultValue.GetString()!);
+                    sb.AppendDefault(defaultValue.AsString);
                     return true;
                 }
                 if (builder is Data.GuidBuilder gb)
                 {
-                    gb.AppendDefault(defaultValue.GetString()!);
+                    gb.AppendDefault(defaultValue.AsString);
                     return true;
                 }
                 break;
@@ -138,14 +137,14 @@ internal static class DefaultValueApplicator
     /// Returns true if handled.
     /// </summary>
     private static bool AppendFixedLogicalDefault(
-        IColumnBuilder builder, JsonElement defaultValue, AvroFixedSchema schema)
+        IColumnBuilder builder, AvroValue defaultValue, AvroFixedSchema schema)
     {
         switch (schema.LogicalType)
         {
             case "decimal":
                 if (builder is DecimalFixedBuilder dfb)
                 {
-                    var beBytes = DecodeAvroBytes(defaultValue.GetString()!);
+                    var beBytes = DecodeAvroBytes(defaultValue.AsString);
                     dfb.AppendDefaultFromBigEndian(beBytes);
                     return true;
                 }
@@ -156,7 +155,7 @@ internal static class DefaultValueApplicator
     }
 
     private static void AppendBaseDefault(
-        IColumnBuilder builder, JsonElement defaultValue, AvroSchemaNode schema)
+        IColumnBuilder builder, AvroValue defaultValue, AvroSchemaNode schema)
     {
         switch (schema.Type)
         {
@@ -166,59 +165,59 @@ internal static class DefaultValueApplicator
 
             case AvroType.Boolean:
                 if (builder is BooleanBuilder bb)
-                    bb.AppendDefault(defaultValue.GetBoolean());
+                    bb.AppendDefault(defaultValue.AsBoolean);
                 else
                     builder.AppendNull(); // fallback
                 break;
 
             case AvroType.Int:
                 if (builder is Int32Builder ib)
-                    ib.AppendDefault(defaultValue.GetInt32());
+                    ib.AppendDefault(defaultValue.AsInt32);
                 else if (builder is Date32Builder db)
-                    db.AppendDefault(defaultValue.GetInt32());
+                    db.AppendDefault(defaultValue.AsInt32);
                 else if (builder is Time32MillisBuilder tmb)
-                    tmb.AppendDefault(defaultValue.GetInt32());
+                    tmb.AppendDefault(defaultValue.AsInt32);
                 else
                     builder.AppendNull();
                 break;
 
             case AvroType.Long:
                 if (builder is Int64Builder lb)
-                    lb.AppendDefault(defaultValue.GetInt64());
+                    lb.AppendDefault(defaultValue.AsInt64);
                 else if (builder is TimestampBuilder tsb)
-                    tsb.AppendDefault(defaultValue.GetInt64());
+                    tsb.AppendDefault(defaultValue.AsInt64);
                 else if (builder is Time64MicrosBuilder tucb)
-                    tucb.AppendDefault(defaultValue.GetInt64());
+                    tucb.AppendDefault(defaultValue.AsInt64);
                 else if (builder is Time64NanosBuilder tnb)
-                    tnb.AppendDefault(defaultValue.GetInt64());
+                    tnb.AppendDefault(defaultValue.AsInt64);
                 else
                     builder.AppendNull();
                 break;
 
             case AvroType.Float:
                 if (builder is FloatBuilder fb)
-                    fb.AppendDefault(defaultValue.GetSingle());
+                    fb.AppendDefault(defaultValue.AsSingle);
                 else
                     builder.AppendNull();
                 break;
 
             case AvroType.Double:
                 if (builder is DoubleBuilder dob)
-                    dob.AppendDefault(defaultValue.GetDouble());
+                    dob.AppendDefault(defaultValue.AsDouble);
                 else
                     builder.AppendNull();
                 break;
 
             case AvroType.String:
                 if (builder is Data.StringBuilder sb)
-                    sb.AppendDefault(defaultValue.GetString()!);
+                    sb.AppendDefault(defaultValue.AsString);
                 else
                     builder.AppendNull();
                 break;
 
             case AvroType.Bytes:
                 if (builder is BinaryBuilder binb)
-                    binb.AppendDefault(defaultValue.GetBytesFromBase64());
+                    binb.AppendDefault(DecodeAvroBytes(defaultValue.AsString));
                 else
                     builder.AppendNull();
                 break;
@@ -226,7 +225,7 @@ internal static class DefaultValueApplicator
             case AvroType.Enum:
                 if (schema is AvroEnumSchema enumSchema)
                 {
-                    var symbolName = defaultValue.GetString()!;
+                    var symbolName = defaultValue.AsString;
                     int idx = ((IList<string>)enumSchema.Symbols).IndexOf(symbolName);
                     if (idx < 0)
                         throw new InvalidOperationException(

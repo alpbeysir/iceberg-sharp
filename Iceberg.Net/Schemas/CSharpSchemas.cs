@@ -7,7 +7,7 @@ using Iceberg.Net.Misc;
 
 namespace Iceberg.Net.Schemas;
 
-public static class CSharpSchema
+public static class CSharpSchemas
 {
     private static readonly NullabilityInfoContext NullabilityInfoContext = new();
     private static readonly ConcurrentDictionary<IIcebergType, Type> TypeCache = new(new IcebergTypeComparer());

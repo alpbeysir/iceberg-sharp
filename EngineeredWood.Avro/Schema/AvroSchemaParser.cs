@@ -98,13 +98,20 @@ internal static class AvroSchemaParser
                     ? precEl.GetInt32() : null,
                 Scale = logicalType == "decimal" && obj.TryGetProperty("scale", out var scaleEl)
                     ? scaleEl.GetInt32() : null,
+                CustomProperties = ParseCustomProperties(
+                    obj,
+                    "type", "logicalType", "precision", "scale"),
             };
         }
 
         // Check for primitive type as object (e.g. {"type": "string"})
         if (IsPrimitiveName(typeName) && !obj.TryGetProperty("logicalType", out _))
         {
-            return ParseTypeName(typeName, namedTypes, enclosingNamespace);
+            AvroSchemaNode primitive = ParseTypeName(typeName, namedTypes, enclosingNamespace);
+            return new AvroPrimitiveSchema(primitive.Type)
+            {
+                CustomProperties = ParseCustomProperties(obj, "type")
+            };
         }
 
         return typeName switch
@@ -143,16 +150,27 @@ internal static class AvroSchemaParser
             var field = new AvroFieldNode(fieldName, fieldSchema)
             {
                 Doc = fieldEl.TryGetProperty("doc", out var docEl) ? docEl.GetString() : null,
-                Default = fieldEl.TryGetProperty("default", out var defEl) ? defEl.Clone() : null,
+                Default = fieldEl.TryGetProperty("default", out var defEl)
+                    ? AvroValue.FromJsonElement(defEl)
+                    : (AvroValue?)null,
                 Aliases = ParseStringArray(fieldEl, "aliases"),
+                CustomProperties = ParseCustomProperties(
+                    fieldEl,
+                    "name", "type", "doc", "default", "aliases"),
             };
             fields.Add(field);
         }
 
         var record = new AvroRecordSchema(name, ns, fields)
         {
+            LogicalType = obj.TryGetProperty("logicalType", out var logicalTypeEl)
+                ? logicalTypeEl.GetString()
+                : null,
             Doc = obj.TryGetProperty("doc", out var rdocEl) ? rdocEl.GetString() : null,
             Aliases = ParseStringArray(obj, "aliases"),
+            CustomProperties = ParseCustomProperties(
+                obj,
+                "type", "name", "namespace", "fields", "logicalType", "doc", "aliases"),
         };
 
         // Replace placeholder with real record
@@ -178,6 +196,9 @@ internal static class AvroSchemaParser
             Default = obj.TryGetProperty("default", out var defEl) ? defEl.GetString() : null,
             Doc = obj.TryGetProperty("doc", out var docEl) ? docEl.GetString() : null,
             Aliases = ParseStringArray(obj, "aliases"),
+            CustomProperties = ParseCustomProperties(
+                obj,
+                "type", "name", "namespace", "symbols", "default", "doc", "aliases"),
         };
 
         namedTypes[fullName] = schema;
@@ -189,14 +210,26 @@ internal static class AvroSchemaParser
         JsonElement obj, Dictionary<string, AvroSchemaNode> namedTypes, string? enclosingNamespace)
     {
         var items = ParseElement(obj.GetProperty("items"), namedTypes, enclosingNamespace);
-        return new AvroArraySchema(items);
+        return new AvroArraySchema(items)
+        {
+            LogicalType = obj.TryGetProperty("logicalType", out var logicalTypeEl)
+                ? logicalTypeEl.GetString()
+                : null,
+            CustomProperties = ParseCustomProperties(obj, "type", "items", "logicalType")
+        };
     }
 
     private static AvroMapSchema ParseMap(
         JsonElement obj, Dictionary<string, AvroSchemaNode> namedTypes, string? enclosingNamespace)
     {
         var values = ParseElement(obj.GetProperty("values"), namedTypes, enclosingNamespace);
-        return new AvroMapSchema(values);
+        return new AvroMapSchema(values)
+        {
+            LogicalType = obj.TryGetProperty("logicalType", out var logicalTypeEl)
+                ? logicalTypeEl.GetString()
+                : null,
+            CustomProperties = ParseCustomProperties(obj, "type", "values", "logicalType")
+        };
     }
 
     private static AvroFixedSchema ParseFixed(
@@ -216,6 +249,9 @@ internal static class AvroSchemaParser
                 ? precEl.GetInt32() : null,
             Scale = logicalType == "decimal" && obj.TryGetProperty("scale", out var scaleEl)
                 ? scaleEl.GetInt32() : null,
+            CustomProperties = ParseCustomProperties(
+                obj,
+                "type", "name", "namespace", "size", "logicalType", "precision", "scale", "aliases"),
         };
 
         namedTypes[fullName] = schema;
@@ -231,5 +267,17 @@ internal static class AvroSchemaParser
         foreach (var item in arr.EnumerateArray())
             result.Add(item.GetString()!);
         return result;
+    }
+
+    private static IReadOnlyDictionary<string, AvroValue> ParseCustomProperties(
+        JsonElement obj,
+        params string[] standardProperties)
+    {
+        HashSet<string> standard = new(standardProperties, StringComparer.Ordinal);
+        Dictionary<string, AvroValue> properties = new(StringComparer.Ordinal);
+        foreach (JsonProperty property in obj.EnumerateObject())
+            if (!standard.Contains(property.Name))
+                properties.Add(property.Name, AvroValue.FromJsonElement(property.Value));
+        return properties;
     }
 }

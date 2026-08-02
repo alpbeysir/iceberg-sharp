@@ -41,7 +41,7 @@ public static class BufferTestHelpers
         ExecutionContext ctx = new() { Arena = buffer, ArrowAllocator = allocator };
 
         Type resultType = Nullable.GetUnderlyingType(typeof(T2)) ?? typeof(T2);
-        IArrowType outputType = ArrowSchema.FromIcebergType(CSharpSchema.ToIcebergType(resultType, _ => -1, ""));
+        IArrowType outputType = ArrowSchemas.FromIcebergType(CSharpSchemas.ToIcebergType(resultType, _ => -1, ""));
 
         IArrowArrayBuilder<IArrowArray> builder = ArrowCompute.MakeBuilderFor(outputType, allocator);
 

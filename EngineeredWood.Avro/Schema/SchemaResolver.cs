@@ -1,8 +1,6 @@
 // Copyright (c) clast-project. All rights reserved.
 // Licensed under the Apache License, Version 2.0. See LICENSE in the project root for license information.
 
-using System.Text.Json;
-
 namespace EngineeredWood.Avro.Schema;
 
 /// <summary>
@@ -211,7 +209,7 @@ internal static class SchemaResolver
 internal readonly record struct WriterFieldAction(int ReaderFieldIndex, bool Skip);
 
 /// <summary>A reader field not in the writer that needs a default value.</summary>
-internal readonly record struct DefaultField(int ReaderIndex, JsonElement DefaultValue, AvroSchemaNode Schema);
+internal readonly record struct DefaultField(int ReaderIndex, AvroValue DefaultValue, AvroSchemaNode Schema);
 
 /// <summary>Type promotion kind.</summary>
 internal enum PromotionKind

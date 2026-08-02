@@ -45,7 +45,7 @@ public sealed class TableOperations
     {
         int schemaId = _table?.Metadata.CurrentSchemaId ?? 0;
         int nextFieldId = (_table?.Metadata.LastColumnId ?? 0) + 1;
-        Schema schema = CSharpSchema.ToIcebergSchema(typeof(TRow), schemaId, _ => nextFieldId++);
+        Schema schema = CSharpSchemas.ToIcebergSchema(typeof(TRow), schemaId, _ => nextFieldId++);
 
         Channel<RecordBatch> channel = Channel.CreateBounded<RecordBatch>(
             new BoundedChannelOptions(2048)
@@ -79,7 +79,7 @@ public sealed class TableOperations
     {
         int schemaId = _table?.Metadata.CurrentSchemaId ?? 0;
         int nextFieldId = (_table?.Metadata.LastColumnId ?? 0) + 1;
-        Schema schema = CSharpSchema.ToIcebergSchema(typeof(TRow), schemaId, _ => nextFieldId++);
+        Schema schema = CSharpSchemas.ToIcebergSchema(typeof(TRow), schemaId, _ => nextFieldId++);
 
         Channel<RecordBatch> channel = Channel.CreateBounded<RecordBatch>(
             new BoundedChannelOptions(2048)
@@ -176,7 +176,8 @@ public sealed class TableOperations
             null,
             existingManifests,
             newManifests,
-            schema.SchemaId!.Value,
+            schema,
+            partitionSpec,
             cancellationToken);
 
         await dataFileWrite;
@@ -241,7 +242,8 @@ public sealed class TableOperations
         long? parentSnapshotId,
         Channel<ManifestListEntry> existingEntries,
         Channel<ManifestFileWriteResult> newEntries,
-        int schemaId,
+        Schema schema,
+        PartitionSpec currentPartitionSpec,
         CancellationToken cancellationToken = default)
     {
         long sequenceNumber = (long)CurrentTable.Metadata.LastSequenceNumber! + 1;
@@ -257,13 +259,20 @@ public sealed class TableOperations
             snapshotId,
             sequenceNumber,
             cancellationToken);
+        IReadOnlyList<PartitionSpec> partitionSpecs = CurrentTable.Metadata
+            .PartitionSpecs
+            .Append(currentPartitionSpec)
+            .DistinctBy(spec => spec.SpecId)
+            .ToArray();
 
         await using (SequentialFileStream manifestListStream = new(manifestListFile.File))
         using (ManifestWriter<ManifestListEntry> manifestListAppender = ManifestIO.CreateManifestListWriter(
                    manifestListStream,
                    snapshotId,
                    null,
-                   sequenceNumber))
+                   sequenceNumber,
+                   schema,
+                   partitionSpecs))
         {
             await foreach (ManifestFileWriteResult entry in newEntries.Reader.ReadAllAsync(cancellationToken))
             {
@@ -306,7 +315,7 @@ public sealed class TableOperations
             FirstRowId = null,
             AddedRows = summary.AddedRecords,
             Summary = summary,
-            SchemaId = schemaId
+            SchemaId = schema.SchemaId!.Value
         };
     }
 

@@ -6,7 +6,7 @@ namespace EngineeredWood.Avro.Schema;
 /// <summary>
 /// Avro schema type tags per the Avro specification.
 /// </summary>
-internal enum AvroType
+public enum AvroType
 {
     Null,
     Boolean,
@@ -25,17 +25,21 @@ internal enum AvroType
 }
 
 /// <summary>
-/// Base class for the internal Avro schema tree. Each node represents a type in the schema.
+/// Base class for the Avro schema tree. Each node represents a type in the schema.
 /// </summary>
-internal abstract class AvroSchemaNode
+public abstract class AvroSchemaNode
 {
     public abstract AvroType Type { get; }
 
     /// <summary>Optional logical type annotation (e.g. "decimal", "date", "timestamp-millis").</summary>
     public string? LogicalType { get; init; }
+
+    /// <summary>Format-specific properties not defined by the Avro specification.</summary>
+    public IReadOnlyDictionary<string, AvroValue> CustomProperties { get; init; } =
+        new Dictionary<string, AvroValue>();
 }
 
-internal sealed class AvroPrimitiveSchema : AvroSchemaNode
+public sealed class AvroPrimitiveSchema : AvroSchemaNode
 {
     public override AvroType Type { get; }
 
@@ -61,7 +65,7 @@ internal sealed class AvroPrimitiveSchema : AvroSchemaNode
     public static readonly AvroPrimitiveSchema String = new(AvroType.String);
 }
 
-internal sealed class AvroRecordSchema : AvroSchemaNode
+public sealed class AvroRecordSchema : AvroSchemaNode
 {
     public override AvroType Type => AvroType.Record;
     public string Name { get; }
@@ -79,18 +83,23 @@ internal sealed class AvroRecordSchema : AvroSchemaNode
     }
 }
 
-internal sealed class AvroFieldNode
+public sealed class AvroFieldNode
 {
     public string Name { get; }
     public AvroSchemaNode Schema { get; }
     public IReadOnlyList<string> Aliases { get; init; } = [];
     public string? Doc { get; init; }
 
+    /// <summary>Format-specific field properties, such as Iceberg's <c>field-id</c>.</summary>
+    public IReadOnlyDictionary<string, AvroValue> CustomProperties { get; init; } =
+        new Dictionary<string, AvroValue>();
+
     /// <summary>
-    /// The default value as a System.Text.Json element, or null if no default.
+    /// The default value, or null if no default is declared. Use <see cref="AvroValue.Null"/>
+    /// for an explicit Avro null default.
     /// Avro spec: fields with no default are required.
     /// </summary>
-    public System.Text.Json.JsonElement? Default { get; init; }
+    public AvroValue? Default { get; init; }
 
     public AvroFieldNode(string name, AvroSchemaNode schema)
     {
@@ -99,7 +108,7 @@ internal sealed class AvroFieldNode
     }
 }
 
-internal sealed class AvroEnumSchema : AvroSchemaNode
+public sealed class AvroEnumSchema : AvroSchemaNode
 {
     public override AvroType Type => AvroType.Enum;
     public string Name { get; }
@@ -118,7 +127,7 @@ internal sealed class AvroEnumSchema : AvroSchemaNode
     }
 }
 
-internal sealed class AvroArraySchema : AvroSchemaNode
+public sealed class AvroArraySchema : AvroSchemaNode
 {
     public override AvroType Type => AvroType.Array;
     public AvroSchemaNode Items { get; }
@@ -129,7 +138,7 @@ internal sealed class AvroArraySchema : AvroSchemaNode
     }
 }
 
-internal sealed class AvroMapSchema : AvroSchemaNode
+public sealed class AvroMapSchema : AvroSchemaNode
 {
     public override AvroType Type => AvroType.Map;
     public AvroSchemaNode Values { get; }
@@ -140,7 +149,7 @@ internal sealed class AvroMapSchema : AvroSchemaNode
     }
 }
 
-internal sealed class AvroFixedSchema : AvroSchemaNode
+public sealed class AvroFixedSchema : AvroSchemaNode
 {
     public override AvroType Type => AvroType.Fixed;
     public string Name { get; }
@@ -163,7 +172,7 @@ internal sealed class AvroFixedSchema : AvroSchemaNode
     }
 }
 
-internal sealed class AvroUnionSchema : AvroSchemaNode
+public sealed class AvroUnionSchema : AvroSchemaNode
 {
     public override AvroType Type => AvroType.Union;
     public IReadOnlyList<AvroSchemaNode> Branches { get; }

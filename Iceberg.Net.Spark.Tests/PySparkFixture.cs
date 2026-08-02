@@ -151,6 +151,48 @@ public sealed class PySparkFixture : IAsyncLifetime
         }
     }
 
+    public async Task WritePartitionedTable(
+        Identifier identifier,
+        IReadOnlyList<(long Id, string Category, long Region)> rows)
+    {
+        await _gate.WaitAsync(TestContext.Current.CancellationToken);
+        try
+        {
+            using (Py.GIL())
+            {
+                dynamic spark = _spark ?? throw new InvalidOperationException("PySpark is not initialized");
+                using PyList pythonRows = new();
+                foreach ((long id, string category, long region) in rows)
+                {
+                    using PyInt pythonId = new(id);
+                    using PyString pythonCategory = new(category);
+                    using PyInt pythonRegion = new(region);
+                    using PyTuple row = new([pythonId, pythonCategory, pythonRegion]);
+                    pythonRows.Append(row);
+                }
+
+                using PyString idColumn = new("id");
+                using PyString categoryColumn = new("category");
+                using PyString regionColumn = new("region");
+                using PyList columns = new([idColumn, categoryColumn, regionColumn]);
+                using PyObject dataFrame = (PyObject)spark.createDataFrame(pythonRows, columns);
+                dynamic writer = ((dynamic)dataFrame).write;
+                string tableName = string.Join(
+                    ".",
+                    new[] { "iceberg" }.Concat(identifier).Select(QuoteIdentifier));
+                writer
+                    .format("iceberg")
+                    .mode("overwrite")
+                    .partitionBy("category", "region")
+                    .saveAsTable(tableName);
+            }
+        }
+        finally
+        {
+            _gate.Release();
+        }
+    }
+
     private static object? ToManaged(PyObject value)
     {
         if (value.IsNone()) return null;

@@ -16,9 +16,19 @@ public sealed class AvroSchema
     /// <summary>The raw JSON text of the Avro schema.</summary>
     public string Json => _json;
 
+    /// <summary>The parsed schema tree.</summary>
+    public AvroSchemaNode Root => Parsed;
+
     public AvroSchema(string json)
     {
         _json = json ?? throw new ArgumentNullException(nameof(json));
+    }
+
+    /// <summary>Creates an Avro schema from a typed schema tree.</summary>
+    public AvroSchema(AvroSchemaNode root)
+        : this(AvroSchemaWriter.ToJson(root ?? throw new ArgumentNullException(nameof(root))))
+    {
+        _parsed = root;
     }
 
     internal AvroSchemaNode Parsed => _parsed ??= AvroSchemaParser.Parse(_json);

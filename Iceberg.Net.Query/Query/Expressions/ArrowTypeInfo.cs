@@ -55,14 +55,14 @@ public static class ArrowTypeUtils
     internal static ArrowTypeInfo ForCSharpType(Type type)
     {
         type = Nullable.GetUnderlyingType(type) ?? type;
-        
+
         // Recursively handle generic enumerable structures (like IEnumerable<T> or List<T>)
         if (type.IsGenericType && type.ImplementsInterface(typeof(IEnumerable<>)))
             return ListOf(ForCSharpType(type.GetGenericArguments()[0]));
 
         if (type.IsClass || type is { IsValueType: true, IsPrimitive: false })
         {
-            IArrowType outputType = ArrowSchema.FromIcebergType(CSharpSchema.ToIcebergType(type, s => -1, ""));
+            IArrowType outputType = ArrowSchemas.FromIcebergType(CSharpSchemas.ToIcebergType(type, s => -1, ""));
             return new ArrowTypeInfo(outputType, typeof(StructArray), typeof(StructArrayBuilder), type);
         }
 

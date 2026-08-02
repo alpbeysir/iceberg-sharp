@@ -56,7 +56,7 @@ public sealed class ParquetDataFileFormat(TablePropertyResolver properties) : ID
         using WriterProperties parquetWriterProperties =
             ParquetTableProperties.CreateWriterProperties(properties);
         using ArrowWriterProperties arrowWriterProperties = ArrowWriterProperties.GetDefault();
-        Apache.Arrow.Schema arrowSchema = ArrowSchema.FromSchema(schema);
+        Apache.Arrow.Schema arrowSchema = ArrowSchemas.FromSchema(schema);
         using FileWriter arrowWriter = new(
             stream,
             arrowSchema,

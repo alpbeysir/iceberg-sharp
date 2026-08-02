@@ -6,6 +6,7 @@ using Apache.Arrow.Serialization;
 using EngineeredWood.IO;
 using Iceberg.Net.Data;
 using Iceberg.Net.Metadata;
+using Iceberg.Net.Schemas;
 using Iceberg.Net.Storage;
 
 namespace Iceberg.Net.Catalog;
@@ -39,6 +40,37 @@ public sealed class TableScan(Table table)
         ChannelWriter<RecordBatch> results,
         CancellationToken cancellationToken = default)
     {
+        Channel<ManifestEntry> manifestEntries = Channel.CreateBounded<ManifestEntry>(
+            new BoundedChannelOptions(8192)
+            {
+                FullMode = BoundedChannelFullMode.Wait
+            });
+
+        Task manifestRead = ReadManifestEntries(
+            manifestEntries.Writer,
+            snapshotId,
+            cancellationToken);
+
+        Task dataFileReaders = Parallel.ForEachAsync(
+            manifestEntries.Reader.ReadAllAsync(cancellationToken),
+            new ParallelOptions
+            {
+                CancellationToken = cancellationToken,
+                MaxDegreeOfParallelism = 16
+            },
+            async (entry, token) => { await ReadDataFileAsync(entry.DataFile, results, token); });
+
+        await manifestRead;
+        manifestEntries.Writer.Complete();
+
+        await dataFileReaders;
+    }
+
+    public async Task ReadManifestEntries(
+        ChannelWriter<ManifestEntry> results,
+        long? snapshotId = null,
+        CancellationToken cancellationToken = default)
+    {
         Snapshot snapshot = GetSnapshotOrLatest(snapshotId);
 
         Channel<ManifestListEntry> manifestListEntries = Channel.CreateBounded<ManifestListEntry>(
@@ -46,12 +78,6 @@ public sealed class TableScan(Table table)
             {
                 FullMode = BoundedChannelFullMode.Wait,
                 SingleWriter = true
-            });
-
-        Channel<ManifestEntry> manifestEntries = Channel.CreateBounded<ManifestEntry>(
-            new BoundedChannelOptions(8192)
-            {
-                FullMode = BoundedChannelFullMode.Wait
             });
 
         Task snapshotRead = ReadSnapshotAsync(
@@ -66,24 +92,11 @@ public sealed class TableScan(Table table)
                 CancellationToken = cancellationToken,
                 MaxDegreeOfParallelism = 4
             },
-            async (entry, token) => { await ReadManifestAsync(entry, manifestEntries.Writer, token); });
-
-        Task dataFileReaders = Parallel.ForEachAsync(
-            manifestEntries.Reader.ReadAllAsync(cancellationToken),
-            new ParallelOptions
-            {
-                CancellationToken = cancellationToken,
-                MaxDegreeOfParallelism = 16
-            },
-            async (entry, token) => { await ReadDataFileAsync(entry.DataFile, results, token); });
+            async (entry, token) => { await ReadManifestAsync(entry, results, token); });
 
         await snapshotRead;
         manifestListEntries.Writer.Complete();
-
         await manifestReaders;
-        manifestEntries.Writer.Complete();
-
-        await dataFileReaders;
     }
 
     internal async Task ReadSnapshotAsync(
@@ -92,6 +105,9 @@ public sealed class TableScan(Table table)
         CancellationToken cancellationToken = default)
     {
         Snapshot snapshot = table.Metadata.SnapshotsById[snapshotId];
+        int schemaId = snapshot.SchemaId ?? table.Metadata.CurrentSchemaId ??
+            throw new InvalidDataException("Table metadata does not identify a schema for the snapshot.");
+        Iceberg.Net.Schemas.Schema schema = table.Metadata.SchemasById[schemaId];
 
         await using PathAndFile<IRandomAccessFile> manifestListFile = await OpenFile(
             snapshot.ManifestList,
@@ -100,6 +116,8 @@ public sealed class TableScan(Table table)
         await ManifestIO.ReadManifestListAsync(
             manifestListStream,
             results,
+            schema,
+            table.Metadata.PartitionSpecs,
             cancellationToken);
     }
 

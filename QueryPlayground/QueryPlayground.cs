@@ -130,7 +130,7 @@ public class QueryPlayground
         UnsafeArenaMemoryAllocator allocator = new(buffer);
         ExecutionContext ctx = new() { Arena = buffer, ArrowAllocator = allocator };
 
-        IArrowType outputType = ArrowSchema.FromIcebergType(CSharpSchema.ToIcebergType(typeof(T2), s => -1, ""));
+        IArrowType outputType = ArrowSchemas.FromIcebergType(CSharpSchemas.ToIcebergType(typeof(T2), s => -1, ""));
 
         IArrowArrayBuilder<IArrowArray> builder = ArrowCompute.MakeBuilderFor(outputType, allocator);
         using (new MeasureHeap("arrow"))
@@ -172,7 +172,7 @@ public class QueryPlayground
 
     public static void Show<T>(StructArray arr)
     {
-        Schema schema = ArrowSchema.FromSchema(CSharpSchema.ToIcebergSchema(typeof(T), -1, s => -1));
+        Schema schema = ArrowSchemas.FromSchema(CSharpSchemas.ToIcebergSchema(typeof(T), -1, s => -1));
         IEnumerable<T> list = ArrowReader.ReadRecordBatch<T>(arr.AsRecordBatch(schema));
         foreach (T l in list) Console.WriteLine(l);
     }
