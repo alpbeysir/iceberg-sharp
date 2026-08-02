@@ -16,8 +16,6 @@ public readonly struct Identifier : IEnumerable<string>, IEquatable<Identifier>
         Parts = [];
     }
 
-    public static Identifier? Root => null;
-
     private List<string> Parts { get; }
 
     public IEnumerator<string> GetEnumerator()
@@ -29,12 +27,7 @@ public readonly struct Identifier : IEnumerable<string>, IEquatable<Identifier>
     {
         return GetEnumerator();
     }
-
-    public string GetEncoded(char separator = DefaultNamespaceSeparator)
-    {
-        return string.Join(separator, Parts);
-    }
-
+    
     public string GetEncoded(string separator)
     {
         return string.Join(separator, Parts);
