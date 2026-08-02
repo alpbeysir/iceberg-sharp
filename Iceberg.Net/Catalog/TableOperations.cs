@@ -4,6 +4,7 @@ using Apache.Arrow;
 using Apache.Arrow.Serialization;
 using EngineeredWood.IO;
 using Iceberg.Net.Data;
+using Iceberg.Net.Diagnostics;
 using Iceberg.Net.Metadata;
 using Iceberg.Net.Misc;
 using Iceberg.Net.Query;
@@ -63,7 +64,11 @@ public sealed class TableOperations
                 foreach (TRow[] chunk in rows.Chunk(16384))
                 {
                     RecordBatch batch = TRow.ToRecordBatch(chunk);
-                    await channel.Writer.WriteAsync(batch, cancellationToken);
+                    await PipelineMetrics.WriteAsync(
+                        channel.Writer,
+                        batch,
+                        PipelineStage.ArrowConversion,
+                        cancellationToken);
                 }
             },
             cancellationToken);
@@ -97,7 +102,11 @@ public sealed class TableOperations
                 foreach (TRow[] chunk in rows.Chunk(16384))
                 {
                     RecordBatch batch = RecordBatchBuilder.FromObjects(chunk);
-                    await channel.Writer.WriteAsync(batch, cancellationToken);
+                    await PipelineMetrics.WriteAsync(
+                        channel.Writer,
+                        batch,
+                        PipelineStage.ArrowConversion,
+                        cancellationToken);
                 }
             },
             cancellationToken);
@@ -249,12 +258,14 @@ public sealed class TableOperations
             written,
             dataFile.File.Position);
 
-        await results.Writer.WriteAsync(
+        await PipelineMetrics.WriteAsync(
+            results.Writer,
             new DataFileWriteResult(
                 dataFile.Path,
                 dataFileFormat.Format,
                 written,
                 dataFile.File.Position),
+            PipelineStage.DataFileWrite,
             cancellationToken);
     }
 
@@ -386,13 +397,15 @@ public sealed class TableOperations
             }
         }
 
-        await results.Writer.WriteAsync(
+        await PipelineMetrics.WriteAsync(
+            results.Writer,
             new ManifestFileWriteResult(
                 manifestFile.Path,
                 manifestFile.File.Position,
                 addedRowsCount,
                 addedDataFilesCount,
                 addedFilesSize),
+            PipelineStage.ManifestWrite,
             cancellationToken);
 
         _logger.LogDebug(

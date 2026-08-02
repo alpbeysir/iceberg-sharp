@@ -8,6 +8,7 @@ using EngineeredWood.Avro;
 using EngineeredWood.Avro.Container;
 using EngineeredWood.Avro.Encoding;
 using EngineeredWood.Expressions;
+using Iceberg.Net.Diagnostics;
 using Iceberg.Net.Misc;
 using Iceberg.Net.Schemas;
 using Iceberg.Net.Serialization;
@@ -89,7 +90,11 @@ internal static class ManifestIO
                 }
 
                 offset += bytesRead;
-                await output.WriteAsync(transform?.Invoke(entry) ?? entry, cancellationToken);
+                await PipelineMetrics.WriteAsync(
+                    output,
+                    transform?.Invoke(entry) ?? entry,
+                    PipelineStage.ManifestRead,
+                    cancellationToken);
             }
         }
     }
@@ -119,7 +124,11 @@ internal static class ManifestIO
                 }
 
                 offset += bytesRead;
-                await output.WriteAsync(entry, cancellationToken);
+                await PipelineMetrics.WriteAsync(
+                    output,
+                    entry,
+                    PipelineStage.ManifestListRead,
+                    cancellationToken);
             }
         }
     }

@@ -26,7 +26,7 @@ public sealed class TableScan(Table table)
         VerifyRowSchema<TRow>(snapshot, snapshotSchema);
 
         Channel<RecordBatch> columnBuffers = Channel.CreateBounded<RecordBatch>(
-            new BoundedChannelOptions(16384)
+            new BoundedChannelOptions(512)
             {
                 FullMode = BoundedChannelFullMode.Wait
             });
@@ -45,6 +45,7 @@ public sealed class TableScan(Table table)
                 rowCount++;
                 yield return row;
             }
+
             batch.Dispose();
         }
 
@@ -115,7 +116,7 @@ public sealed class TableScan(Table table)
             new ParallelOptions
             {
                 CancellationToken = cancellationToken,
-                MaxDegreeOfParallelism = 4
+                MaxDegreeOfParallelism = 16
             },
             async (entry, token) => { await ReadManifestAsync(entry, results, token); });
 

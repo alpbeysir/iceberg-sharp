@@ -3,6 +3,7 @@ using Apache.Arrow;
 using Apache.Arrow.Ipc;
 using Iceberg.Net.Catalog;
 using Iceberg.Net.Data;
+using Iceberg.Net.Diagnostics;
 using Iceberg.Net.Schemas;
 using ParquetSharp;
 using ParquetSharp.Arrow;
@@ -43,7 +44,11 @@ public sealed class ParquetDataFileFormat(TablePropertyResolver properties) : ID
         {
             RecordBatch? batch = await recordBatchReader.ReadNextRecordBatchAsync(cancellationToken);
             if (batch is null) break;
-            await results.WriteAsync(batch, cancellationToken);
+            await PipelineMetrics.WriteAsync(
+                results,
+                batch,
+                PipelineStage.DataFileRead,
+                cancellationToken);
         }
     }
 
