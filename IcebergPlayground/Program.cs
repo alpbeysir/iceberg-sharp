@@ -1,8 +1,15 @@
-﻿using Iceberg.Net.Catalog;
+﻿using Iceberg.Net.Azure;
+using Iceberg.Net.Catalog;
+using Iceberg.Net.Data;
+using Iceberg.Net.GCS;
+using Iceberg.Net.Parquet;
 using Iceberg.Net.S3;
 using Iceberg.Net.Storage;
 
 TableFileSystemRegistry.Register<S3TableFileSystemFactory>();
+TableFileSystemRegistry.Register<AzureTableFileSystemFactory>();
+TableFileSystemRegistry.Register<GcsTableFileSystemFactory>();
+DataFileFormatRegistry.Register<ParquetDataFileFormat>();
 
 S3Config storageConfig = new()
 {
