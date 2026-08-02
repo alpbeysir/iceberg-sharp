@@ -43,10 +43,6 @@ public sealed record Table(
         CancellationToken cancellationToken = default)
     {
         ITableFileSystem fileSystem = TableFileSystemRegistry.Resolve(uri, Resolve, StorageCredentials);
-        _logger.LogDebug(
-            "Opening object storage file {FileUri} for random-access read using {FileSystemType}",
-            uri,
-            fileSystem.GetType().Name);
         IRandomAccessFile file = await fileSystem.OpenReadAsync(GetFileSystemPath(uri), cancellationToken);
         _logger.LogDebug("Opened object storage file {FileUri} for reading", uri);
         return file;
@@ -58,11 +54,6 @@ public sealed record Table(
         CancellationToken cancellationToken = default)
     {
         ITableFileSystem fileSystem = TableFileSystemRegistry.Resolve(uri, Resolve, StorageCredentials);
-        _logger.LogDebug(
-            "Creating object storage file {FileUri} using {FileSystemType} (overwrite: {Overwrite})",
-            uri,
-            fileSystem.GetType().Name,
-            overwrite);
         ISequentialFile file = await fileSystem.CreateAsync(
             GetFileSystemPath(uri),
             overwrite,
