@@ -1,8 +1,8 @@
-using Iceberg.Net.Schemas;
+using Iceberg.Net.Metadata;
 
-namespace Iceberg.Net.Metadata;
+namespace Iceberg.Net.Schemas;
 
-internal static class ManifestTypeResolver
+internal static class SchemaUtilities
 {
     internal static IReadOnlyDictionary<int, IIcebergType> FieldsById(Schema schema)
     {
@@ -16,7 +16,7 @@ internal static class ManifestTypeResolver
         PartitionSpec partitionSpec)
     {
         return partitionSpec.Fields
-            .Select(field => ResultType(
+            .Select(field => PartitionResultType(
                 fields.TryGetValue(field.SourceId, out IIcebergType? sourceType)
                     ? sourceType
                     : throw new InvalidDataException(
@@ -25,7 +25,7 @@ internal static class ManifestTypeResolver
             .ToArray();
     }
 
-    private static PrimitiveType ResultType(IIcebergType sourceType, string transform)
+    private static PrimitiveType PartitionResultType(IIcebergType sourceType, string transform)
     {
         PrimitiveType source = sourceType is PrimitiveType primitive
             ? PrimitiveType.Parse(primitive.Name)

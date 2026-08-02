@@ -10,7 +10,7 @@ public static class AvroSchemas
 {
     public static EngineeredWood.Avro.AvroSchema FromSchema(
         Schema schema,
-        string recordName = "record") =>
+        string recordName) =>
         new(FromStruct(schema, AvroName(recordName)));
 
     public static AvroSchemaNode FromIcebergType(IIcebergType type, int fieldId)
@@ -168,7 +168,8 @@ public static class AvroSchemas
         ArgumentException.ThrowIfNullOrEmpty(name);
         if (!(char.IsLetter(name[0]) || name[0] == '_')) return false;
         for (int i = 1; i < name.Length; i++)
-            if (!(char.IsLetterOrDigit(name[i]) || name[i] == '_')) return false;
+            if (!(char.IsLetterOrDigit(name[i]) || name[i] == '_'))
+                return false;
         return true;
     }
 

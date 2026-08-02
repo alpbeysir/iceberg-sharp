@@ -4,6 +4,7 @@ using System.Globalization;
 using System.Text;
 using System.Text.Json;
 using System.Threading.Channels;
+using EngineeredWood.Avro;
 using EngineeredWood.Avro.Container;
 using EngineeredWood.Avro.Encoding;
 using EngineeredWood.Expressions;
@@ -21,7 +22,6 @@ internal static class ManifestIO
         PartitionSpec partitionSpec,
         Content content)
     {
-        ManifestEntryTypes types = ResolveManifestEntryTypes(tableSchema, partitionSpec);
         Dictionary<string, byte[]> metadata = new()
         {
             ["schema"] = JsonSerializer.SerializeToUtf8Bytes(
@@ -38,11 +38,8 @@ internal static class ManifestIO
 
         return new ManifestWriter<ManifestEntry>(
             stream,
-            AvroSchemas.FromSchema(
-                ManifestSchemas.ManifestEntryFor(partitionSpec, types.PartitionTypes),
-                "manifest_entry"),
             metadata,
-            (writer, entry) => WriteManifestEntry(writer, entry, types));
+            new ManifestEntryAvroSerialization(tableSchema, partitionSpec));
     }
 
     internal static ManifestWriter<ManifestListEntry> CreateManifestListWriter(
@@ -53,8 +50,6 @@ internal static class ManifestIO
         Schema tableSchema,
         IReadOnlyList<PartitionSpec> partitionSpecs)
     {
-        IReadOnlyDictionary<int, IReadOnlyList<PrimitiveType>> partitionTypesBySpecId =
-            ResolvePartitionTypesBySpecId(tableSchema, partitionSpecs);
         Dictionary<string, byte[]> metadata = new()
         {
             ["snapshot-id"] = Utf8(snapshotId),
@@ -65,12 +60,8 @@ internal static class ManifestIO
 
         return new ManifestWriter<ManifestListEntry>(
             stream,
-            AvroSchemas.FromSchema(ManifestSchemas.ManifestList, "manifest_file"),
             metadata,
-            (writer, entry) => WriteManifestListEntry(
-                writer,
-                entry,
-                ResolvePartitionTypes(partitionTypesBySpecId, entry.PartitionSpecId)));
+            new ManifestListEntryAvroSerialization(tableSchema, partitionSpecs));
     }
 
     internal static async Task ReadManifestAsync(
@@ -83,7 +74,7 @@ internal static class ManifestIO
             stream,
             cancellationToken);
         (Schema tableSchema, PartitionSpec partitionSpec) = ReadManifestContext(reader.Metadata);
-        ManifestEntryTypes types = ResolveManifestEntryTypes(tableSchema, partitionSpec);
+        ManifestEntryAvroSerialization serialization = new(tableSchema, partitionSpec);
         while (await reader.ReadBlockAsync(cancellationToken) is { } block)
         {
             int offset = 0;
@@ -93,7 +84,7 @@ internal static class ManifestIO
                 int bytesRead;
                 {
                     AvroBinaryReader binaryReader = new(block.data.Span[offset..]);
-                    entry = ReadManifestEntry(ref binaryReader, types);
+                    entry = serialization.Read(ref binaryReader);
                     bytesRead = binaryReader.Position;
                 }
 
@@ -113,8 +104,7 @@ internal static class ManifestIO
         await using OcfReaderAsync reader = await OcfReaderAsync.OpenAsync(
             stream,
             cancellationToken);
-        Dictionary<int, IReadOnlyList<PrimitiveType>> partitionTypesBySpecId =
-            ResolvePartitionTypesBySpecId(tableSchema, partitionSpecs);
+        ManifestListEntryAvroSerialization serialization = new(tableSchema, partitionSpecs);
         while (await reader.ReadBlockAsync(cancellationToken) is { } block)
         {
             int offset = 0;
@@ -124,9 +114,7 @@ internal static class ManifestIO
                 int bytesRead;
                 {
                     AvroBinaryReader binaryReader = new(block.data.Span[offset..]);
-                    entry = ReadManifestListEntry(
-                        ref binaryReader,
-                        partitionTypesBySpecId);
+                    entry = serialization.Read(ref binaryReader);
                     bytesRead = binaryReader.Position;
                 }
 
@@ -726,9 +714,9 @@ internal static class ManifestIO
         Schema tableSchema,
         PartitionSpec partitionSpec)
     {
-        IReadOnlyDictionary<int, IIcebergType> fieldTypes = ManifestTypeResolver.FieldsById(tableSchema);
+        IReadOnlyDictionary<int, IIcebergType> fieldTypes = SchemaUtilities.FieldsById(tableSchema);
         IReadOnlyList<PrimitiveType> partitionTypes =
-            ManifestTypeResolver.PartitionTypes(fieldTypes, partitionSpec);
+            SchemaUtilities.PartitionTypes(fieldTypes, partitionSpec);
         return new ManifestEntryTypes(partitionSpec.SpecId, partitionTypes, fieldTypes);
     }
 
@@ -736,13 +724,13 @@ internal static class ManifestIO
         Schema tableSchema,
         IReadOnlyList<PartitionSpec> partitionSpecs)
     {
-        IReadOnlyDictionary<int, IIcebergType> fieldTypes = ManifestTypeResolver.FieldsById(tableSchema);
+        IReadOnlyDictionary<int, IIcebergType> fieldTypes = SchemaUtilities.FieldsById(tableSchema);
         Dictionary<int, IReadOnlyList<PrimitiveType>> result = new(partitionSpecs.Count);
         foreach (PartitionSpec partitionSpec in partitionSpecs)
         {
             int specId = partitionSpec.SpecId ?? throw new InvalidDataException(
                 "A table partition spec does not have a spec ID.");
-            result.TryAdd(specId, ManifestTypeResolver.PartitionTypes(fieldTypes, partitionSpec));
+            result.TryAdd(specId, SchemaUtilities.PartitionTypes(fieldTypes, partitionSpec));
         }
 
         return result;
@@ -767,4 +755,49 @@ internal static class ManifestIO
         int? PartitionSpecId,
         IReadOnlyList<PrimitiveType> PartitionTypes,
         IReadOnlyDictionary<int, IIcebergType> FieldTypes);
+
+    private sealed class ManifestEntryAvroSerialization : IAvroSerializer<ManifestEntry>
+    {
+        private readonly ManifestEntryTypes _types;
+
+        internal ManifestEntryAvroSerialization(Schema tableSchema, PartitionSpec partitionSpec)
+        {
+            _types = ResolveManifestEntryTypes(tableSchema, partitionSpec);
+            Schema = AvroSchemas.FromSchema(
+                ManifestSchemas.ManifestEntryFor(partitionSpec, _types.PartitionTypes),
+                "manifest_entry");
+        }
+
+        public AvroSchema Schema { get; }
+
+        public void Write(AvroBinaryWriter writer, ManifestEntry value) =>
+            WriteManifestEntry(writer, value, _types);
+
+        public ManifestEntry Read(ref AvroBinaryReader reader) =>
+            ReadManifestEntry(ref reader, _types);
+    }
+
+    private sealed class ManifestListEntryAvroSerialization : IAvroSerializer<ManifestListEntry>
+    {
+        private readonly IReadOnlyDictionary<int, IReadOnlyList<PrimitiveType>> _partitionTypesBySpecId;
+
+        internal ManifestListEntryAvroSerialization(
+            Schema tableSchema,
+            IReadOnlyList<PartitionSpec> partitionSpecs)
+        {
+            _partitionTypesBySpecId = ResolvePartitionTypesBySpecId(tableSchema, partitionSpecs);
+        }
+
+        public AvroSchema Schema { get; } =
+            AvroSchemas.FromSchema(ManifestSchemas.ManifestList, "manifest_file");
+
+        public void Write(AvroBinaryWriter writer, ManifestListEntry value) =>
+            WriteManifestListEntry(
+                writer,
+                value,
+                ResolvePartitionTypes(_partitionTypesBySpecId, value.PartitionSpecId));
+
+        public ManifestListEntry Read(ref AvroBinaryReader reader) =>
+            ReadManifestListEntry(ref reader, _partitionTypesBySpecId);
+    }
 }
