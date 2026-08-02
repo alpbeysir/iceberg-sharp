@@ -9,12 +9,12 @@ using Iceberg.Net.Tests;
 
 namespace Iceberg.Net.Tests;
 
-public sealed class RestCatalogFixture : IAsyncLifetime
+public class RestCatalogFixture : IAsyncLifetime
 {
     private const bool DropAfter = true;
     private ICatalog? _catalog;
 
-    public Identifier BaseNamespace => ["test"];
+    public virtual Identifier BaseNamespace => ["test"];
 
     public async ValueTask InitializeAsync()
     {

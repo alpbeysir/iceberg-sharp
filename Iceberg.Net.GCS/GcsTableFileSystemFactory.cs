@@ -28,7 +28,7 @@ public sealed class GcsTableFileSystemFactory : ITableFileSystemFactory
         if (!string.IsNullOrWhiteSpace(accessToken))
             return StorageClient.Create(GoogleCredential.FromAccessToken(accessToken));
 
-        if (!config.NoAuth && config.ServiceHost is null) return StorageClient.Create();
+        if (config is { NoAuth: false, ServiceHost: null }) return StorageClient.Create();
 
         StorageClientBuilder builder = new() { UnauthenticatedAccess = config.NoAuth };
         if (config.ServiceHost is not null) builder.BaseUri = config.ServiceHost;

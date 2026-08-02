@@ -1,6 +1,6 @@
 ﻿using Iceberg.Net.DuckUtils;
 
-namespace Iceberg.Net.Tests;
+namespace Iceberg.Net.DuckDB.Tests;
 
 public sealed class DuckDbFixture : IAsyncLifetime
 {

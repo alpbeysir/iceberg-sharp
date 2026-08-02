@@ -86,6 +86,7 @@ internal sealed class RandomAccessFileStream(IRandomAccessFile file, bool ownsFi
             _disposed = true;
             if (ownsFile) file.Dispose();
         }
+
         base.Dispose(disposing);
     }
 
@@ -94,7 +95,6 @@ internal sealed class RandomAccessFileStream(IRandomAccessFile file, bool ownsFi
         if (_disposed) return;
         _disposed = true;
         if (ownsFile) await file.DisposeAsync();
-        GC.SuppressFinalize(this);
     }
 
     private long GetLength()

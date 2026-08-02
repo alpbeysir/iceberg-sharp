@@ -13,3 +13,4 @@ Playground/Properties/launchSettings.json
 **/.kiota.log
 .DS_Store
 temp/engineered-wood/
+**/.venv/

@@ -4,13 +4,13 @@ namespace Iceberg.Net.Azure;
 
 public sealed record ADLSConfig
 {
-    public string? ConnectionString { get; init; }
+    public string? ConnectionString { get; private init; }
 
-    public string? SasToken { get; init; }
+    public string? SasToken { get; private init; }
 
-    public string? SharedKeyAccountName { get; init; }
+    public string? SharedKeyAccountName { get; private init; }
 
-    public string? SharedKeyAccountKey { get; init; }
+    public string? SharedKeyAccountKey { get; private init; }
 
     public static ADLSConfig FromResolver(string account, PropertyResolver resolve)
     {

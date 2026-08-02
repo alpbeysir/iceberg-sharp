@@ -83,6 +83,7 @@ internal sealed class SequentialFileStream(ISequentialFile file, bool ownsFile =
             _disposed = true;
             if (ownsFile) file.Dispose();
         }
+
         base.Dispose(disposing);
     }
 
@@ -91,6 +92,5 @@ internal sealed class SequentialFileStream(ISequentialFile file, bool ownsFile =
         if (_disposed) return;
         _disposed = true;
         if (ownsFile) await file.DisposeAsync();
-        GC.SuppressFinalize(this);
     }
 }
