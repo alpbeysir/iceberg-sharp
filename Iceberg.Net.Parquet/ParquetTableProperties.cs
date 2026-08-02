@@ -19,12 +19,10 @@ internal static class ParquetTableProperties
         if (properties.TryGetInt32(TableProperties.ParquetCompressionLevel, out int compressionLevel))
             builder.CompressionLevel(compressionLevel);
 
-        builder.DataPagesize(GetPositiveInt32(
-            properties,
+        builder.DataPagesize(properties.GetPositiveInt32(
             TableProperties.ParquetPageSizeBytes,
             TableProperties.ParquetPageSizeBytesDefault));
-        builder.DictionaryPagesizeLimit(GetPositiveInt32(
-            properties,
+        builder.DictionaryPagesizeLimit(properties.GetPositiveInt32(
             TableProperties.ParquetDictSizeBytes,
             TableProperties.ParquetDictSizeBytesDefault));
         builder.DataPageVersion(ParsePageVersion(properties.GetString(
@@ -60,22 +58,9 @@ internal static class ParquetTableProperties
         ArrowReaderProperties readerProperties,
         TablePropertyResolver properties)
     {
-        readerProperties.BatchSize = GetPositiveInt32(
-            properties,
+        readerProperties.BatchSize = properties.GetPositiveInt32(
             TableProperties.ParquetBatchSize,
             TableProperties.ParquetBatchSizeDefault);
-    }
-
-    private static int GetPositiveInt32(
-        TablePropertyResolver properties,
-        string property,
-        int defaultValue)
-    {
-        int value = properties.GetInt32(property, defaultValue);
-        return value > 0
-            ? value
-            : throw new FormatException(
-                $"Table property '{property}' has invalid value '{value}'; expected a positive integer.");
     }
 
     private static Compression ParseCompression(string value)

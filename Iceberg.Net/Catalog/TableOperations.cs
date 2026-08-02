@@ -192,9 +192,8 @@ public sealed class TableOperations
         await using PathAndFile<ISequentialFile> dataFile = await CreateDataFile(
             dataFileFormat.FileExtension,
             cancellationToken);
-        await using SequentialFileStream dataFileStream = new(dataFile.File);
         long written = await dataFileFormat.WriteAsync(
-            dataFileStream,
+            dataFile.File,
             schema,
             batches.Reader,
             cancellationToken);
@@ -686,12 +685,11 @@ public sealed class TableOperations
             table,
             dataFile.FilePath,
             cancellationToken);
-        await using RandomAccessFileStream dataFileStream = new(storageFile.File);
         IDataFileFormat dataFileFormat = DataFileFormatRegistry.Resolve(
             dataFile.FileFormat,
             table.Properties);
         await dataFileFormat.ReadAsync(
-            dataFileStream,
+            storageFile.File,
             schema,
             results,
             fieldIds,

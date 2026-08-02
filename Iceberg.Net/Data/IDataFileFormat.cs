@@ -1,5 +1,7 @@
 using Apache.Arrow;
+using EngineeredWood.IO;
 using Iceberg.Net.Catalog;
+using Iceberg.Net.Storage;
 using System.Threading.Channels;
 using Schema = Iceberg.Net.Schemas.Schema;
 
@@ -23,11 +25,36 @@ public interface IDataFileFormat
         Schema schema,
         ChannelWriter<RecordBatch> results,
         IReadOnlySet<int>? fieldIds = null,
-        CancellationToken cancellationToken = default);
+        CancellationToken cancellationToken = default) =>
+        throw new NotSupportedException(
+            $"{GetType().FullName} does not support reading from a stream.");
+
+    async Task ReadAsync(
+        IRandomAccessFile file,
+        Schema schema,
+        ChannelWriter<RecordBatch> results,
+        IReadOnlySet<int>? fieldIds = null,
+        CancellationToken cancellationToken = default)
+    {
+        await using RandomAccessFileStream stream = new(file);
+        await ReadAsync(stream, schema, results, fieldIds, cancellationToken);
+    }
 
     ValueTask<long> WriteAsync(
         Stream stream,
         Schema schema,
         ChannelReader<RecordBatch> batches,
-        CancellationToken cancellationToken = default);
+        CancellationToken cancellationToken = default) =>
+        throw new NotSupportedException(
+            $"{GetType().FullName} does not support writing to a stream.");
+
+    async ValueTask<long> WriteAsync(
+        ISequentialFile file,
+        Schema schema,
+        ChannelReader<RecordBatch> batches,
+        CancellationToken cancellationToken = default)
+    {
+        await using SequentialFileStream stream = new(file);
+        return await WriteAsync(stream, schema, batches, cancellationToken);
+    }
 }

@@ -30,6 +30,14 @@ public sealed class TablePropertyResolver(
         return TryGetInt32(property, out int value) ? value : defaultValue;
     }
 
+    public int GetPositiveInt32(string property, int defaultValue)
+    {
+        int value = GetInt32(property, defaultValue);
+        return value > 0
+            ? value
+            : throw InvalidValue(property, value.ToString(CultureInfo.InvariantCulture), "a positive integer");
+    }
+
     public bool TryGetInt32(string property, out int value)
     {
         string? configuredValue = GetString(property);
@@ -55,6 +63,14 @@ public sealed class TablePropertyResolver(
         return long.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture, out long parsed)
             ? parsed
             : throw InvalidValue(property, value, "a 64-bit integer");
+    }
+
+    public long GetPositiveInt64(string property, long defaultValue)
+    {
+        long value = GetInt64(property, defaultValue);
+        return value > 0
+            ? value
+            : throw InvalidValue(property, value.ToString(CultureInfo.InvariantCulture), "a positive integer");
     }
 
     public double GetDouble(string property, double defaultValue)
