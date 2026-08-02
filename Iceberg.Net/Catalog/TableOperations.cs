@@ -1,8 +1,6 @@
 ﻿using System.Diagnostics;
-using System.Diagnostics.CodeAnalysis;
 using System.Threading.Channels;
 using Apache.Arrow;
-using Apache.Arrow.Serialization;
 using EngineeredWood.IO;
 using Iceberg.Net.Data;
 using Iceberg.Net.Diagnostics;
@@ -24,14 +22,15 @@ public sealed class TableOperations
     private readonly Identifier _identifier;
     private readonly ICatalog _catalog;
     private readonly ILogger<TableOperations> _logger;
-    private Table? _table;
+
+    internal Table? Table { get; private set; }
 
     internal TableOperations(Table table)
     {
         _identifier = table.Identifier;
         _catalog = table.Catalog;
         _logger = _catalog.LoggerFactory.CreateLogger<TableOperations>();
-        _table = table;
+        Table = table;
     }
 
     internal TableOperations(Identifier identifier, ICatalog catalog)
@@ -41,105 +40,49 @@ public sealed class TableOperations
         _logger = _catalog.LoggerFactory.CreateLogger<TableOperations>();
     }
 
-    private Table CurrentTable => _table ??
-                                  throw new InvalidOperationException("The table has not been loaded or created.");
+    internal ICatalog Catalog => _catalog;
 
-    public async Task
-        FastAppendRowsAot<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.AllProperties)] TRow>(
-            IEnumerable<TRow> rows,
-            CancellationToken cancellationToken = default) where TRow : IArrowSerializer<TRow>
+    internal Identifier Identifier => _identifier;
+
+    private Table GetTable()
     {
-        int schemaId = _table?.Metadata.CurrentSchemaId ?? 0;
-        int nextFieldId = (_table?.Metadata.LastColumnId ?? 0) + 1;
-        Schema schema = CSharpSchemas.ToIcebergSchema(typeof(TRow), schemaId, _ => nextFieldId++);
-
-        Channel<RecordBatch> channel = Channel.CreateBounded<RecordBatch>(
-            new BoundedChannelOptions(2048)
-            {
-                SingleWriter = true
-            });
-
-        Task convertToArrow = Task.Run(
-            async () =>
-            {
-                foreach (TRow[] chunk in rows.Chunk(16384))
-                {
-                    RecordBatch batch = TRow.ToRecordBatch(chunk);
-                    await PipelineMetrics.WriteAsync(
-                        channel.Writer,
-                        batch,
-                        PipelineStage.ArrowConversion,
-                        cancellationToken);
-                }
-            },
-            cancellationToken);
-
-        Task append = FastAppendArrow(channel, schema, cancellationToken);
-
-        await convertToArrow;
-        channel.Writer.TryComplete();
-        await append;
+        return Table ?? throw new InvalidOperationException("The table has not been loaded or created.");
     }
 
-    [RequiresUnreferencedCode(
-        "Uses reflection to inspect properties. Use AppendRowsAot for AOT-safe serialization.")]
-    public async Task FastAppendRows<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.AllProperties)] TRow>(
-        IEnumerable<TRow> rows,
+    public Task ApplyAsync(
+        ITableOperation operation,
         CancellationToken cancellationToken = default)
     {
-        int schemaId = _table?.Metadata.CurrentSchemaId ?? 0;
-        int nextFieldId = (_table?.Metadata.LastColumnId ?? 0) + 1;
-        Schema schema = CSharpSchemas.ToIcebergSchema(typeof(TRow), schemaId, _ => nextFieldId++);
+        ArgumentNullException.ThrowIfNull(operation);
 
-        Channel<RecordBatch> channel = Channel.CreateBounded<RecordBatch>(
-            new BoundedChannelOptions(2048)
-            {
-                SingleWriter = true
-            });
-
-        Task convertToArrow = Task.Run(
-            async () =>
-            {
-                foreach (TRow[] chunk in rows.Chunk(16384))
-                {
-                    RecordBatch batch = RecordBatchBuilder.FromObjects(chunk);
-                    await PipelineMetrics.WriteAsync(
-                        channel.Writer,
-                        batch,
-                        PipelineStage.ArrowConversion,
-                        cancellationToken);
-                }
-            },
-            cancellationToken);
-
-        Task append = FastAppendArrow(channel, schema, cancellationToken);
-
-        await convertToArrow;
-        channel.Writer.TryComplete();
-        await append;
+        return operation switch
+        {
+            AppendFilesOperation append => AppendFilesAsync(append, cancellationToken),
+            _ => throw new NotSupportedException(
+                $"Table operation '{operation.GetType().FullName}' is not supported.")
+        };
     }
 
-    private async Task FastAppendArrow(
-        Channel<RecordBatch> data,
-        Schema schema,
-        CancellationToken cancellationToken = default)
+    private async Task AppendFilesAsync(
+        AppendFilesOperation operation,
+        CancellationToken cancellationToken)
     {
         _logger.LogInformation("Starting append to table {TableIdentifier}", _identifier.ToString());
-        PartitionSpec partitionSpec = new([], 0);
-        SortOrder sortOrder = new([], 0);
+        PartitionSpec partitionSpec = operation.PartitionSpec ??
+                                      (Table is null ? PartitionSpec.Default : GetDefaultPartitionSpec());
+        SortOrder sortOrder = operation.SortOrder ??
+                              (Table is null ? SortOrder.Default : GetDefaultSortOrder());
 
         PendingChanges pendingChanges = await EnsureTableInitialized(
-            schema,
+            operation.Schema,
             partitionSpec,
             sortOrder,
             cancellationToken);
 
         Schema tableSchema = GetSchema();
-        if (!new IcebergTypeComparer().Equals(schema, tableSchema))
+        if (!IcebergTypeComparer.Default.Equals(operation.Schema, tableSchema))
             throw new InvalidOperationException(
                 "The appended row schema does not match the table schema.");
-
-        schema = tableSchema;
 
         Channel<DataFileWriteResult> dataFiles = Channel.CreateBounded<DataFileWriteResult>(
             new BoundedChannelOptions(1024)
@@ -149,8 +92,8 @@ public sealed class TableOperations
             });
 
         Task dataFileWrite = WriteDataFileAsync(
-            data,
-            schema,
+            operation.Data,
+            tableSchema,
             dataFiles,
             cancellationToken);
 
@@ -164,7 +107,7 @@ public sealed class TableOperations
             });
 
         Task existingSnapshotRead = Task.CompletedTask;
-        Table currentTable = CurrentTable;
+        Table currentTable = GetTable();
         if (currentTable.Metadata.CurrentSnapshotId > 0)
             existingSnapshotRead = ReadSnapshotAsync(
                 currentTable,
@@ -182,7 +125,7 @@ public sealed class TableOperations
         // TODO allow writing multiple manifests for scaling
         Task manifestWrite = WriteManifestAsync(
             snapshotId,
-            schema,
+            tableSchema,
             partitionSpec,
             dataFiles,
             newManifests,
@@ -193,7 +136,7 @@ public sealed class TableOperations
             null,
             existingManifests,
             newManifests,
-            schema,
+            tableSchema,
             partitionSpec,
             cancellationToken);
 
@@ -216,7 +159,7 @@ public sealed class TableOperations
 
         pendingChanges.Updates.AddRange(
         [
-            new SetCurrentSchemaTableUpdate((int)schema.SchemaId!),
+            new SetCurrentSchemaTableUpdate((int)tableSchema.SchemaId!),
             new AddSnapshotTableUpdate(snapshot),
             new SetSnapshotRefTableUpdate(
                 Utils.InitialBranch,
@@ -239,12 +182,13 @@ public sealed class TableOperations
         Channel<DataFileWriteResult> results,
         CancellationToken cancellationToken)
     {
-        string configuredFormat = CurrentTable.Properties.GetString(
+        Table table = GetTable();
+        string configuredFormat = table.Properties.GetString(
             TableProperties.DefaultFileFormat,
             TableProperties.DefaultFileFormatDefault);
         IDataFileFormat dataFileFormat = DataFileFormatRegistry.Resolve(
             configuredFormat,
-            CurrentTable.Properties);
+            table.Properties);
         await using PathAndFile<ISequentialFile> dataFile = await CreateDataFile(
             dataFileFormat.FileExtension,
             cancellationToken);
@@ -281,7 +225,8 @@ public sealed class TableOperations
         PartitionSpec currentPartitionSpec,
         CancellationToken cancellationToken = default)
     {
-        long sequenceNumber = (long)CurrentTable.Metadata.LastSequenceNumber! + 1;
+        Table table = GetTable();
+        long sequenceNumber = (long)table.Metadata.LastSequenceNumber! + 1;
         Summary summary = new()
         {
             Operation = SummaryOperation.Append,
@@ -294,20 +239,23 @@ public sealed class TableOperations
             snapshotId,
             sequenceNumber,
             cancellationToken);
-        IReadOnlyList<PartitionSpec> partitionSpecs = CurrentTable.Metadata
+        IReadOnlyList<PartitionSpec> partitionSpecs = table.Metadata
             .PartitionSpecs
             .Append(currentPartitionSpec)
             .DistinctBy(spec => spec.SpecId)
             .ToArray();
 
         await using (SequentialFileStream manifestListStream = new(manifestListFile.File))
-        using (ManifestWriter<ManifestListEntry> manifestListAppender = ManifestIO.CreateManifestListWriter(
-                   manifestListStream,
-                   snapshotId,
-                   null,
-                   sequenceNumber,
-                   schema,
-                   partitionSpecs))
+        await using (ManifestWriter<ManifestListEntry> manifestListAppender =
+                     await ManifestIO.CreateManifestListWriterAsync(
+                         manifestListStream,
+                         snapshotId,
+                         parentSnapshotId,
+                         sequenceNumber,
+                         schema,
+                         partitionSpecs,
+                         table.Properties,
+                         cancellationToken))
         {
             await foreach (ManifestFileWriteResult entry in newEntries.Reader.ReadAllAsync(cancellationToken))
             {
@@ -319,7 +267,7 @@ public sealed class TableOperations
                 {
                     ManifestPath = entry.Location.AbsoluteUri,
                     ManifestLength = entry.FileSize,
-                    PartitionSpecId = 0,
+                    PartitionSpecId = currentPartitionSpec.SpecId!.Value,
                     Content = Content.Data,
                     SequenceNumber = sequenceNumber,
                     MinSequenceNumber = sequenceNumber,
@@ -331,11 +279,11 @@ public sealed class TableOperations
                     ExistingRowsCount = 0,
                     DeletedRowsCount = 0
                 };
-                manifestListAppender.Append(manifestListEntry);
+                await manifestListAppender.AppendAsync(manifestListEntry, cancellationToken);
             }
 
             await foreach (ManifestListEntry entry in existingEntries.Reader.ReadAllAsync(cancellationToken))
-                manifestListAppender.Append(entry);
+                await manifestListAppender.AppendAsync(entry, cancellationToken);
         }
 
         await manifestListFile.DisposeAsync();
@@ -369,11 +317,14 @@ public sealed class TableOperations
         int addedDataFilesCount = 0;
 
         await using (SequentialFileStream manifestStream = new(manifestFile.File))
-        using (ManifestWriter<ManifestEntry> manifestAppender = ManifestIO.CreateManifestWriter(
-                   manifestStream,
-                   schema,
-                   partitionSpec,
-                   Content.Data))
+        await using (ManifestWriter<ManifestEntry> manifestAppender =
+                     await ManifestIO.CreateManifestWriterAsync(
+                         manifestStream,
+                         schema,
+                         partitionSpec,
+                         Content.Data,
+                         GetTable().Properties,
+                         cancellationToken))
         {
             await foreach (DataFileWriteResult entry in dataFiles.Reader.ReadAllAsync(cancellationToken))
             {
@@ -396,7 +347,7 @@ public sealed class TableOperations
                         FileSizeInBytes = entry.FileSize
                     }
                 };
-                manifestAppender.Append(manifestEntry);
+                await manifestAppender.AppendAsync(manifestEntry, cancellationToken);
             }
         }
 
@@ -424,6 +375,7 @@ public sealed class TableOperations
         string fileExtension,
         CancellationToken cancellationToken = default)
     {
+        Table table = GetTable();
         if (string.IsNullOrWhiteSpace(fileExtension) ||
             !fileExtension.StartsWith('.') ||
             fileExtension.Contains('/') ||
@@ -432,9 +384,9 @@ public sealed class TableOperations
                 $"Data file format returned invalid file extension '{fileExtension}'");
 
         Uri dataFilePath = new(
-            CurrentTable.DataFolderUri,
+            table.DataFolderUri,
             $"00000-0-{Guid.NewGuid()}{fileExtension}");
-        ISequentialFile dataFile = await CurrentTable.CreateFile(
+        ISequentialFile dataFile = await table.CreateFile(
             dataFilePath,
             overwrite: true,
             cancellationToken: cancellationToken);
@@ -444,10 +396,11 @@ public sealed class TableOperations
     private async ValueTask<PathAndFile<ISequentialFile>> CreateManifestFile(
         CancellationToken cancellationToken = default)
     {
+        Table table = GetTable();
         Uri manifestFilePath = new(
-            CurrentTable.MetadataFolderUri,
+            table.MetadataFolderUri,
             ManifestEntry.GetFileName(Guid.NewGuid(), 0));
-        ISequentialFile file = await CurrentTable.CreateFile(
+        ISequentialFile file = await table.CreateFile(
             manifestFilePath,
             overwrite: true,
             cancellationToken: cancellationToken);
@@ -459,10 +412,11 @@ public sealed class TableOperations
         long sequenceNumber,
         CancellationToken cancellationToken = default)
     {
+        Table table = GetTable();
         Uri manifestListFilePath = new(
-            CurrentTable.MetadataFolderUri,
+            table.MetadataFolderUri,
             ManifestListEntry.GetFileName(snapshotId, sequenceNumber, Guid.NewGuid()));
-        ISequentialFile manifestListFile = await CurrentTable.CreateFile(
+        ISequentialFile manifestListFile = await table.CreateFile(
             manifestListFilePath,
             overwrite: true,
             cancellationToken: cancellationToken);
@@ -476,36 +430,23 @@ public sealed class TableOperations
         CancellationToken cancellationToken = default)
     {
         PendingChanges pendingChanges = new([], []);
-        if (_table is not null) return pendingChanges;
+        if (Table is not null) return pendingChanges;
 
-        _logger.LogDebug("Loading table {TableIdentifier} before append", _identifier.ToString());
-        _table = await _catalog.LoadTableAsync(
+        _logger.LogInformation("Table {TableIdentifier} does not exist; creating it", _identifier.ToString());
+        Table createdTable = await _catalog.CreateTableAsync(
             _identifier,
-            cancellationToken: cancellationToken);
-        if (_table is null)
-        {
-            _logger.LogInformation("Table {TableIdentifier} does not exist; creating it", _identifier.ToString());
-            _table = await _catalog.CreateTableAsync(
-                _identifier,
-                schema,
-                true,
-                cancellationToken);
-            pendingChanges.Requirements.Add(new AssertCreate());
-            pendingChanges.Updates.AddRange(
-            [
-                new SetLocationTableUpdate(CurrentTable.Metadata.Location),
-                new AddSchemaTableUpdate(CurrentTable.Metadata.Schemas[0]),
-                new AddPartitionSpecTableUpdate(partitionSpec),
-                new AddSortOrderTableUpdate(sortOrder)
-            ]);
-        }
-        else
-        {
-            _logger.LogDebug(
-                "Loaded table {TableIdentifier} at snapshot {SnapshotId}",
-                _identifier.ToString(),
-                _table.Metadata.CurrentSnapshotId);
-        }
+            schema,
+            true,
+            cancellationToken);
+        Table = createdTable;
+        pendingChanges.Requirements.Add(new AssertCreate());
+        pendingChanges.Updates.AddRange(
+        [
+            new SetLocationTableUpdate(createdTable.Metadata.Location),
+            new AddSchemaTableUpdate(createdTable.Metadata.Schemas[0]),
+            new AddPartitionSpecTableUpdate(partitionSpec),
+            new AddSortOrderTableUpdate(sortOrder)
+        ]);
 
         return pendingChanges;
     }
@@ -518,55 +459,25 @@ public sealed class TableOperations
             _identifier.ToString(),
             pendingChanges.Updates.Count,
             pendingChanges.Requirements.Count);
-        _table = await _catalog.UpdateTableAsync(
-            CurrentTable,
+        Table table = GetTable();
+        Table = await _catalog.UpdateTableAsync(
+            table,
             pendingChanges.Updates,
             pendingChanges.Requirements,
             cancellationToken);
     }
 
-    public IEnumerable<TRow> ReadRows<
-        [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.AllProperties)]
-        TRow>(long? snapshotId = null) where TRow : IArrowSerializer<TRow>
+    public Task ReadArrowAsync(
+        ChannelWriter<RecordBatch> results,
+        long? snapshotId = null,
+        CancellationToken cancellationToken = default)
     {
-        Table table = CurrentTable;
+        Table table = GetTable();
         Snapshot snapshot = GetSnapshotOrLatest(table, snapshotId);
-        Schema snapshotSchema = GetSnapshotSchema(table, snapshot);
-        VerifyRowSchema<TRow>(snapshot, snapshotSchema);
-
-        Channel<RecordBatch> columnBuffers = Channel.CreateBounded<RecordBatch>(
-            new BoundedChannelOptions(512)
-            {
-                FullMode = BoundedChannelFullMode.Wait
-            });
-
-        Task read = ReadArrow(table, snapshot.SnapshotId, columnBuffers.Writer);
-        _ = read.ContinueWith(
-            completed => columnBuffers.Writer.TryComplete(completed.Exception?.GetBaseException()),
-            TaskScheduler.Default);
-
-        long rowCount = 0;
-        foreach (RecordBatch batch in columnBuffers.Reader.ReadAllAsync().ToBlockingEnumerable())
-        {
-            IReadOnlyList<TRow> rows = TRow.ListFromRecordBatch(batch);
-            foreach (TRow row in rows)
-            {
-                rowCount++;
-                yield return row;
-            }
-
-            batch.Dispose();
-        }
-
-        read.GetAwaiter().GetResult();
-
-        _logger.LogInformation(
-            "Completed scan of table {TableIdentifier} with {RowCount} rows",
-            _identifier.ToString(),
-            rowCount);
+        return ReadArrowAsync(table, snapshot.SnapshotId, results, cancellationToken);
     }
 
-    private async Task ReadArrow(
+    private async Task ReadArrowAsync(
         Table table,
         long snapshotId,
         ChannelWriter<RecordBatch> results,
@@ -604,7 +515,7 @@ public sealed class TableOperations
         long? snapshotId = null,
         CancellationToken cancellationToken = default)
     {
-        Table table = CurrentTable;
+        Table table = GetTable();
         await ReadManifestEntries(table, results, snapshotId, cancellationToken);
     }
 
@@ -768,24 +679,11 @@ public sealed class TableOperations
                 $"Snapshot {snapshot.SnapshotId} refers to unknown schema ID {schemaId}.");
     }
 
-    private static void VerifyRowSchema<
-        [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.AllProperties)]
-        TRow>(Snapshot snapshot, Schema snapshotSchema)
+    internal (Snapshot Snapshot, Schema Schema) ResolveSnapshot(long? snapshotId)
     {
-        IReadOnlyDictionary<string, int> fieldIds = SchemaUtilities.FieldIdsByPath(snapshotSchema);
-        Schema requestedSchema = CSharpSchemas.ToIcebergSchema(
-            typeof(TRow),
-            snapshotSchema.SchemaId,
-            path => fieldIds.TryGetValue(path, out int fieldId)
-                ? fieldId
-                : throw new InvalidOperationException(
-                    $"Requested row type '{typeof(TRow).FullName}' contains field '{path}' that is not present " +
-                    $"in schema {snapshotSchema.SchemaId} of snapshot {snapshot.SnapshotId}."));
-
-        if (!new IcebergTypeComparer().Equals(requestedSchema, snapshotSchema))
-            throw new InvalidOperationException(
-                $"Requested row type '{typeof(TRow).FullName}' does not match schema " +
-                $"{snapshotSchema.SchemaId} of snapshot {snapshot.SnapshotId}.");
+        Table table = GetTable();
+        Snapshot snapshot = GetSnapshotOrLatest(table, snapshotId);
+        return (snapshot, GetSnapshotSchema(table, snapshot));
     }
 
     private sealed record PendingChanges(
@@ -794,6 +692,29 @@ public sealed class TableOperations
 
     private Schema GetSchema()
     {
-        return CurrentTable.Metadata.SchemasById[CurrentTable.Metadata.CurrentSchemaId!.Value];
+        Table table = GetTable();
+        return table.Metadata.SchemasById[table.Metadata.CurrentSchemaId!.Value];
+    }
+
+    private PartitionSpec GetDefaultPartitionSpec()
+    {
+        Table table = GetTable();
+        int defaultSpecId = table.Metadata.DefaultSpecId ??
+                            throw new InvalidDataException(
+                                $"Table '{_identifier}' does not identify a default partition spec.");
+        return table.Metadata.PartitionSpecs.SingleOrDefault(spec => spec.SpecId == defaultSpecId) ??
+               throw new InvalidDataException(
+                   $"Table '{_identifier}' refers to unknown default partition spec ID {defaultSpecId}.");
+    }
+
+    private SortOrder GetDefaultSortOrder()
+    {
+        Table table = GetTable();
+        int defaultSortOrderId = table.Metadata.DefaultSortOrderId ??
+                                 throw new InvalidDataException(
+                                     $"Table '{_identifier}' does not identify a default sort order.");
+        return table.Metadata.SortOrders.SingleOrDefault(order => order.OrderId == defaultSortOrderId) ??
+               throw new InvalidDataException(
+                   $"Table '{_identifier}' refers to unknown default sort order ID {defaultSortOrderId}.");
     }
 }

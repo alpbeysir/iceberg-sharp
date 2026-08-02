@@ -8,6 +8,7 @@ using EngineeredWood.Avro;
 using EngineeredWood.Avro.Container;
 using EngineeredWood.Avro.Encoding;
 using EngineeredWood.Expressions;
+using Iceberg.Net.Catalog;
 using Iceberg.Net.Diagnostics;
 using Iceberg.Net.Misc;
 using Iceberg.Net.Schemas;
@@ -17,11 +18,13 @@ namespace Iceberg.Net.Metadata;
 
 internal static class ManifestIO
 {
-    internal static ManifestWriter<ManifestEntry> CreateManifestWriter(
+    internal static ValueTask<ManifestWriter<ManifestEntry>> CreateManifestWriterAsync(
         Stream stream,
         Schema tableSchema,
         PartitionSpec partitionSpec,
-        Content content)
+        Content content,
+        TablePropertyResolver properties,
+        CancellationToken cancellationToken = default)
     {
         Dictionary<string, byte[]> metadata = new()
         {
@@ -37,19 +40,25 @@ internal static class ManifestIO
             ["content"] = Encoding.UTF8.GetBytes(content.ToMetadataString())
         };
 
-        return new ManifestWriter<ManifestEntry>(
+        (AvroCodec codec, int? compressionLevel) = GetCompression(properties);
+        return ManifestWriter<ManifestEntry>.CreateAsync(
             stream,
             metadata,
-            new ManifestEntryAvroSerialization(tableSchema, partitionSpec));
+            new ManifestEntryAvroSerialization(tableSchema, partitionSpec),
+            codec,
+            compressionLevel,
+            cancellationToken);
     }
 
-    internal static ManifestWriter<ManifestListEntry> CreateManifestListWriter(
+    internal static ValueTask<ManifestWriter<ManifestListEntry>> CreateManifestListWriterAsync(
         Stream stream,
         long snapshotId,
         long? parentSnapshotId,
         long sequenceNumber,
         Schema tableSchema,
-        IReadOnlyList<PartitionSpec> partitionSpecs)
+        IReadOnlyList<PartitionSpec> partitionSpecs,
+        TablePropertyResolver properties,
+        CancellationToken cancellationToken = default)
     {
         Dictionary<string, byte[]> metadata = new()
         {
@@ -59,10 +68,45 @@ internal static class ManifestIO
             ["format-version"] = [.. "2"u8]
         };
 
-        return new ManifestWriter<ManifestListEntry>(
+        (AvroCodec codec, int? compressionLevel) = GetCompression(properties);
+        return ManifestWriter<ManifestListEntry>.CreateAsync(
             stream,
             metadata,
-            new ManifestListEntryAvroSerialization(tableSchema, partitionSpecs));
+            new ManifestListEntryAvroSerialization(tableSchema, partitionSpecs),
+            codec,
+            compressionLevel,
+            cancellationToken);
+    }
+
+    private static (AvroCodec Codec, int? CompressionLevel) GetCompression(
+        TablePropertyResolver properties)
+    {
+        string configuredCodec = properties.GetString(
+            TableProperties.ManifestCompression,
+            TableProperties.ManifestCompressionDefault);
+        AvroCodec codec = configuredCodec.ToLowerInvariant() switch
+        {
+            "uncompressed" => AvroCodec.Null,
+            "snappy" => AvroCodec.Snappy,
+            "gzip" => AvroCodec.Deflate,
+            "zstd" => AvroCodec.Zstandard,
+            _ => throw new NotSupportedException(
+                $"Table property '{TableProperties.ManifestCompression}' has unsupported codec " +
+                $"'{configuredCodec}'.")
+        };
+
+        if (codec is not (AvroCodec.Deflate or AvroCodec.Zstandard))
+            return (codec, null);
+
+        int defaultLevel = codec == AvroCodec.Deflate ? 9 : 1;
+        int compressionLevel = properties.GetInt32(
+            TableProperties.ManifestCompressionLevel,
+            defaultLevel);
+        if (codec == AvroCodec.Deflate && compressionLevel is < 0 or > 9)
+            throw new FormatException(
+                $"Table property '{TableProperties.ManifestCompressionLevel}' has invalid value " +
+                $"'{compressionLevel}'; expected an integer from 0 through 9.");
+        return (codec, compressionLevel);
     }
 
     internal static async Task ReadManifestAsync(

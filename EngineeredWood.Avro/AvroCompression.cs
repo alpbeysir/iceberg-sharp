@@ -2,6 +2,7 @@
 // Licensed under the Apache License, Version 2.0. See LICENSE in the project root for license information.
 
 using System.Buffers.Binary;
+using System.IO.Compression;
 using System.IO.Hashing;
 using EngineeredWood.Buffers;
 using EngineeredWood.Compression;
@@ -40,11 +41,28 @@ internal static class AvroCompression
             return;
         }
 
+        if (codec == AvroCodec.Deflate && customLevel is { } deflateLevel)
+        {
+            CompressDeflate(data, output, deflateLevel);
+            return;
+        }
+
         var coreCodec = ToCoreCodec(codec);
         int maxLen = Compressor.GetMaxCompressedLength(coreCodec, data.Length);
         var span = output.GetSpan(maxLen);
         int written = Compressor.Compress(coreCodec, data, span, level, customLevel);
         output.Advance(written);
+    }
+
+    private static void CompressDeflate(
+        ReadOnlySpan<byte> data,
+        GrowableBuffer output,
+        int compressionLevel)
+    {
+        ZLibCompressionOptions options = new() { CompressionLevel = compressionLevel };
+        using GrowableBufferStream outputStream = new(output);
+        using DeflateStream compressionStream = new(outputStream, options, leaveOpen: true);
+        compressionStream.Write(data);
     }
 
     /// <summary>
@@ -235,4 +253,40 @@ internal static class AvroCompression
         "lz4" => AvroCodec.Lz4,
         _ => throw new NotSupportedException($"Unknown Avro codec: '{name}'"),
     };
+
+    private sealed class GrowableBufferStream(GrowableBuffer buffer) : Stream
+    {
+        public override bool CanRead => false;
+        public override bool CanSeek => false;
+        public override bool CanWrite => true;
+        public override long Length => buffer.Length;
+
+        public override long Position
+        {
+            get => buffer.Length;
+            set => throw new NotSupportedException();
+        }
+
+        public override void Flush()
+        {
+        }
+
+        public override void Write(byte[] source, int offset, int count)
+        {
+            buffer.Write(source.AsSpan(offset, count));
+        }
+
+        public override void Write(ReadOnlySpan<byte> source)
+        {
+            buffer.Write(source);
+        }
+
+        public override int Read(byte[] destination, int offset, int count) =>
+            throw new NotSupportedException();
+
+        public override long Seek(long offset, SeekOrigin origin) =>
+            throw new NotSupportedException();
+
+        public override void SetLength(long value) => throw new NotSupportedException();
+    }
 }

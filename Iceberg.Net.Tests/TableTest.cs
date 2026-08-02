@@ -12,7 +12,9 @@ public class TableTest(RestCatalogFixture fixture)
     {
         Identifier identifier = GetTableName();
 
-        TableOperations tableOperations = Catalog.Operations(identifier);
+        TableOperations tableOperations = await Catalog.OperationsAsync(
+            identifier,
+            TestContext.Current.CancellationToken);
         await tableOperations.FastAppendRows(rows, TestContext.Current.CancellationToken);
 
         return identifier;

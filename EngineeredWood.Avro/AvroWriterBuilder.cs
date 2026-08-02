@@ -68,7 +68,7 @@ public sealed class AvroWriterBuilder
 
     /// <summary>
     /// Explicit native compression level. Overrides <see cref="WithCompressionLevel"/>.
-    /// Honored by Zstandard (1..22) and Lz4 (LZ4Level enum value); ignored by Deflate.
+    /// Honored by Deflate (0..9), Zstandard (1..22), and Lz4 (LZ4Level enum value).
     /// </summary>
     public AvroWriterBuilder WithCustomCompressionLevel(int level)
     {

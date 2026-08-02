@@ -2,6 +2,8 @@
 
 public class IcebergTypeComparer : IEqualityComparer<IIcebergType>
 {
+    public static IcebergTypeComparer Default { get; } = new();
+
     public bool Equals(IIcebergType? x, IIcebergType? y)
     {
         if (ReferenceEquals(x, y)) return true;

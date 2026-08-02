@@ -180,4 +180,48 @@ public class AvroTests
         Assert.True(binaryReader.IsEmpty);
         Assert.Null(reader.ReadBlock());
     }
+
+    [Fact]
+    public async Task AsyncOcfWriterHonorsDeflateCompressionLevel()
+    {
+        CancellationToken cancellationToken = TestContext.Current.CancellationToken;
+        byte[] data = new byte[1024 * 1024];
+        for (int i = 0; i < data.Length; i++)
+            data[i] = (byte)((i * 17 + i / 97) % 251);
+
+        byte[] uncompressed = await WriteDeflateBlock(data, 0, cancellationToken);
+        byte[] compressed = await WriteDeflateBlock(data, 9, cancellationToken);
+
+        Assert.True(compressed.Length < uncompressed.Length);
+
+        await using OcfReaderAsync reader = await OcfReaderAsync.OpenAsync(
+            new MemoryStream(compressed),
+            cancellationToken);
+        Assert.Equal(AvroCodec.Deflate, reader.Codec);
+        (ReadOnlyMemory<byte> block, long objectCount) = Assert.IsType<
+            (ReadOnlyMemory<byte> data, long objectCount)>(
+            await reader.ReadBlockAsync(cancellationToken));
+        Assert.Equal(1, objectCount);
+        Assert.Equal(data, block.ToArray());
+    }
+
+    private static async Task<byte[]> WriteDeflateBlock(
+        byte[] data,
+        int compressionLevel,
+        CancellationToken cancellationToken)
+    {
+        MemoryStream stream = new();
+        await using (OcfWriterAsync writer = new(
+                         stream,
+                         AvroCodec.Deflate,
+                         customLevel: compressionLevel))
+        {
+            await writer.WriteHeaderAsync(new ContainerAvroSchema(
+                "{\"type\":\"record\",\"name\":\"x\",\"fields\":[]}"),
+                ct: cancellationToken);
+            await writer.WriteBlockAsync(data, 1, cancellationToken);
+        }
+
+        return stream.ToArray();
+    }
 }

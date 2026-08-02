@@ -72,6 +72,8 @@ public class ReadWriteTests(RestCatalogFixture fixture) : TableTest(fixture)
             [TableProperties.DefaultFileFormat] = "parquet",
             [TableProperties.ParquetCompression] = "gzip",
             [TableProperties.ParquetCompressionLevel] = "1",
+            [TableProperties.ManifestCompression] = "gzip",
+            [TableProperties.ManifestCompressionLevel] = "1",
             [TableProperties.ParquetPageSizeBytes] = "65536",
             [TableProperties.ParquetPageVersion] = "v2",
             [TableProperties.ParquetDictSizeBytes] = "32768",

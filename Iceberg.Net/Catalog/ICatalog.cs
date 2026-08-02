@@ -13,9 +13,14 @@ public interface ICatalog : IDisposable
 
     string? Resolve(string key);
 
-    TableOperations Operations(Identifier identifier)
+    async Task<TableOperations> OperationsAsync(
+        Identifier identifier,
+        CancellationToken cancellationToken = default)
     {
-        return new TableOperations(identifier, this);
+        Table? table = await LoadTableAsync(
+            identifier,
+            cancellationToken: cancellationToken);
+        return table?.Operations() ?? new TableOperations(identifier, this);
     }
 
     public async Task<Table> CreateTableAsync(

@@ -4,35 +4,72 @@ using EngineeredWood.Avro.Encoding;
 
 namespace Iceberg.Net.Metadata;
 
-internal sealed class ManifestWriter<T> : IDisposable
+internal sealed class ManifestWriter<T> : IAsyncDisposable
 {
-    private readonly OcfWriter _container;
+    private const int TargetBlockSizeBytes = 64 * 1024;
+
+    private readonly OcfWriterAsync _container;
     private readonly AvroBinaryWriter _binaryWriter = new(4096);
-    private readonly IAvroSerializer<T> _serialization;
+    private readonly IAvroSerializer<T> _serializer;
+    private int _objectCount;
     private bool _disposed;
 
-    internal ManifestWriter(
+    private ManifestWriter(
+        OcfWriterAsync container,
+        IAvroSerializer<T> serializer)
+    {
+        _container = container;
+        _serializer = serializer;
+    }
+
+    internal static async ValueTask<ManifestWriter<T>> CreateAsync(
         Stream stream,
         IReadOnlyDictionary<string, byte[]> metadata,
-        IAvroSerializer<T> serialization)
+        IAvroSerializer<T> serialization,
+        AvroCodec codec,
+        int? compressionLevel,
+        CancellationToken cancellationToken = default)
     {
-        _container = new OcfWriter(stream, AvroCodec.Null);
-        _container.WriteHeader(serialization.Schema, metadata);
-        _serialization = serialization;
+        OcfWriterAsync container = new(
+            stream,
+            codec,
+            customLevel: compressionLevel);
+        await container.WriteHeaderAsync(
+            serialization.Schema,
+            metadata,
+            cancellationToken);
+        return new ManifestWriter<T>(container, serialization);
     }
 
-    internal void Append(T value)
+    internal async ValueTask AppendAsync(
+        T value,
+        CancellationToken cancellationToken = default)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
-        _binaryWriter.Reset();
-        _serialization.Write(_binaryWriter, value);
-        _container.WriteBlock(_binaryWriter.WrittenSpan, 1);
+        _serializer.Write(_binaryWriter, value);
+        _objectCount++;
+
+        if (_binaryWriter.Length >= TargetBlockSizeBytes)
+            await FlushBlockAsync(cancellationToken);
     }
 
-    public void Dispose()
+    public async ValueTask DisposeAsync()
     {
         if (_disposed) return;
         _disposed = true;
-        _container.Dispose();
+        await FlushBlockAsync();
+        await _container.DisposeAsync();
+    }
+
+    private async ValueTask FlushBlockAsync(CancellationToken cancellationToken = default)
+    {
+        if (_objectCount == 0) return;
+
+        await _container.WriteBlockAsync(
+            _binaryWriter.WrittenMemory,
+            _objectCount,
+            cancellationToken);
+        _binaryWriter.Reset();
+        _objectCount = 0;
     }
 }
