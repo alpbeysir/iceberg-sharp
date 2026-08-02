@@ -1,7 +1,6 @@
 ﻿using System.Diagnostics.CodeAnalysis;
 using System.Linq.Expressions;
 using System.Reflection;
-using Avro;
 using Iceberg.Net.Catalog;
 using Iceberg.Net.Metadata;
 using Iceberg.Net.Schemas;
@@ -15,7 +14,6 @@ public static class Utils
     public delegate bool IcebergTypeVisitor(IIcebergType type, int repetition, int id, bool required);
 
     public const string InitialBranch = "main";
-    public static readonly RecordSchema EmptyPartitionAvroSchema = RecordSchema.Create("r102", []);
     private static readonly Random Rd = new();
 
     public static void PrintTree(INode tree, int indent = 0)

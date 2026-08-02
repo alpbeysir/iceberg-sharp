@@ -1,6 +1,7 @@
 <Solution>
   <Project Path="Apache.Arrow.Serialization.Generator/Apache.Arrow.Serialization.Generator.csproj" />
   <Project Path="Apache.Arrow.Serialization/Apache.Arrow.Serialization.csproj" />
+  <Project Path="EngineeredWood.Avro/EngineeredWood.Avro.csproj" />
   <Project Path="Iceberg.Net.DuckUtils/Iceberg.Net.DuckUtils.csproj" />
   <Project Path="Iceberg.Net.Query/Iceberg.Net.Query.csproj" />
   <Project Path="Iceberg.Net.QueryTests\Iceberg.Net.QueryTests.csproj" />

@@ -3,7 +3,6 @@ using System.Diagnostics.CodeAnalysis;
 using System.Threading.Channels;
 using Apache.Arrow;
 using Apache.Arrow.Serialization;
-using Avro.File;
 using Iceberg.Net.Data;
 using Iceberg.Net.Metadata;
 using Iceberg.Net.Storage;
@@ -103,11 +102,10 @@ public sealed class TableScan(Table table)
         await using PathAndStream manifestListFile = await OpenFile(
             snapshot.ManifestList,
             cancellationToken);
-        using IFileReader<ManifestListEntry> manifestListReader =
-            ManifestListEntry.GetReader(manifestListFile.Stream);
-
-        foreach (ManifestListEntry entry in manifestListReader.NextEntries)
-            await results.WriteAsync(entry, cancellationToken);
+        await ManifestIO.ReadManifestListAsync(
+            manifestListFile.Stream,
+            results,
+            cancellationToken);
     }
 
     private async Task ReadManifestAsync(
@@ -118,20 +116,20 @@ public sealed class TableScan(Table table)
         await using PathAndStream manifestFile = await OpenFile(
             manifestListEntry.ManifestPath,
             cancellationToken);
-        using IFileReader<ManifestEntry> manifestReader = ManifestEntry.GetReader(manifestFile.Stream);
-
-        foreach (ManifestEntry entry in manifestReader.NextEntries)
-        {
-            // TODO only inherit if status = added
-            ManifestEntry inheritedEntry = entry with
+        await ManifestIO.ReadManifestAsync(
+            manifestFile.Stream,
+            results,
+            entry =>
             {
-                FileSequenceNumber = entry.FileSequenceNumber ?? manifestListEntry.SequenceNumber,
-                SequenceNumber = entry.SequenceNumber ?? manifestListEntry.SequenceNumber,
-                SnapshotId = entry.SnapshotId ?? manifestListEntry.AddedSnapshotId
-            };
-
-            await results.WriteAsync(inheritedEntry, cancellationToken);
-        }
+                // TODO only inherit if status = added
+                return entry with
+                {
+                    FileSequenceNumber = entry.FileSequenceNumber ?? manifestListEntry.SequenceNumber,
+                    SequenceNumber = entry.SequenceNumber ?? manifestListEntry.SequenceNumber,
+                    SnapshotId = entry.SnapshotId ?? manifestListEntry.AddedSnapshotId
+                };
+            },
+            cancellationToken);
     }
 
     private async Task ReadDataFileAsync(

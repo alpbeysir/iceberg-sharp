@@ -2,8 +2,6 @@
 using System.Threading.Channels;
 using Apache.Arrow;
 using Apache.Arrow.Serialization;
-using Avro.File;
-using Avro.Generic;
 using Iceberg.Net.Data;
 using Iceberg.Net.Metadata;
 using Iceberg.Net.Misc;
@@ -225,42 +223,39 @@ public sealed class TableOperations(Table table)
 
         PathAndStream manifestListFile = await CreateManifestListFile(snapshotId, sequenceNumber, cancellationToken);
 
-        using IFileWriter<ManifestListEntry> manifestListAppender = ManifestListEntry.GetAppender(
-            manifestListFile.Stream,
-            snapshotId,
-            null,
-            sequenceNumber);
-
-        await foreach (ManifestFileWriteResult entry in newEntries.Reader.ReadAllAsync(cancellationToken))
+        using (ManifestWriter<ManifestListEntry> manifestListAppender = ManifestIO.CreateManifestListWriter(
+                   manifestListFile.Stream,
+                   snapshotId,
+                   null,
+                   sequenceNumber))
         {
-            summary.AddedDataFiles += entry.AddedFileCount;
-            summary.AddedRecords += entry.AddedRowsCount;
-            summary.AddedFilesSize += entry.AddedFilesSize;
-
-            ManifestListEntry manifestListEntry = new()
+            await foreach (ManifestFileWriteResult entry in newEntries.Reader.ReadAllAsync(cancellationToken))
             {
-                ManifestPath = entry.Location.AbsoluteUri,
-                ManifestLength = entry.FileSize,
-                PartitionSpecId = 0,
-                Content = Content.Data,
-                SequenceNumber = sequenceNumber,
-                MinSequenceNumber = sequenceNumber,
-                AddedSnapshotId = snapshotId,
-                AddedFilesCount = entry.AddedFileCount,
-                ExistingFilesCount = 0,
-                DeletedFilesCount = 0,
-                AddedRowsCount = entry.AddedRowsCount,
-                ExistingRowsCount = 0,
-                DeletedRowsCount = 0
-            };
-            manifestListAppender.Append(manifestListEntry);
-            manifestListAppender.Flush();
-        }
+                summary.AddedDataFiles += entry.AddedFileCount;
+                summary.AddedRecords += entry.AddedRowsCount;
+                summary.AddedFilesSize += entry.AddedFilesSize;
 
-        await foreach (ManifestListEntry entry in existingEntries.Reader.ReadAllAsync(cancellationToken))
-        {
-            manifestListAppender.Append(entry);
-            manifestListAppender.Flush();
+                ManifestListEntry manifestListEntry = new()
+                {
+                    ManifestPath = entry.Location.AbsoluteUri,
+                    ManifestLength = entry.FileSize,
+                    PartitionSpecId = 0,
+                    Content = Content.Data,
+                    SequenceNumber = sequenceNumber,
+                    MinSequenceNumber = sequenceNumber,
+                    AddedSnapshotId = snapshotId,
+                    AddedFilesCount = entry.AddedFileCount,
+                    ExistingFilesCount = 0,
+                    DeletedFilesCount = 0,
+                    AddedRowsCount = entry.AddedRowsCount,
+                    ExistingRowsCount = 0,
+                    DeletedRowsCount = 0
+                };
+                manifestListAppender.Append(manifestListEntry);
+            }
+
+            await foreach (ManifestListEntry entry in existingEntries.Reader.ReadAllAsync(cancellationToken))
+                manifestListAppender.Append(entry);
         }
 
         await manifestListFile.DisposeAsync();
@@ -289,39 +284,39 @@ public sealed class TableOperations(Table table)
     {
         PathAndStream manifestFile = await CreateManifestFile(cancellationToken);
 
-        using IFileWriter<ManifestEntry> manifestAppender = ManifestEntry.GetAppender(
-            manifestFile.Stream,
-            schema,
-            partitionSpec,
-            Content.Data);
-
         long addedFilesSize = 0;
         long addedRowsCount = 0;
         int addedDataFilesCount = 0;
 
-        await foreach (DataFileWriteResult entry in dataFiles.Reader.ReadAllAsync(cancellationToken))
+        using (ManifestWriter<ManifestEntry> manifestAppender = ManifestIO.CreateManifestWriter(
+                   manifestFile.Stream,
+                   schema,
+                   partitionSpec,
+                   Content.Data))
         {
-            addedRowsCount += entry.RecordCount;
-            addedDataFilesCount++;
-            addedFilesSize += entry.FileSize;
-            ManifestEntry manifestEntry = new()
+            await foreach (DataFileWriteResult entry in dataFiles.Reader.ReadAllAsync(cancellationToken))
             {
-                Status = Status.Added,
-                SnapshotId = snapshotId,
-                SequenceNumber = null,
-                FileSequenceNumber = null,
-                DataFile = new DataFile
+                addedRowsCount += entry.RecordCount;
+                addedDataFilesCount++;
+                addedFilesSize += entry.FileSize;
+                ManifestEntry manifestEntry = new()
                 {
-                    Content = DataFileContent.Data,
-                    FilePath = entry.Location.AbsoluteUri,
-                    FileFormat = entry.Format,
-                    Partition = new GenericRecord(Utils.EmptyPartitionAvroSchema),
-                    RecordCount = entry.RecordCount,
-                    FileSizeInBytes = entry.FileSize
-                }
-            };
-            manifestAppender.Append(manifestEntry);
-            manifestAppender.Flush();
+                    Status = Status.Added,
+                    SnapshotId = snapshotId,
+                    SequenceNumber = null,
+                    FileSequenceNumber = null,
+                    DataFile = new DataFile
+                    {
+                        Content = DataFileContent.Data,
+                        FilePath = entry.Location.AbsoluteUri,
+                        FileFormat = entry.Format,
+                        Partition = [],
+                        RecordCount = entry.RecordCount,
+                        FileSizeInBytes = entry.FileSize
+                    }
+                };
+                manifestAppender.Append(manifestEntry);
+            }
         }
 
         await results.Writer.WriteAsync(

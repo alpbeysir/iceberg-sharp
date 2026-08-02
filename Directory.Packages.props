@@ -4,7 +4,6 @@
   </PropertyGroup>
   <ItemGroup>
     <PackageVersion Include="Apache.Arrow" Version="23.0.0" />
-    <PackageVersion Include="Apache.Avro" Version="1.12.1" />
     <PackageVersion Include="AutoFixture.Xunit3" Version="4.19.0" />
     <PackageVersion Include="AwesomeAssertions" Version="9.4.0" />
     <PackageVersion Include="AWSSDK.S3" Version="4.0.101.6" />
@@ -12,7 +11,7 @@
     <PackageVersion Include="coverlet.collector" Version="10.0.0" />
     <PackageVersion Include="DotNext.Metaprogramming" Version="6.5.0" />
     <PackageVersion Include="DuckDB.NET.Data.Full" Version="1.5.2" />
-    <PackageVersion Include="EngineeredWood.Avro" Version="0.1.0" />
+    <PackageVersion Include="EngineeredWood.Core" Version="0.1.0" />
     <PackageVersion Include="EngineeredWood.Expressions" Version="0.1.0" />
     <PackageVersion Include="EngineeredWood.Iceberg" Version="0.1.0" />
     <PackageVersion Include="FastExpressionCompiler" Version="5.4.1" />
@@ -24,6 +23,7 @@
     <PackageVersion Include="Nuqleon.Linq.CompilerServices.Optimizers" Version="1.0.0-beta.24" />
     <PackageVersion Include="Nuqleon.Linq.Expressions.Optimizers" Version="1.0.0-beta.24" />
     <PackageVersion Include="ParquetSharp" Version="24.0.0" />
+    <PackageVersion Include="System.IO.Hashing" Version="9.0.18" />
     <PackageVersion Include="Testcontainers" Version="4.11.0" />
     <PackageVersion Include="Testcontainers.XunitV3" Version="4.11.0" />
     <PackageVersion Include="Varena" Version="1.2.0" />
