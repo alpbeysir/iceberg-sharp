@@ -3,7 +3,7 @@ using EngineeredWood.Expressions;
 
 namespace Iceberg.Net.Metadata;
 
-public enum DataFileContent
+public enum DataFileContent : byte
 {
     Data,
     PositionDeletes,

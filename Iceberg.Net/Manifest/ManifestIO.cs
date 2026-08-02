@@ -763,7 +763,7 @@ internal static class ManifestIO
         return (schema, new PartitionSpec(fields, specId));
     }
 
-    private static ManifestEntryTypes ResolveManifestEntryTypes(
+    private static ManifestEntryTypes ResolveManifestEntryPartitioning(
         Schema tableSchema,
         PartitionSpec partitionSpec)
     {
@@ -815,7 +815,7 @@ internal static class ManifestIO
 
         internal ManifestEntryAvroSerialization(Schema tableSchema, PartitionSpec partitionSpec)
         {
-            _types = ResolveManifestEntryTypes(tableSchema, partitionSpec);
+            _types = ResolveManifestEntryPartitioning(tableSchema, partitionSpec);
             Schema = AvroSchemas.FromSchema(
                 ManifestSchemas.ManifestEntryFor(partitionSpec, _types.PartitionTypes),
                 "manifest_entry");

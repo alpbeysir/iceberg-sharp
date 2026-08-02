@@ -1,43 +1,15 @@
 using System.Data.Common;
 using System.Data.SqlTypes;
-using Apache.Arrow.Serialization;
 using Iceberg.Net.Catalog;
 using Iceberg.Net.Tests;
-using Iceberg.Net.Tests.DataGeneration;
 
 namespace Iceberg.Net.DuckDB.Tests;
 
 public class DuckDBTests(DuckDbRestCatalogFixture restFixture, DuckDbFixture duckDbFixture)
-    : TableTest(restFixture), IClassFixture<DuckDbRestCatalogFixture>, IClassFixture<DuckDbFixture>
+    : ExternalEngineReadWriteTests(restFixture),
+        IClassFixture<DuckDbRestCatalogFixture>,
+        IClassFixture<DuckDbFixture>
 {
-    [Theory]
-    [AutoIcebergData]
-    public async Task SimpleNesting(List<MyNested> rows)
-    {
-        await Run(rows);
-    }
-
-    [Theory]
-    [AutoIcebergData]
-    public async Task Simple(List<MySimpleRow> rows)
-    {
-        await Run(rows);
-    }
-
-    [Theory]
-    [AutoIcebergData]
-    public async Task NestedComplexRow(List<NestedComplexRow> rows)
-    {
-        await Run(rows);
-    }
-
-    [Theory]
-    [AutoIcebergData]
-    public async Task ManyTypes(List<ManyTypes> rows)
-    {
-        await Run(rows);
-    }
-
     [Fact]
     public void DecimalNormalizationUsesNumericValue()
     {
@@ -47,17 +19,11 @@ public class DuckDBTests(DuckDbRestCatalogFixture restFixture, DuckDbFixture duc
         Assert.Equivalent(expected, actual, strict: true);
     }
 
-    // [Theory]
-    // [AutoIcebergData]
-    // public async Task DeepNesting(List<MyDeeplyNestedComplexRow> rows)
-    // {
-    //     await Run(rows);
-    // }
+    protected override object? NormalizeForExternalEngine(object? value) =>
+        TestRowNormalizer.ForDuckDb(value);
 
-    private async Task Run<T>(List<T> original) where T : IArrowSerializer<T>
+    protected override async Task<List<object?>> ReadExternalTable(Identifier identifier)
     {
-        Identifier identifier = await Write(original);
-        await Verify(identifier, original);
         string tableName = string.Join(
             ".",
             new[] { duckDbFixture.DuckDbCatalog.CatalogName }
@@ -76,8 +42,7 @@ public class DuckDBTests(DuckDbRestCatalogFixture restFixture, DuckDbFixture duc
             actual.Add(row);
         }
 
-        List<object?> expected = original.Select(row => TestRowNormalizer.ForDuckDb(row)).ToList();
-        Assert.Equivalent(expected, actual, strict: true);
+        return actual;
     }
 
     private static string QuoteIdentifier(string identifier) =>
