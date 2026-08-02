@@ -534,8 +534,15 @@ internal class PolymorphicCodeEmitter
             }
             case TypeKind2.Decimal:
             {
-                if (prop.IsNullable)
-                    Line($"var prop_{propIndex} = ((Decimal128Array){col}).IsNull(0) ? (decimal?)null : ((Decimal128Array){col}).GetValue(0).Value;");
+                if (CodeEmitterHelpers.IsSqlDecimal(prop.Type))
+                {
+                    if (prop.IsNullable)
+                        Line($"var prop_{propIndex} = ((Decimal128Array){col}).GetSqlDecimal(0);");
+                    else
+                        Line($"var prop_{propIndex} = ((Decimal128Array){col}).GetSqlDecimal(0).Value;");
+                }
+                else if (prop.IsNullable)
+                    Line($"var prop_{propIndex} = ((Decimal128Array){col}).GetValue(0);");
                 else
                     Line($"var prop_{propIndex} = ((Decimal128Array){col}).GetValue(0)!.Value;");
                 break;
@@ -609,8 +616,15 @@ internal class PolymorphicCodeEmitter
                     Line($"var prop_{propIndex} = {col}.GetDateOnly(row)!.Value;");
                 break;
             case TypeKind2.Decimal:
-                if (prop.IsNullable)
-                    Line($"var prop_{propIndex} = {col}.IsNull(row) ? (decimal?)null : {col}.GetValue(row).Value;");
+                if (CodeEmitterHelpers.IsSqlDecimal(prop.Type))
+                {
+                    if (prop.IsNullable)
+                        Line($"var prop_{propIndex} = {col}.GetSqlDecimal(row);");
+                    else
+                        Line($"var prop_{propIndex} = {col}.GetSqlDecimal(row).Value;");
+                }
+                else if (prop.IsNullable)
+                    Line($"var prop_{propIndex} = {col}.GetValue(row);");
                 else
                     Line($"var prop_{propIndex} = {col}.GetValue(row)!.Value;");
                 break;
@@ -674,6 +688,12 @@ internal class PolymorphicCodeEmitter
 /// </summary>
 internal static class CodeEmitterHelpers
 {
+    public static bool IsSqlDecimal(TypeInfo type)
+    {
+        return type.FullTypeName is "System.Data.SqlTypes.SqlDecimal"
+            or "global::System.Data.SqlTypes.SqlDecimal";
+    }
+
     /// <summary>
     /// Returns the Arrow type expression for a TypeInfo (e.g., "Int32Type.Default").
     /// </summary>
@@ -797,7 +817,7 @@ internal static class CodeEmitterHelpers
             case TypeKind2.Half:
                 return "new HalfFloatArray.Builder()";
             case TypeKind2.Decimal:
-                return "new Decimal128Array.Builder(new Decimal128Type(38, 18))";
+                return $"new Decimal128Array.Builder((Decimal128Type){GetArrowTypeExpression(prop.Type)})";
             case TypeKind2.DateTime:
             case TypeKind2.DateTimeOffset:
                 return "new TimestampArray.Builder(new TimestampType(TimeUnit.Microsecond, \"UTC\"))";

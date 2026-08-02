@@ -72,10 +72,10 @@ public static class ArrowSchema
             PrimitiveType.Long => new Int64Type(),
             PrimitiveType.String => new StringType(),
             PrimitiveType.Time => TimeType.Microsecond,
-            PrimitiveType.Timestamp => TimestampType.Default,
-            PrimitiveType.TimestampNs => TimeType.Nanosecond,
-            PrimitiveType.TimestampTz => TimestampType.Default,
-            PrimitiveType.TimestampTzNs => TimestampType.Default,
+            PrimitiveType.Timestamp => new TimestampType(TimeUnit.Microsecond, (string)null!),
+            PrimitiveType.TimestampNs => new TimestampType(TimeUnit.Nanosecond, (string)null!),
+            PrimitiveType.TimestampTz => new TimestampType(TimeUnit.Microsecond, "UTC"),
+            PrimitiveType.TimestampTzNs => new TimestampType(TimeUnit.Nanosecond, "UTC"),
             PrimitiveType.Uuid => new FixedSizeBinaryType(16),
             _ => throw new ArgumentOutOfRangeException(nameof(primitiveType))
         };
@@ -83,29 +83,6 @@ public static class ArrowSchema
 
     private static IArrowType FromDecimal(PrimitiveType.Decimal type)
     {
-        return type.P switch
-        {
-            <= 9 => new Int32Type(),
-            <= 18 => new Int64Type(),
-            _ => new FixedSizeBinaryType(GetDecimalByteLength(type.P))
-        };
-    }
-
-    private static int GetDecimalByteLength(int precision)
-    {
-        // The formula for the number of bytes required for a given precision:
-        // bytes = ceil(log2(10^precision - 1) / 8)
-        // For simplicity and speed, most implementations use this standard mapping:
-        return precision switch
-        {
-            <= 9 => 4, // Fits in Int32
-            <= 18 => 8, // Fits in Int64
-            <= 22 => 10,
-            <= 26 => 12,
-            <= 30 => 14,
-            <= 34 => 16,
-            <= 38 => 20,
-            _ => throw new ArgumentException("Precision cannot exceed 38", nameof(precision))
-        };
+        return new Decimal128Type(type.P, type.S);
     }
 }

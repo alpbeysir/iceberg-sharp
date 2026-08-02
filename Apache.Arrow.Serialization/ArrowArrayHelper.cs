@@ -15,6 +15,7 @@
 
 using Apache.Arrow.Arrays;
 using Apache.Arrow.Types;
+using System.Data.SqlTypes;
 
 namespace Apache.Arrow.Serialization;
 
@@ -335,16 +336,14 @@ public static class ArrowArrayHelper
 
     // --- Decimal helpers (Decimal128) ---
 
-    public static IArrowArray BuildDecimalArray(decimal value)
+    public static IArrowArray BuildDecimalArray(SqlDecimal value, Decimal128Type type)
     {
-        var b = new Decimal128Array.Builder(new Decimal128Type(38, 18));
-        b.Append(value);
-        return b.Build();
+        return new Decimal128Array.Builder(type).Append(value).Build();
     }
 
-    public static IArrowArray BuildDecimalArray(decimal? value)
+    public static IArrowArray BuildDecimalArray(SqlDecimal? value, Decimal128Type type)
     {
-        var b = new Decimal128Array.Builder(new Decimal128Type(38, 18));
+        var b = new Decimal128Array.Builder(type);
         if (value is { } v)
             b.Append(v);
         else
@@ -352,14 +351,21 @@ public static class ArrowArrayHelper
         return b.Build();
     }
 
-    public static IArrowArray BuildDecimalArray<T>(IReadOnlyList<T> items)
+    public static IArrowArray BuildDecimalArray<T>(IReadOnlyList<T> items, Decimal128Type type)
     {
-        var b = new Decimal128Array.Builder(new Decimal128Type(38, 18));
+        var b = new Decimal128Array.Builder(type);
         foreach (var item in items)
-            if (item is decimal v)
-                b.Append(v);
-            else
-                b.AppendNull();
+        {
+            switch (item)
+            {
+                case SqlDecimal value:
+                    b.Append(value);
+                    break;
+                default:
+                    b.AppendNull();
+                    break;
+            }
+        }
         return b.Build();
     }
 

@@ -56,6 +56,7 @@ var roundTrip = ArrowSerializerExtensions.DeserializeFromBytes<Person>(bytes);
   - [ArrowSerializable](#arrowserializable)
   - [ArrowField](#arrowfield)
   - [ArrowType](#arrowtype)
+  - [DecimalWith](#decimalwith)
   - [ArrowIgnore](#arrowignore)
   - [ArrowMetadata](#arrowmetadata)
 - [Nested Types](#nested-types)
@@ -148,7 +149,7 @@ Records use `{ get; init; }` properties. Classes and structs use `{ get; set; }`
 | `float` | `Float32` | |
 | `double` | `Float64` | |
 | `Half` | `Float16` | |
-| `decimal` | `Decimal128(38, 18)` | Configurable via `[ArrowType("decimal128(28, 10)")]` |
+| `SqlDecimal` | `Decimal128(P, S)` | Supports all 38 digits; requires `[DecimalWith(P, S)]` |
 | `DateTime` | `Timestamp(us, UTC)` | Configurable resolution and timezone |
 | `DateTimeOffset` | `Timestamp(us, UTC)` | Configurable resolution and timezone |
 | `DateOnly` | `Date32` | Override to `Date64` via `[ArrowType("date64")]` |
@@ -236,9 +237,6 @@ Overrides the inferred Arrow type for a property:
 [ArrowSerializable]
 public partial record Precise
 {
-    [ArrowType("decimal128(28, 10)")]
-    public decimal Value { get; init; }
-
     [ArrowType("timestamp[ns, UTC]")]
     public DateTime Created { get; init; }
 
@@ -282,6 +280,26 @@ public partial record WithOverrides
 |-----------|-----------|-----------|-------------|
 | `timestamp[us, UTC]` (default) | Instant | UTC-normalized | `.UtcDateTime` |
 | `timestamp[us]` | Wall-clock | Raw ticks preserved | `.DateTime` |
+
+### DecimalWith
+
+Declares the fixed precision and scale of a `SqlDecimal` field. CLR `decimal` is
+not supported because it cannot represent Iceberg's full 38-digit precision and
+does not carry column precision or scale.
+
+```csharp
+using System.Data.SqlTypes;
+
+[ArrowSerializable]
+public partial record FinancialRow
+{
+    [DecimalWith(38, 18)]
+    public SqlDecimal Amount { get; init; }
+}
+```
+
+Precision must be between 1 and 38, and scale must be between 0 and precision.
+The generator reports an error when `SqlDecimal` is used without this attribute.
 
 ### ArrowIgnore
 
@@ -610,6 +628,8 @@ The source generator reports compile-time diagnostics for common mistakes:
 | `ARROW004` | Error | Duplicate Arrow field names (e.g. two properties with `[ArrowField("same")]`) |
 | `ARROW005` | Warning | Get-only property without `init` accessor — property will be skipped |
 | `ARROW006` | Warning | Arrow attribute on private or static member — attribute is ignored |
+| `ARROW007` | Error | Invalid `[DecimalWith]` target, precision, or scale |
+| `ARROW008` | Error | `SqlDecimal` member is missing `[DecimalWith(P, S)]` |
 
 ## Cross-Language Compatibility
 

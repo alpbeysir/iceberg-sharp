@@ -33,6 +33,12 @@ public class ReadWriteTests(RestCatalogFixture fixture) : TableTest(fixture)
         await Run(rows);
     }
 
+    [Fact]
+    public async Task SqlDecimals()
+    {
+        await Run(DecimalRow.TestRows().ToList());
+    }
+
     // [Theory]
     // [AutoIcebergData]
     // public async Task DeepNesting(List<MyDeeplyNestedComplexRow> rows)

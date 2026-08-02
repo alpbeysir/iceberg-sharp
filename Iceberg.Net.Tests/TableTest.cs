@@ -24,13 +24,20 @@ public class TableTest(RestCatalogFixture fixture)
         var loadedTable = await Catalog.LoadTableAsync(identifier);
         await using var readTx = new Transaction(loadedTable);
         var readRows = readTx.ReadRows<T>().ToList();
-        readRows.Should().BeEquivalentTo(original, opt => opt.WithStrictOrdering());
+        readRows.Should().BeEquivalentTo(
+            original,
+            options => options
+                .Using<DateTime>(context => context.Subject.Should().BeCloseTo(
+                    context.Expectation,
+                    TimeSpan.FromMicroseconds(1)))
+                .WhenTypeIs<DateTime>()
+                .WithStrictOrdering());
     }
 
     private Identifier GetTableName<T>()
     {
         var tableName =
-            $"{TestContext.Current.Test?.TestCase?.TestMethod?.MethodName}";
+            $"{GetType().Name}_{TestContext.Current.Test?.TestCase?.TestMethod?.MethodName}";
         return [.. fixture.BaseNamespace, tableName];
     }
 }

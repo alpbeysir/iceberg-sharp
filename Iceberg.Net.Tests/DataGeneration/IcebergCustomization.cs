@@ -1,6 +1,7 @@
 ﻿using AutoFixture;
 using AutoFixture.Kernel;
 using AutoFixture.Xunit3;
+using System.Data.SqlTypes;
 
 namespace Iceberg.Net.Tests.DataGeneration;
 
@@ -35,7 +36,8 @@ public class IcebergCustomization : ICustomization
             fixture.Customize(
                 new CompositeCustomization(
                     new DateOnlyFixtureCustomization(),
-                    new TimeOnlyFixtureCustomization()
+                    new TimeOnlyFixtureCustomization(),
+                    new SqlDecimalFixtureCustomization()
                     // Add other fixture customizations as needed
                 ));
 
@@ -64,6 +66,15 @@ public class IcebergCustomization : ICustomization
         void ICustomization.Customize(IFixture fixture)
         {
             fixture.Customize<DateOnly>(composer => composer.FromFactory<DateTime>(DateOnly.FromDateTime));
+        }
+    }
+
+    public class SqlDecimalFixtureCustomization : ICustomization
+    {
+        void ICustomization.Customize(IFixture fixture)
+        {
+            fixture.Customize<SqlDecimal>(composer => composer.FromFactory(
+                () => new SqlDecimal(Random.Shared.Next(-9_999_999, 9_999_999) / 100m)));
         }
     }
 }

@@ -222,7 +222,7 @@ internal class CodeEmitter(StringBuilder sb, TypeModel model)
                 Line($"var {varName} = Apache.Arrow.Serialization.ArrowArrayHelper.BuildDurationArray({access});");
                 break;
             case TypeKind2.Decimal:
-                Line($"var {varName} = Apache.Arrow.Serialization.ArrowArrayHelper.BuildDecimalArray({access});");
+                Line($"var {varName} = Apache.Arrow.Serialization.ArrowArrayHelper.BuildDecimalArray({access}, (Decimal128Type){GetArrowTypeExpression(prop.Type)});");
                 break;
             case TypeKind2.Guid:
                 Line($"var {varName} = Apache.Arrow.Serialization.ArrowArrayHelper.BuildGuidArray({access});");
@@ -326,7 +326,7 @@ internal class CodeEmitter(StringBuilder sb, TypeModel model)
                 Line($"var {varName} = Apache.Arrow.Serialization.ArrowArrayHelper.BuildDurationArray({access});");
                 break;
             case TypeKind2.Decimal:
-                Line($"var {varName} = Apache.Arrow.Serialization.ArrowArrayHelper.BuildDecimalArray({access});");
+                Line($"var {varName} = Apache.Arrow.Serialization.ArrowArrayHelper.BuildDecimalArray({access}, (Decimal128Type){GetArrowTypeExpression(prop.Type)});");
                 break;
             case TypeKind2.Guid:
                 Line($"var {varName} = Apache.Arrow.Serialization.ArrowArrayHelper.BuildGuidArray({access});");
@@ -1116,9 +1116,15 @@ internal class CodeEmitter(StringBuilder sb, TypeModel model)
                         $"var prop_{index} = Apache.Arrow.Serialization.ArrowArrayHelper.ReadDuration((DurationArray){colAccess}, 0);");
                 break;
             case TypeKind2.Decimal:
-                if (prop.IsNullable)
-                    Line(
-                        $"var prop_{index} = ((Decimal128Array){colAccess}).IsNull(0) ? (decimal?)null : ((Decimal128Array){colAccess}).GetValue(0).Value;");
+                if (IsSqlDecimal(prop.Type))
+                {
+                    if (prop.IsNullable)
+                        Line($"var prop_{index} = ((Decimal128Array){colAccess}).GetSqlDecimal(0);");
+                    else
+                        Line($"var prop_{index} = ((Decimal128Array){colAccess}).GetSqlDecimal(0).Value;");
+                }
+                else if (prop.IsNullable)
+                    Line($"var prop_{index} = ((Decimal128Array){colAccess}).GetValue(0);");
                 else
                     Line($"var prop_{index} = ((Decimal128Array){colAccess}).GetValue(0).Value;");
                 break;
@@ -1648,7 +1654,9 @@ internal class CodeEmitter(StringBuilder sb, TypeModel model)
             TypeKind2.Double => $"((DoubleArray){arrayVar}).GetValue({indexVar}).Value",
             TypeKind2.Half => $"((HalfFloatArray){arrayVar}).GetValue({indexVar}).Value",
             TypeKind2.Bool => $"((BooleanArray){arrayVar}).GetValue({indexVar}).Value",
-            TypeKind2.Decimal => $"((Decimal128Array){arrayVar}).GetValue({indexVar}).Value",
+            TypeKind2.Decimal => IsSqlDecimal(type)
+                ? $"((Decimal128Array){arrayVar}).GetSqlDecimal({indexVar}).Value"
+                : $"((Decimal128Array){arrayVar}).GetValue({indexVar}).Value",
             TypeKind2.DateTime => TypeInfoHasTimezone(type)
                 ? $"((TimestampArray){arrayVar}).GetTimestamp({indexVar})!.Value.UtcDateTime"
                 : $"((TimestampArray){arrayVar}).GetTimestamp({indexVar})!.Value.DateTime",
@@ -2247,7 +2255,7 @@ internal class CodeEmitter(StringBuilder sb, TypeModel model)
                 break;
             case TypeKind2.Decimal:
                 Line(
-                    $"var arr_{index} = Apache.Arrow.Serialization.ArrowArrayHelper.BuildDecimalArray(bld_{index}_items);");
+                    $"var arr_{index} = Apache.Arrow.Serialization.ArrowArrayHelper.BuildDecimalArray(bld_{index}_items, (Decimal128Type){GetArrowTypeExpression(prop.Type)});");
                 break;
             case TypeKind2.Guid:
                 Line(
@@ -2629,11 +2637,17 @@ internal class CodeEmitter(StringBuilder sb, TypeModel model)
                         $"var prop_{index} = Apache.Arrow.Serialization.ArrowArrayHelper.ReadDuration(col_{index}, row);");
                 break;
             case TypeKind2.Decimal:
-                if (prop.IsNullable)
-                    Line(
-                        $"var prop_{index} = col_{index}.IsNull(row) ? (decimal?)null : ((Decimal128Array)col_{index}).GetValue(row).Value;");
+                if (IsSqlDecimal(prop.Type))
+                {
+                    if (prop.IsNullable)
+                        Line($"var prop_{index} = col_{index}.GetSqlDecimal(row);");
+                    else
+                        Line($"var prop_{index} = col_{index}.GetSqlDecimal(row).Value;");
+                }
+                else if (prop.IsNullable)
+                    Line($"var prop_{index} = col_{index}.GetValue(row);");
                 else
-                    Line($"var prop_{index} = ((Decimal128Array)col_{index}).GetValue(row).Value;");
+                    Line($"var prop_{index} = col_{index}.GetValue(row).Value;");
                 break;
             case TypeKind2.Guid:
                 if (prop.IsNullable)
@@ -3114,6 +3128,12 @@ internal class CodeEmitter(StringBuilder sb, TypeModel model)
     {
         return prop.Type.ArrowTypeOverride != null &&
                prop.Type.ArrowTypeOverride.Trim().ToLowerInvariant() is "binary_view" or "binaryview";
+    }
+
+    private static bool IsSqlDecimal(TypeInfo type)
+    {
+        return type.FullTypeName is "System.Data.SqlTypes.SqlDecimal"
+            or "global::System.Data.SqlTypes.SqlDecimal";
     }
 
     private static (string ArrayType, string BuilderType) GetBinaryArrayInfo(PropertyModel prop)

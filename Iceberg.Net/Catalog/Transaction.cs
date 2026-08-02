@@ -308,6 +308,7 @@ public sealed class Transaction(Table table, bool commitOnDispose = false) : IAs
         using WriterPropertiesBuilder parquetWriterPropertiesBuilder = new();
         parquetWriterPropertiesBuilder.Compression(Compression.Zstd);
         parquetWriterPropertiesBuilder.MaxRowGroupLength(256 * 1024);
+        parquetWriterPropertiesBuilder.EnableStoreDecimalAsInteger();
         Apache.Arrow.Schema arrowSchema = ArrowSchema.FromSchema(schema);
         using FileWriter arrowWriter = new(
             dataFile.Stream,

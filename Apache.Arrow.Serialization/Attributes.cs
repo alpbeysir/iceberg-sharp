@@ -95,6 +95,29 @@ public sealed class ArrowTypeAttribute : Attribute
 }
 
 /// <summary>
+/// Declares the precision and scale of an Arrow <see cref="System.Data.SqlTypes.SqlDecimal"/> field.
+/// This is required for <see cref="System.Data.SqlTypes.SqlDecimal"/> fields because
+/// Decimal precision and scale are properties of the schema, not of the CLR type.
+/// </summary>
+[AttributeUsage(AttributeTargets.Property | AttributeTargets.Field | AttributeTargets.Parameter, Inherited = false)]
+public sealed class DecimalWithAttribute : Attribute
+{
+    public int Precision { get; }
+    public int Scale { get; }
+
+    public DecimalWithAttribute(int precision, int scale)
+    {
+        if (precision is < 1 or > 38)
+            throw new ArgumentOutOfRangeException(nameof(precision), "Decimal precision must be between 1 and 38.");
+        if (scale < 0 || scale > precision)
+            throw new ArgumentOutOfRangeException(nameof(scale), "Decimal scale must be between 0 and precision.");
+
+        Precision = precision;
+        Scale = scale;
+    }
+}
+
+/// <summary>
 /// Adds key-value metadata to the Arrow schema (on class) or field (on property).
 /// </summary>
 [AttributeUsage(AttributeTargets.Class | AttributeTargets.Property | AttributeTargets.Field, AllowMultiple = true, Inherited = false)]

@@ -1,4 +1,5 @@
 ﻿using Apache.Arrow.Serialization;
+using System.Data.SqlTypes;
 
 namespace Iceberg.Net.Tests.DataGeneration;
 
@@ -90,9 +91,12 @@ public partial record ManyTypes
     public required byte[]? c_binary { get; init; }
     public required bool? c_bool { get; init; }
     public required DateOnly? c_date { get; init; }
-    public required decimal? c_decimal_14_2 { get; init; }
-    public required decimal? c_decimal_21_2 { get; init; }
-    public required decimal? c_decimal_7_2 { get; init; }
+    [DecimalWith(14, 2)]
+    public required SqlDecimal? c_decimal_14_2 { get; init; }
+    [DecimalWith(21, 2)]
+    public required SqlDecimal? c_decimal_21_2 { get; init; }
+    [DecimalWith(7, 2)]
+    public required SqlDecimal? c_decimal_7_2 { get; init; }
     public required double? c_double { get; init; }
     public required byte[]? c_fixed_6 { get; init; }
     public required int? c_int { get; init; }

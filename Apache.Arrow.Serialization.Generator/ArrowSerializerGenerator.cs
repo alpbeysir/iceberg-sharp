@@ -59,6 +59,16 @@ public class ArrowSerializerGenerator : IIncrementalGenerator
         "Member '{0}' on type '{1}' has Arrow attributes but is not serialized because it is {2}",
         "ArrowSerialization", DiagnosticSeverity.Warning, true);
 
+    private static readonly DiagnosticDescriptor InvalidDecimalWith = new DiagnosticDescriptor(
+        "ARROW007", "Invalid decimal declaration",
+        "Member '{0}' on type '{1}' has an invalid [DecimalWith] declaration: {2}",
+        "ArrowSerialization", DiagnosticSeverity.Error, true);
+
+    private static readonly DiagnosticDescriptor MissingDecimalWith = new DiagnosticDescriptor(
+        "ARROW008", "SqlDecimal requires a decimal declaration",
+        "SqlDecimal member '{0}' on type '{1}' must declare its schema using [DecimalWith(precision, scale)]",
+        "ArrowSerialization", DiagnosticSeverity.Error, true);
+
     public void Initialize(IncrementalGeneratorInitializationContext context)
     {
         var emitSchemaJson = context.AnalyzerConfigOptionsProvider.Select(static (options, _) =>
@@ -149,6 +159,8 @@ public class ArrowSerializerGenerator : IIncrementalGenerator
             string? keyTypeOverride = null;
             string? valueTypeOverride = null;
             string? fieldName = null;
+            int? decimalPrecision = null;
+            int? decimalScale = null;
             int order = int.MaxValue;
             var propMetadata = new List<KeyValuePair<string, string>>();
 
@@ -185,6 +197,14 @@ public class ArrowSerializerGenerator : IIncrementalGenerator
                             order = o;
                     }
                 }
+                else if (attrName == "Apache.Arrow.Serialization.DecimalWithAttribute")
+                {
+                    if (attr.ConstructorArguments.Length >= 2)
+                    {
+                        decimalPrecision = attr.ConstructorArguments[0].Value as int?;
+                        decimalScale = attr.ConstructorArguments[1].Value as int?;
+                    }
+                }
                 else if (attrName == "Apache.Arrow.Serialization.ArrowMetadataAttribute")
                 {
                     if (attr.ConstructorArguments.Length >= 2)
@@ -207,6 +227,42 @@ public class ArrowSerializerGenerator : IIncrementalGenerator
             }
 
             var typeInfo = AnalyzeType(memberType, isNullable);
+            var isSqlDecimal = IsSqlDecimal(typeInfo);
+            if (decimalPrecision is not null && decimalScale is not null)
+            {
+                if (typeInfo.Kind != TypeKind2.Decimal)
+                {
+                    ignoredMemberWarnings.Add(new DiagnosticInfo
+                    {
+                        Id = "ARROW007",
+                        Message = $"{memberName}\t{typeSymbol.Name}\tthe attribute can only be used on SqlDecimal members",
+                        IsError = true
+                    });
+                }
+                else if (decimalPrecision is < 1 or > 38 || decimalScale < 0 || decimalScale > decimalPrecision)
+                {
+                    ignoredMemberWarnings.Add(new DiagnosticInfo
+                    {
+                        Id = "ARROW007",
+                        Message = $"{memberName}\t{typeSymbol.Name}\tprecision must be 1 through 38 and scale must be 0 through precision",
+                        IsError = true
+                    });
+                }
+                else
+                {
+                    typeInfo = typeInfo.WithOverride($"decimal128({decimalPrecision},{decimalScale})");
+                }
+            }
+            else if (isSqlDecimal)
+            {
+                ignoredMemberWarnings.Add(new DiagnosticInfo
+                {
+                    Id = "ARROW008",
+                    Message = $"{memberName}\t{typeSymbol.Name}",
+                    IsError = true
+                });
+            }
+
             if (converterTypeName != null)
                 typeInfo = new TypeInfo { Kind = TypeKind2.Custom, FullTypeName = typeInfo.FullTypeName, IsNullable = isNullable };
             else if (arrowTypeName != null)
@@ -365,7 +421,8 @@ public class ArrowSerializerGenerator : IIncrementalGenerator
         foreach (var attr in member.GetAttributes())
         {
             var name = attr.AttributeClass?.ToDisplayString();
-            if (name != null && name.StartsWith("Apache.Arrow.Serialization.Arrow"))
+            if (name != null && (name.StartsWith("Apache.Arrow.Serialization.Arrow")
+                                 || name == "Apache.Arrow.Serialization.DecimalWithAttribute"))
                 return true;
         }
         return false;
@@ -579,7 +636,8 @@ public class ArrowSerializerGenerator : IIncrementalGenerator
             "ulong" => TypeKind2.UInt64,
             "float" => TypeKind2.Float,
             "double" => TypeKind2.Double,
-            "decimal" => TypeKind2.Decimal,
+            "System.Data.SqlTypes.SqlDecimal" => TypeKind2.Decimal,
+            "global::System.Data.SqlTypes.SqlDecimal" => TypeKind2.Decimal,
             "byte[]" => TypeKind2.Binary,
             "System.ReadOnlyMemory<byte>" => TypeKind2.Binary,
             "global::System.ReadOnlyMemory<byte>" => TypeKind2.Binary,
@@ -608,6 +666,12 @@ public class ArrowSerializerGenerator : IIncrementalGenerator
         };
     }
 
+    private static bool IsSqlDecimal(TypeInfo typeInfo)
+    {
+        return typeInfo.FullTypeName is "System.Data.SqlTypes.SqlDecimal"
+            or "global::System.Data.SqlTypes.SqlDecimal";
+    }
+
     private static void Execute(SourceProductionContext spc, TypeModel model, bool emitSchemaJson)
     {
         // Report diagnostics
@@ -622,6 +686,8 @@ public class ArrowSerializerGenerator : IIncrementalGenerator
                 "ARROW004" => DuplicateFieldName,
                 "ARROW005" => NonSettableProperty,
                 "ARROW006" => ArrowAttributeOnIgnoredMember,
+                "ARROW007" => InvalidDecimalWith,
+                "ARROW008" => MissingDecimalWith,
                 _ => null,
             };
             if (descriptor != null)
@@ -767,6 +833,8 @@ public class ArrowSerializerGenerator : IIncrementalGenerator
             string? arrowTypeName = null;
             string? converterTypeName2 = null;
             string? fieldName = null;
+            int? decimalPrecision = null;
+            int? decimalScale = null;
             int order = int.MaxValue;
             var propMetadata = new List<KeyValuePair<string, string>>();
 
@@ -795,6 +863,12 @@ public class ArrowSerializerGenerator : IIncrementalGenerator
                             order = o;
                     }
                 }
+                else if (attrName == "Apache.Arrow.Serialization.DecimalWithAttribute"
+                         && attr.ConstructorArguments.Length >= 2)
+                {
+                    decimalPrecision = attr.ConstructorArguments[0].Value as int?;
+                    decimalScale = attr.ConstructorArguments[1].Value as int?;
+                }
                 else if (attrName == "Apache.Arrow.Serialization.ArrowMetadataAttribute")
                 {
                     if (attr.ConstructorArguments.Length >= 2)
@@ -816,6 +890,8 @@ public class ArrowSerializerGenerator : IIncrementalGenerator
                 propType = nullableType.TypeArguments[0];
 
             var typeInfo = AnalyzeType(propType, isNullable);
+            if (decimalPrecision is not null && decimalScale is not null && typeInfo.Kind == TypeKind2.Decimal)
+                typeInfo = typeInfo.WithOverride($"decimal128({decimalPrecision},{decimalScale})");
             if (converterTypeName2 != null)
                 typeInfo = new TypeInfo { Kind = TypeKind2.Custom, FullTypeName = typeInfo.FullTypeName, IsNullable = isNullable };
             else if (arrowTypeName != null)

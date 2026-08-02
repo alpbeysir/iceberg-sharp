@@ -14,6 +14,7 @@
 // limitations under the License.
 
 using System.Collections;
+using System.Data.SqlTypes;
 using System.Diagnostics.CodeAnalysis;
 using System.Reflection;
 using Apache.Arrow.Types;
@@ -52,7 +53,15 @@ public static class RecordBatchBuilder
             var propType = prop.PropertyType;
             var nullabilityInfo = NullabilityInfoContext.Create(prop);
             var refNullable = nullabilityInfo.WriteState == NullabilityState.Nullable;
-            var arrowType = InferArrowType(propType);
+            DecimalWithAttribute? decimalWith = prop.GetCustomAttribute<DecimalWithAttribute>();
+            if (decimalWith is not null && Nullable.GetUnderlyingType(propType) != typeof(SqlDecimal)
+                                       && propType != typeof(SqlDecimal))
+                throw new InvalidOperationException(
+                    $"[DecimalWith] can only be used on SqlDecimal members, but {prop.Name} is {propType.Name}.");
+
+            var arrowType = decimalWith is null
+                ? InferArrowType(propType)
+                : new Decimal128Type(decimalWith.Precision, decimalWith.Scale);
             fields.Add(new Field(prop.Name, arrowType, refNullable));
             builders.Add(CreateColumnBuilder(propType, arrowType));
         }
@@ -114,7 +123,11 @@ public static class RecordBatchBuilder
         if (clrType == typeof(Half)) return HalfFloatType.Default;
         if (clrType == typeof(float)) return FloatType.Default;
         if (clrType == typeof(double)) return DoubleType.Default;
-        if (clrType == typeof(decimal)) return new Decimal128Type(38, 18);
+        if (clrType == typeof(decimal))
+            throw new NotSupportedException("CLR decimal is not supported. Use SqlDecimal with [DecimalWith(precision, scale)].");
+        if (clrType == typeof(SqlDecimal))
+            throw new InvalidOperationException(
+                "SqlDecimal requires [DecimalWith(precision, scale)] when its Arrow schema is inferred.");
         if (clrType == typeof(DateTime)) return new TimestampType(TimeUnit.Microsecond, "UTC");
         if (clrType == typeof(DateTimeOffset)) return new TimestampType(TimeUnit.Microsecond, "UTC");
         if (clrType == typeof(DateOnly)) return Date32Type.Default;
@@ -286,7 +299,8 @@ public static class RecordBatchBuilder
                 (b, v) => b.Append(v),
                 b => b.AppendNull(),
                 b => b.Build());
-        if (clrType == typeof(decimal)) return new DecimalColumnBuilder();
+        if (clrType == typeof(SqlDecimal))
+            return new DecimalColumnBuilder((Decimal128Type)arrowType);
         if (clrType == typeof(DateTime)) return new DateTimeColumnBuilder();
         if (clrType == typeof(DateTimeOffset)) return new DateTimeOffsetColumnBuilder();
         if (clrType == typeof(DateOnly))
@@ -421,21 +435,22 @@ public static class RecordBatchBuilder
 
     private sealed class DecimalColumnBuilder : IColumnBuilder
     {
-        private readonly List<(decimal Value, bool IsNull)> _values = [];
+        private readonly Decimal128Type _type;
+        private readonly List<object?> _values = [];
+
+        public DecimalColumnBuilder(Decimal128Type type)
+        {
+            _type = type;
+        }
 
         public void Append(object? value)
         {
-            if (value is null) _values.Add((0, true));
-            else _values.Add(((decimal)value, false));
+            _values.Add(value);
         }
 
         public IArrowArray Build()
         {
-            var b = new Decimal128Array.Builder(new Decimal128Type(38, 18));
-            foreach (var (v, isNull) in _values)
-                if (isNull) b.AppendNull();
-                else b.Append(v);
-            return b.Build();
+            return ArrowArrayHelper.BuildDecimalArray(_values, _type);
         }
     }
 

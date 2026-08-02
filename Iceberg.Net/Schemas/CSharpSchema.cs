@@ -1,4 +1,5 @@
 ﻿using System.Collections.Concurrent;
+using System.Data.SqlTypes;
 using System.Diagnostics.CodeAnalysis;
 using System.Reflection;
 using System.Reflection.Emit;
@@ -63,7 +64,7 @@ public static class CSharpSchema
             PrimitiveType.Time => typeof(TimeOnly),
             PrimitiveType.Timestamp => typeof(DateTimeOffset),
             PrimitiveType.Binary => typeof(byte[]),
-            PrimitiveType.Decimal => typeof(decimal),
+            PrimitiveType.Decimal => typeof(SqlDecimal),
 
             ListType listType =>
                 typeof(List<>).MakeGenericType(
@@ -124,7 +125,7 @@ public static class CSharpSchema
 
             // For Iceberg, we need the actual data type (e.g., int for int?)
             let underlyingType = Nullable.GetUnderlyingType(info.type) ?? info.type
-            let icebergType = ToIcebergType(underlyingType, fieldIdProvider, info.path)
+            let icebergType = ToIcebergType(info.memberInfo, underlyingType, fieldIdProvider, info.path)
 
             // Iceberg 'Required' is the inverse of 'isOptional'
             select new StructField(info.id, info.name, icebergType, !isOptional);
@@ -150,8 +151,12 @@ public static class CSharpSchema
         if (type == typeof(TimeOnly)) return new PrimitiveType.Time();
         if (type == typeof(TimeSpan)) return new PrimitiveType.Time();
         if (type == typeof(byte[])) return new PrimitiveType.Binary();
-        // TODO handle decimal
-        if (type == typeof(decimal)) return new PrimitiveType.Decimal(10, 0);
+        if (type == typeof(decimal))
+            throw new NotSupportedException(
+                "CLR decimal is not supported. Use SqlDecimal with [DecimalWith(precision, scale)].");
+        if (type == typeof(SqlDecimal))
+            throw new InvalidOperationException(
+                "SqlDecimal requires [DecimalWith(precision, scale)] when it is used in an Iceberg schema.");
 
         if (type.ImplementsInterface(typeof(IReadOnlyDictionary<,>)))
         {
@@ -210,6 +215,24 @@ public static class CSharpSchema
             return ToIcebergStruct(type, fieldIdProvider, currentPath);
 
         throw new NotSupportedException($"Type {type.Name} at {currentPath} is not supported.");
+    }
+
+    private static IIcebergType ToIcebergType(
+        MemberInfo member,
+        Type type,
+        Func<string, int> fieldIdProvider,
+        string currentPath)
+    {
+        Apache.Arrow.Serialization.DecimalWithAttribute? decimalWith =
+            member.GetCustomAttribute<Apache.Arrow.Serialization.DecimalWithAttribute>();
+        if (decimalWith is null)
+            return ToIcebergType(type, fieldIdProvider, currentPath);
+
+        if (type != typeof(SqlDecimal))
+            throw new InvalidOperationException(
+                $"[DecimalWith] can only be used on SqlDecimal members, but {member.Name} is {type.Name}.");
+
+        return new PrimitiveType.Decimal(decimalWith.Precision, decimalWith.Scale);
     }
 
     private static bool IsEnumerableType(
