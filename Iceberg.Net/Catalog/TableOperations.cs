@@ -6,7 +6,6 @@ using Apache.Arrow.Ipc;
 using Apache.Arrow.Serialization;
 using Avro.File;
 using Avro.Generic;
-using EngineeredWood.Avro;
 using Iceberg.Net.Metadata;
 using Iceberg.Net.Misc;
 using Iceberg.Net.Query;
@@ -44,7 +43,7 @@ public sealed class TableOperations(Table table)
         }
     }
 
-    public async Task ReadArrow(
+    private async Task ReadArrow(
         long? snapshotId,
         Channel<RecordBatch> results,
         CancellationToken cancellationToken = default)
@@ -161,7 +160,7 @@ public sealed class TableOperations(Table table)
         await append;
     }
 
-    internal async Task AppendArrow(
+    private async Task AppendArrow(
         Channel<RecordBatch> data,
         Schema schema,
         CancellationToken cancellationToken = default)
@@ -290,7 +289,7 @@ public sealed class TableOperations(Table table)
     {
         using WriterProperties parquetWriterProperties =
             ParquetTableProperties.CreateWriterProperties(Table.Properties);
-        await using PathAndStream dataFile = await NewDataFile(cancellationToken);
+        await using PathAndStream dataFile = await CreateDataFile(cancellationToken);
         using ArrowWriterProperties arrowWriterProperties = ArrowWriterProperties.GetDefault();
         Apache.Arrow.Schema arrowSchema = ArrowSchema.FromSchema(schema);
         using FileWriter arrowWriter = new(
@@ -487,7 +486,7 @@ public sealed class TableOperations(Table table)
         await manifestFile.DisposeAsync();
     }
 
-    private async ValueTask<PathAndStream> NewDataFile(CancellationToken cancellationToken = default)
+    private async ValueTask<PathAndStream> CreateDataFile(CancellationToken cancellationToken = default)
     {
         Uri parquetFilePath = new(Table.DataFolderUri, Utils.GetParquetFileName(0, 0, Guid.NewGuid()));
         Stream parquetStream = await Table.Open(
