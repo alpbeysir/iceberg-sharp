@@ -11,6 +11,7 @@ using Iceberg.Net.Rest.TableRequirement;
 using Iceberg.Net.Rest.TableUpdate;
 using Iceberg.Net.Schemas;
 using Iceberg.Net.Storage;
+using Microsoft.Extensions.Logging;
 using Schema = Iceberg.Net.Schemas.Schema;
 using SortOrder = Iceberg.Net.Metadata.SortOrder;
 
@@ -20,12 +21,14 @@ public sealed class TableOperations
 {
     private readonly Identifier _identifier;
     private readonly ICatalog _catalog;
+    private readonly ILogger<TableOperations> _logger;
     private Table? _table;
 
     public TableOperations(Table table)
     {
         _identifier = table.Identifier;
         _catalog = table.Catalog;
+        _logger = _catalog.LoggerFactory.CreateLogger<TableOperations>();
         _table = table;
     }
 
@@ -33,6 +36,7 @@ public sealed class TableOperations
     {
         _identifier = identifier;
         _catalog = catalog;
+        _logger = _catalog.LoggerFactory.CreateLogger<TableOperations>();
     }
 
     private Table CurrentTable => _table ??
@@ -110,6 +114,7 @@ public sealed class TableOperations
         Schema schema,
         CancellationToken cancellationToken = default)
     {
+        _logger.LogInformation("Starting append to table {TableIdentifier}", _identifier.ToString());
         PartitionSpec partitionSpec = new([], 0);
         SortOrder sortOrder = new([], 0);
 
@@ -190,6 +195,12 @@ public sealed class TableOperations
         existingManifests.Writer.Complete();
 
         Snapshot snapshot = await snapshotCreate;
+        _logger.LogInformation(
+            "Created snapshot {SnapshotId} for table {TableIdentifier} with {AddedRecords} records in {AddedDataFiles} data files",
+            snapshot.SnapshotId,
+            _identifier.ToString(),
+            snapshot.Summary.AddedRecords,
+            snapshot.Summary.AddedDataFiles);
 
         pendingChanges.Updates.AddRange(
         [
@@ -204,6 +215,10 @@ public sealed class TableOperations
                 null)
         ]);
         await CommitChanges(pendingChanges, cancellationToken);
+        _logger.LogInformation(
+            "Completed append to table {TableIdentifier} at snapshot {SnapshotId}",
+            _identifier.ToString(),
+            snapshot.SnapshotId);
     }
 
     private async Task WriteDataFileAsync(
@@ -227,6 +242,12 @@ public sealed class TableOperations
             schema,
             batches.Reader,
             cancellationToken);
+
+        _logger.LogDebug(
+            "Wrote data file {DataFilePath} with {RecordCount} records and {FileSize} bytes",
+            dataFile.Path,
+            written,
+            dataFile.File.Position);
 
         await results.Writer.WriteAsync(
             new DataFileWriteResult(
@@ -374,6 +395,12 @@ public sealed class TableOperations
                 addedFilesSize),
             cancellationToken);
 
+        _logger.LogDebug(
+            "Wrote manifest {ManifestPath} with {AddedDataFiles} data files and {AddedRecords} records",
+            manifestFile.Path,
+            addedDataFilesCount,
+            addedRowsCount);
+
         await manifestFile.DisposeAsync();
     }
 
@@ -435,11 +462,13 @@ public sealed class TableOperations
         PendingChanges pendingChanges = new([], []);
         if (_table is not null) return pendingChanges;
 
+        _logger.LogDebug("Loading table {TableIdentifier} before append", _identifier.ToString());
         _table = await _catalog.LoadTableAsync(
             _identifier,
             cancellationToken: cancellationToken);
         if (_table is null)
         {
+            _logger.LogInformation("Table {TableIdentifier} does not exist; creating it", _identifier.ToString());
             _table = await _catalog.CreateTableAsync(
                 _identifier,
                 schema,
@@ -454,6 +483,13 @@ public sealed class TableOperations
                 new AddSortOrderTableUpdate(sortOrder)
             ]);
         }
+        else
+        {
+            _logger.LogDebug(
+                "Loaded table {TableIdentifier} at snapshot {SnapshotId}",
+                _identifier.ToString(),
+                _table.Metadata.CurrentSnapshotId);
+        }
 
         return pendingChanges;
     }
@@ -461,6 +497,11 @@ public sealed class TableOperations
     private async Task CommitChanges(PendingChanges pendingChanges, CancellationToken cancellationToken)
     {
         // TODO retry (could also be handled in catalog)
+        _logger.LogDebug(
+            "Committing append to table {TableIdentifier} with {UpdateCount} updates and {RequirementCount} requirements",
+            _identifier.ToString(),
+            pendingChanges.Updates.Count,
+            pendingChanges.Requirements.Count);
         _table = await _catalog.UpdateTableAsync(
             CurrentTable,
             pendingChanges.Updates,

@@ -4,6 +4,13 @@ namespace Iceberg.Net.Schemas;
 
 internal static class SchemaUtilities
 {
+    internal static IReadOnlyDictionary<string, int> FieldIdsByPath(Schema schema)
+    {
+        Dictionary<string, int> fields = new(StringComparer.Ordinal);
+        AddFieldPaths(schema.Fields, string.Empty, fields);
+        return fields;
+    }
+
     internal static IReadOnlyDictionary<int, IIcebergType> FieldsById(Schema schema)
     {
         Dictionary<int, IIcebergType> fields = new();
@@ -50,6 +57,48 @@ internal static class SchemaUtilities
         {
             destination.Add(field.Id, field.FieldType);
             AddNested(field.FieldType, destination);
+        }
+    }
+
+    private static void AddFieldPaths(
+        IEnumerable<StructField> source,
+        string pathPrefix,
+        IDictionary<string, int> destination)
+    {
+        foreach (StructField field in source)
+        {
+            string path = string.IsNullOrEmpty(pathPrefix)
+                ? field.Name
+                : $"{pathPrefix}.{field.Name}";
+            destination.Add(path, field.Id);
+            AddNestedPaths(field.FieldType, path, destination);
+        }
+    }
+
+    private static void AddNestedPaths(
+        IIcebergType type,
+        string path,
+        IDictionary<string, int> destination)
+    {
+        switch (type)
+        {
+            case StructType structType:
+                AddFieldPaths(structType.Fields, path, destination);
+                break;
+            case ListType listType:
+                string elementPath = $"{path}.element";
+                destination.Add(elementPath, listType.ElementId);
+                AddNestedPaths(listType.Element, elementPath, destination);
+                break;
+            case MapType mapType:
+                string keyPath = $"{path}.key";
+                destination.Add(keyPath, mapType.KeyId);
+                AddNestedPaths(mapType.Key, keyPath, destination);
+
+                string valuePath = $"{path}.value";
+                destination.Add(valuePath, mapType.ValueId);
+                AddNestedPaths(mapType.Value, valuePath, destination);
+                break;
         }
     }
 

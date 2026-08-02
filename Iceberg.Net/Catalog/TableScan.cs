@@ -8,31 +8,52 @@ using Iceberg.Net.Data;
 using Iceberg.Net.Metadata;
 using Iceberg.Net.Schemas;
 using Iceberg.Net.Storage;
+using Microsoft.Extensions.Logging;
 
 namespace Iceberg.Net.Catalog;
 
 public sealed class TableScan(Table table)
 {
+    private readonly ILogger<TableScan> _logger = table.Catalog.LoggerFactory.CreateLogger<TableScan>();
+
     public IEnumerable<TRow> ReadRows<
         [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.AllProperties)]
         TRow>(
         long? snapshotId = null) where TRow : IArrowSerializer<TRow>
     {
+        Snapshot snapshot = GetSnapshotOrLatest(snapshotId);
+        Schemas.Schema snapshotSchema = GetSnapshotSchema(snapshot);
+        VerifyRowSchema<TRow>(snapshot, snapshotSchema);
+
         Channel<RecordBatch> columnBuffers = Channel.CreateBounded<RecordBatch>(
             new BoundedChannelOptions(16384)
             {
                 FullMode = BoundedChannelFullMode.Wait
             });
 
-        ReadArrow(snapshotId, columnBuffers.Writer)
-            .ContinueWith(_ => columnBuffers.Writer.TryComplete());
+        Task read = ReadArrow(snapshot.SnapshotId, columnBuffers.Writer);
+        _ = read.ContinueWith(
+            completed => columnBuffers.Writer.TryComplete(completed.Exception?.GetBaseException()),
+            TaskScheduler.Default);
 
+        long rowCount = 0;
         foreach (RecordBatch batch in columnBuffers.Reader.ReadAllAsync().ToBlockingEnumerable())
         {
             IReadOnlyList<TRow> rows = TRow.ListFromRecordBatch(batch);
-            foreach (TRow row in rows) yield return row;
+            foreach (TRow row in rows)
+            {
+                rowCount++;
+                yield return row;
+            }
             batch.Dispose();
         }
+
+        read.GetAwaiter().GetResult();
+
+        _logger.LogInformation(
+            "Completed scan of table {TableIdentifier} with {RowCount} rows",
+            table.Identifier.ToString(),
+            rowCount);
     }
 
     private async Task ReadArrow(
@@ -72,6 +93,10 @@ public sealed class TableScan(Table table)
         CancellationToken cancellationToken = default)
     {
         Snapshot snapshot = GetSnapshotOrLatest(snapshotId);
+        _logger.LogInformation(
+            "Scanning table {TableIdentifier} at snapshot {SnapshotId}",
+            table.Identifier.ToString(),
+            snapshot.SnapshotId);
 
         Channel<ManifestListEntry> manifestListEntries = Channel.CreateBounded<ManifestListEntry>(
             new BoundedChannelOptions(8192)
@@ -97,6 +122,10 @@ public sealed class TableScan(Table table)
         await snapshotRead;
         manifestListEntries.Writer.Complete();
         await manifestReaders;
+        _logger.LogDebug(
+            "Completed manifest scan for table {TableIdentifier} at snapshot {SnapshotId}",
+            table.Identifier.ToString(),
+            snapshot.SnapshotId);
     }
 
     internal async Task ReadSnapshotAsync(
@@ -105,9 +134,11 @@ public sealed class TableScan(Table table)
         CancellationToken cancellationToken = default)
     {
         Snapshot snapshot = table.Metadata.SnapshotsById[snapshotId];
-        int schemaId = snapshot.SchemaId ?? table.Metadata.CurrentSchemaId ??
-            throw new InvalidDataException("Table metadata does not identify a schema for the snapshot.");
-        Iceberg.Net.Schemas.Schema schema = table.Metadata.SchemasById[schemaId];
+        _logger.LogDebug(
+            "Reading manifest list {ManifestListPath} for snapshot {SnapshotId}",
+            snapshot.ManifestList,
+            snapshotId);
+        Schemas.Schema schema = GetSnapshotSchema(snapshot);
 
         await using PathAndFile<IRandomAccessFile> manifestListFile = await OpenFile(
             snapshot.ManifestList,
@@ -126,6 +157,10 @@ public sealed class TableScan(Table table)
         ChannelWriter<ManifestEntry> results,
         CancellationToken cancellationToken)
     {
+        _logger.LogDebug(
+            "Reading manifest {ManifestPath} for table {TableIdentifier}",
+            manifestListEntry.ManifestPath,
+            table.Identifier.ToString());
         await using PathAndFile<IRandomAccessFile> manifestFile = await OpenFile(
             manifestListEntry.ManifestPath,
             cancellationToken);
@@ -151,6 +186,10 @@ public sealed class TableScan(Table table)
         ChannelWriter<RecordBatch> results,
         CancellationToken cancellationToken)
     {
+        _logger.LogDebug(
+            "Reading data file {DataFilePath} for table {TableIdentifier}",
+            dataFile.FilePath,
+            table.Identifier.ToString());
         await using PathAndFile<IRandomAccessFile> storageFile = await OpenFile(
             dataFile.FilePath,
             cancellationToken);
@@ -187,5 +226,35 @@ public sealed class TableScan(Table table)
         return table.Metadata.SnapshotsById.TryGetValue(currentSnapshotId, out Snapshot? currentSnapshot)
             ? currentSnapshot
             : throw new UnreachableException("Could not find the current snapshot");
+    }
+
+    private Schemas.Schema GetSnapshotSchema(Snapshot snapshot)
+    {
+        int schemaId = snapshot.SchemaId ?? table.Metadata.CurrentSchemaId ??
+            throw new InvalidDataException("Table metadata does not identify a schema for the snapshot.");
+        return table.Metadata.SchemasById.TryGetValue(schemaId, out Schemas.Schema? schema)
+            ? schema
+            : throw new InvalidDataException(
+                $"Snapshot {snapshot.SnapshotId} refers to unknown schema ID {schemaId}.");
+    }
+
+    private static void VerifyRowSchema<
+        [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.AllProperties)]
+        TRow>(Snapshot snapshot, Schemas.Schema snapshotSchema)
+    {
+        IReadOnlyDictionary<string, int> fieldIds = SchemaUtilities.FieldIdsByPath(snapshotSchema);
+        Schemas.Schema requestedSchema = CSharpSchemas.ToIcebergSchema(
+            typeof(TRow),
+            snapshotSchema.SchemaId,
+            path => fieldIds.TryGetValue(path, out int fieldId)
+                ? fieldId
+                : throw new InvalidOperationException(
+                    $"Requested row type '{typeof(TRow).FullName}' contains field '{path}' that is not present " +
+                    $"in schema {snapshotSchema.SchemaId} of snapshot {snapshot.SnapshotId}."));
+
+        if (!new IcebergTypeComparer().Equals(requestedSchema, snapshotSchema))
+            throw new InvalidOperationException(
+                $"Requested row type '{typeof(TRow).FullName}' does not match schema " +
+                $"{snapshotSchema.SchemaId} of snapshot {snapshot.SnapshotId}.");
     }
 }

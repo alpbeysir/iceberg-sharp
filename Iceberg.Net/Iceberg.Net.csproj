@@ -14,6 +14,7 @@
         <PackageReference Include="EngineeredWood.Core"/>
         <PackageReference Include="EngineeredWood.Expressions"/>
         <PackageReference Include="EngineeredWood.Expressions.Arrow"/>
+        <PackageReference Include="Microsoft.Extensions.Logging.Abstractions"/>
         <ProjectReference Include="..\Apache.Arrow.Serialization\Apache.Arrow.Serialization.csproj"/>
         <ProjectReference Include="..\EngineeredWood.Avro\EngineeredWood.Avro.csproj"/>
     </ItemGroup>

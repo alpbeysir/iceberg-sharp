@@ -5,6 +5,8 @@ using Iceberg.Net.Rest.TableRequirement;
 using Iceberg.Net.Rest.TableUpdate;
 using Iceberg.Net.Schemas;
 using Iceberg.Net.Storage;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 
 namespace Iceberg.Net.Catalog;
 
@@ -13,6 +15,7 @@ public record UserConfig
     public readonly Dictionary<string, string> CatalogConfig = new();
     public readonly Dictionary<string, string> RequestHeaders = new();
     public required string BaseUrl;
+    public ILoggerFactory LoggerFactory { get; init; } = NullLoggerFactory.Instance;
     public string? Warehouse;
 }
 
@@ -34,6 +37,7 @@ public sealed class RestCatalog : ICatalog
 {
     private const int PageSize = 10;
     private readonly HttpClient _httpClient;
+    private readonly ILogger<RestCatalog> _logger;
 
     private RestCatalog(
         RestCatalogClient apiClient,
@@ -42,6 +46,8 @@ public sealed class RestCatalog : ICatalog
         HttpClient httpClient)
     {
         _httpClient = httpClient;
+        LoggerFactory = userConfig.LoggerFactory;
+        _logger = LoggerFactory.CreateLogger<RestCatalog>();
         ApiClient = apiClient;
         UserConfig = userConfig;
         CatalogConfig = catalogConfig;
@@ -49,6 +55,7 @@ public sealed class RestCatalog : ICatalog
 
     private RestCatalogClient ApiClient { get; }
     private UserConfig UserConfig { get; }
+    public ILoggerFactory LoggerFactory { get; }
     public TypedCatalogConfig CatalogConfig { get; }
 
     public string? Resolve(string key)
@@ -82,6 +89,10 @@ public sealed class RestCatalog : ICatalog
         bool stage,
         CancellationToken cancellationToken)
     {
+        _logger.LogInformation(
+            "Creating table {TableIdentifier} (staged: {Stage})",
+            identifier.ToString(),
+            stage);
         CreateTableRequest request = new()
         {
             Name = identifier.GetTableName(),
@@ -99,6 +110,7 @@ public sealed class RestCatalog : ICatalog
             request,
             EncodeNamespace(identifier.GetParent()),
             cancellationToken: cancellationToken);
+        _logger.LogInformation("Created table {TableIdentifier}", identifier.ToString());
         return new Table(identifier, this, response.Metadata)
         {
             PropertyResolver = CreatePropertyResolver(response.Config),
@@ -112,6 +124,11 @@ public sealed class RestCatalog : ICatalog
         List<ITableRequirement> requirements,
         CancellationToken cancellationToken)
     {
+        _logger.LogInformation(
+            "Committing {UpdateCount} updates to table {TableIdentifier} with {RequirementCount} requirements",
+            updates.Count,
+            table.Identifier.ToString(),
+            requirements.Count);
         CommitTableResponse response = await ApiClient.UpdateTableAsync(
             new CommitTableRequest
             {
@@ -122,6 +139,10 @@ public sealed class RestCatalog : ICatalog
             EncodeNamespace(table.Identifier.GetParent()),
             table.Identifier.GetTableName(),
             cancellationToken: cancellationToken);
+        _logger.LogInformation(
+            "Committed table {TableIdentifier} at snapshot {SnapshotId}",
+            table.Identifier.ToString(),
+            response.Metadata.CurrentSnapshotId);
         return table with
         {
             Metadata = response.Metadata,
@@ -136,6 +157,7 @@ public sealed class RestCatalog : ICatalog
         Snapshots snapshots = Snapshots.All,
         CancellationToken cancellationToken = default)
     {
+        _logger.LogDebug("Loading table {TableIdentifier}", identifier.ToString());
         try
         {
             LoadTableResult response = await ApiClient.LoadTableAsync(
@@ -143,6 +165,10 @@ public sealed class RestCatalog : ICatalog
                 identifier.GetTableName(),
                 snapshots: snapshots,
                 cancellationToken: cancellationToken);
+            _logger.LogDebug(
+                "Loaded table {TableIdentifier} at snapshot {SnapshotId}",
+                identifier.ToString(),
+                response.Metadata.CurrentSnapshotId);
             return new Table(identifier, this, response.Metadata)
             {
                 PropertyResolver = CreatePropertyResolver(response.Config),
@@ -151,6 +177,7 @@ public sealed class RestCatalog : ICatalog
         }
         catch (IcebergRestException exception) when (exception.StatusCode == (int)HttpStatusCode.NotFound)
         {
+            _logger.LogDebug("Table {TableIdentifier} was not found", identifier.ToString());
             return null;
         }
     }
@@ -322,6 +349,8 @@ public sealed class RestCatalog : ICatalog
 
     public static async Task<ICatalog> Create(UserConfig userConfig, CancellationToken cancellationToken = default)
     {
+        ILogger<RestCatalog> logger = userConfig.LoggerFactory.CreateLogger<RestCatalog>();
+        logger.LogInformation("Connecting to REST catalog at {BaseUrl}", userConfig.BaseUrl);
         HttpClient httpClient = new();
         RestCatalogClient client = new(httpClient)
         {
@@ -336,6 +365,8 @@ public sealed class RestCatalog : ICatalog
 
         // TODO make this better
         client.BaseUrl = $"{client.BaseUrl}{typedConfig.Prefix}";
+
+        logger.LogInformation("REST catalog configured at {BaseUrl}", client.BaseUrl);
 
         return new RestCatalog(client, userConfig, typedConfig, httpClient);
     }

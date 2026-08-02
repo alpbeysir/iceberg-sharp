@@ -2,6 +2,8 @@
 using Iceberg.Net.Metadata;
 using Iceberg.Net.Rest;
 using Iceberg.Net.Storage;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 
 namespace Iceberg.Net.Catalog;
 
@@ -10,6 +12,9 @@ public sealed record Table(
     ICatalog Catalog,
     TableMetadata Metadata) : INode
 {
+    private readonly ILogger<Table> _logger =
+        Catalog?.LoggerFactory.CreateLogger<Table>() ?? NullLogger<Table>.Instance;
+
     public PropertyResolver? PropertyResolver { get; init; }
 
     public IReadOnlyList<StorageCredential> StorageCredentials { get; init; } = [];
@@ -33,21 +38,37 @@ public sealed record Table(
         TableProperties.WriteDataLocation,
         "data/");
 
-    internal ValueTask<IRandomAccessFile> ReadFile(
+    internal async ValueTask<IRandomAccessFile> ReadFile(
         Uri uri,
         CancellationToken cancellationToken = default)
     {
         ITableFileSystem fileSystem = TableFileSystemRegistry.Resolve(uri, Resolve, StorageCredentials);
-        return fileSystem.OpenReadAsync(GetFileSystemPath(uri), cancellationToken);
+        _logger.LogDebug(
+            "Opening object storage file {FileUri} for random-access read using {FileSystemType}",
+            uri,
+            fileSystem.GetType().Name);
+        IRandomAccessFile file = await fileSystem.OpenReadAsync(GetFileSystemPath(uri), cancellationToken);
+        _logger.LogDebug("Opened object storage file {FileUri} for reading", uri);
+        return file;
     }
 
-    internal ValueTask<ISequentialFile> CreateFile(
+    internal async ValueTask<ISequentialFile> CreateFile(
         Uri uri,
         bool overwrite = false,
         CancellationToken cancellationToken = default)
     {
         ITableFileSystem fileSystem = TableFileSystemRegistry.Resolve(uri, Resolve, StorageCredentials);
-        return fileSystem.CreateAsync(GetFileSystemPath(uri), overwrite, cancellationToken);
+        _logger.LogDebug(
+            "Creating object storage file {FileUri} using {FileSystemType} (overwrite: {Overwrite})",
+            uri,
+            fileSystem.GetType().Name,
+            overwrite);
+        ISequentialFile file = await fileSystem.CreateAsync(
+            GetFileSystemPath(uri),
+            overwrite,
+            cancellationToken);
+        _logger.LogDebug("Created object storage file {FileUri} for writing", uri);
+        return file;
     }
 
     private string? Resolve(string key)

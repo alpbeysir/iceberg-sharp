@@ -169,9 +169,12 @@ public static class CSharpSchemas
             int valueFieldId = fieldIdProvider($"{currentPath}.value");
             return new MapType(
                 keyFieldId,
-                ToIcebergType(keyType, fieldIdProvider, currentPath),
+                ToIcebergType(keyType, fieldIdProvider, $"{currentPath}.key"),
                 valueFieldId,
-                ToIcebergType(valueRequired ? valueType : maybeUnderlyingType!, fieldIdProvider, currentPath),
+                ToIcebergType(
+                    valueRequired ? valueType : maybeUnderlyingType!,
+                    fieldIdProvider,
+                    $"{currentPath}.value"),
                 valueRequired);
         }
 

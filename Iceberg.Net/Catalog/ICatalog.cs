@@ -2,11 +2,15 @@
 using Iceberg.Net.Rest.TableRequirement;
 using Iceberg.Net.Rest.TableUpdate;
 using Iceberg.Net.Storage;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 
 namespace Iceberg.Net.Catalog;
 
 public interface ICatalog : IDisposable
 {
+    ILoggerFactory LoggerFactory => NullLoggerFactory.Instance;
+
     string? Resolve(string key);
 
     public async Task<Table> CreateTableAsync(

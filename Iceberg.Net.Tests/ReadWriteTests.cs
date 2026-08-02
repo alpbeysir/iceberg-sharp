@@ -42,6 +42,24 @@ public class ReadWriteTests(RestCatalogFixture fixture) : TableTest(fixture)
         await Run(DecimalRow.TestRows().ToList());
     }
 
+    [Fact]
+    public async Task ReadRejectsRowTypeThatDoesNotMatchSnapshotSchema()
+    {
+        Identifier identifier = await Write([
+            new ReadSchemaRow { Id = 1, Name = "one" }
+        ]);
+        Table table = await Catalog.LoadTableAsync(
+                          identifier,
+                          cancellationToken: TestContext.Current.CancellationToken) ??
+                      throw new InvalidOperationException($"Table '{identifier}' was not found.");
+
+        InvalidOperationException exception = Assert.Throws<InvalidOperationException>(() =>
+            new TableScan(table).ReadRows<MismatchedReadSchemaRow>().ToList());
+
+        Assert.Contains(nameof(MismatchedReadSchemaRow.Extra), exception.Message);
+        Assert.Contains("snapshot", exception.Message);
+    }
+
     [Theory]
     [AutoIcebergData]
     public async Task ParquetTablePropertiesAreApplied(List<MySimpleRow> rows)
@@ -95,4 +113,19 @@ public class ReadWriteTests(RestCatalogFixture fixture) : TableTest(fixture)
         Identifier identifier = await Write(rows);
         await Verify(identifier, rows);
     }
+}
+
+[ArrowSerializable]
+public partial record ReadSchemaRow
+{
+    public int Id { get; init; }
+    public string Name { get; init; } = string.Empty;
+}
+
+[ArrowSerializable]
+public partial record MismatchedReadSchemaRow
+{
+    public int Id { get; init; }
+    public string Name { get; init; } = string.Empty;
+    public long Extra { get; init; }
 }
