@@ -160,7 +160,7 @@ public sealed class TableScan(Table table)
         if (!Uri.TryCreate(path, UriKind.RelativeOrAbsolute, out Uri? uri))
             throw new ArgumentException($"Invalid URI: {path}");
 
-        IRandomAccessFile file = await table.OpenRead(uri, cancellationToken);
+        IRandomAccessFile file = await table.ReadFile(uri, cancellationToken);
         return new PathAndFile<IRandomAccessFile>(uri, file);
     }
 

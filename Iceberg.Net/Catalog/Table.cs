@@ -34,7 +34,7 @@ public sealed record Table(Identifier Identifier, ICatalog Catalog) : INode
         TableProperties.WriteDataLocation,
         "data/");
 
-    internal ValueTask<IRandomAccessFile> OpenRead(
+    internal ValueTask<IRandomAccessFile> ReadFile(
         Uri uri,
         CancellationToken cancellationToken = default)
     {
@@ -42,7 +42,7 @@ public sealed record Table(Identifier Identifier, ICatalog Catalog) : INode
         return fileSystem.OpenReadAsync(GetFileSystemPath(uri), cancellationToken);
     }
 
-    internal ValueTask<ISequentialFile> Create(
+    internal ValueTask<ISequentialFile> CreateFile(
         Uri uri,
         bool overwrite = false,
         CancellationToken cancellationToken = default)

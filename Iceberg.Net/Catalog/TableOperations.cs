@@ -352,8 +352,9 @@ public sealed class TableOperations(Table table)
         Uri dataFilePath = new(
             Table.DataFolderUri,
             $"00000-0-{Guid.NewGuid()}{fileExtension}");
-        ISequentialFile dataFile = await Table.Create(
+        ISequentialFile dataFile = await Table.CreateFile(
             dataFilePath,
+            overwrite: true,
             cancellationToken: cancellationToken);
         return new PathAndFile<ISequentialFile>(dataFilePath, dataFile);
     }
@@ -364,8 +365,9 @@ public sealed class TableOperations(Table table)
         Uri manifestFilePath = new(
             Table.MetadataFolderUri,
             ManifestEntry.GetFileName(Guid.NewGuid(), 0));
-        ISequentialFile file = await Table.Create(
+        ISequentialFile file = await Table.CreateFile(
             manifestFilePath,
+            overwrite: true,
             cancellationToken: cancellationToken);
         return new PathAndFile<ISequentialFile>(manifestFilePath, file);
     }
@@ -378,8 +380,9 @@ public sealed class TableOperations(Table table)
         Uri manifestListFilePath = new(
             Table.MetadataFolderUri,
             ManifestListEntry.GetFileName(snapshotId, sequenceNumber, Guid.NewGuid()));
-        ISequentialFile manifestListFile = await Table.Create(
+        ISequentialFile manifestListFile = await Table.CreateFile(
             manifestListFilePath,
+            overwrite: true,
             cancellationToken: cancellationToken);
         return new PathAndFile<ISequentialFile>(manifestListFilePath, manifestListFile);
     }
