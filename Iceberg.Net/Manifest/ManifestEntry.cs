@@ -1,6 +1,6 @@
 namespace Iceberg.Net.Metadata;
 
-public enum Status
+public enum Status : byte
 {
     Existing = 0,
     Added = 1,

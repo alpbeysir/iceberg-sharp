@@ -2,7 +2,7 @@ using System.Collections.Immutable;
 
 namespace Iceberg.Net.Metadata;
 
-public enum Content
+public enum Content : byte
 {
     Data,
     Deletes

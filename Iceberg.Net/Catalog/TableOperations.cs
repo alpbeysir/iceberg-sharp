@@ -57,21 +57,21 @@ public sealed class TableOperations
 
         return operation switch
         {
-            AppendFilesOperation append => AppendFilesAsync(append, cancellationToken),
+            AppendOperation append => AppendFilesAsync(append, cancellationToken),
             _ => throw new NotSupportedException(
                 $"Table operation '{operation.GetType().FullName}' is not supported.")
         };
     }
 
     private async Task AppendFilesAsync(
-        AppendFilesOperation operation,
+        AppendOperation operation,
         CancellationToken cancellationToken)
     {
         _logger.LogInformation("Starting append to table {TableIdentifier}", _identifier.ToString());
         PartitionSpec partitionSpec = operation.PartitionSpec ??
-                                      (Table is null ? PartitionSpec.Default : GetDefaultPartitionSpec());
+                                      (Table is null ? PartitionSpec.Default : GetPartitionSpec());
         SortOrder sortOrder = operation.SortOrder ??
-                              (Table is null ? SortOrder.Default : GetDefaultSortOrder());
+                              (Table is null ? SortOrder.Default : GetSortOrder());
 
         PendingChanges pendingChanges = await EnsureTableInitialized(
             operation.Schema,
@@ -603,20 +603,30 @@ public sealed class TableOperations
             manifestListEntry.ManifestPath,
             cancellationToken);
         await using RandomAccessFileStream manifestStream = new(manifestFile.File);
+
         await ManifestIO.ReadManifestAsync(
             manifestStream,
             results,
-            entry =>
-            {
-                // TODO only inherit if status = added
-                return entry with
-                {
-                    FileSequenceNumber = entry.FileSequenceNumber ?? manifestListEntry.SequenceNumber,
-                    SequenceNumber = entry.SequenceNumber ?? manifestListEntry.SequenceNumber,
-                    SnapshotId = entry.SnapshotId ?? manifestListEntry.AddedSnapshotId
-                };
-            },
+            MaybeInheritSequenceNumber,
             cancellationToken);
+        return;
+
+        ManifestEntry MaybeInheritSequenceNumber(ManifestEntry entry)
+        {
+            if (entry.Status != Status.Added && (entry.SequenceNumber == null || entry.FileSequenceNumber == null ||
+                                                 entry.SnapshotId == null))
+            {
+                throw new InvalidOperationException(
+                    "A manifest with status EXISTING or DELETED that doesn't have a sequence number was found");
+            }
+
+            return entry with
+            {
+                FileSequenceNumber = entry.FileSequenceNumber ?? manifestListEntry.SequenceNumber,
+                SequenceNumber = entry.SequenceNumber ?? manifestListEntry.SequenceNumber,
+                SnapshotId = entry.SnapshotId ?? manifestListEntry.AddedSnapshotId
+            };
+        }
     }
 
     private async Task ReadDataFileAsync(
@@ -696,7 +706,7 @@ public sealed class TableOperations
         return table.Metadata.SchemasById[table.Metadata.CurrentSchemaId!.Value];
     }
 
-    private PartitionSpec GetDefaultPartitionSpec()
+    private PartitionSpec GetPartitionSpec()
     {
         Table table = GetTable();
         int defaultSpecId = table.Metadata.DefaultSpecId ??
@@ -707,7 +717,7 @@ public sealed class TableOperations
                    $"Table '{_identifier}' refers to unknown default partition spec ID {defaultSpecId}.");
     }
 
-    private SortOrder GetDefaultSortOrder()
+    private SortOrder GetSortOrder()
     {
         Table table = GetTable();
         int defaultSortOrderId = table.Metadata.DefaultSortOrderId ??

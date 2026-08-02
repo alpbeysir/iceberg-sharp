@@ -24,7 +24,7 @@ public static class RowExtensions
 
             Schema schema = CreateSchema<TRow>(operations);
             Task append = operations.ApplyAsync(
-                new AppendFilesOperation
+                new AppendOperation
                 {
                     Data = data,
                     Schema = schema
@@ -66,7 +66,7 @@ public static class RowExtensions
 
             Schema schema = CreateSchema<TRow>(operations);
             Task append = operations.ApplyAsync(
-                new AppendFilesOperation
+                new AppendOperation
                 {
                     Data = data,
                     Schema = schema

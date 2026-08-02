@@ -5,7 +5,7 @@ using Schema = Iceberg.Net.Schemas.Schema;
 
 namespace Iceberg.Net.Catalog;
 
-public sealed record AppendFilesOperation : ITableOperation
+public sealed record AppendOperation : ITableOperation
 {
     public required Channel<RecordBatch> Data { get; init; }
 
