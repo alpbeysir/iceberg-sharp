@@ -20,15 +20,9 @@ using SortOrder = Iceberg.Net.Metadata.SortOrder;
 
 namespace Iceberg.Net.Catalog;
 
-public sealed class Transaction(Table table, bool commitOnDispose = false) : IAsyncDisposable
+public sealed class Transaction(Table table)
 {
     private Table Table { get; set; } = table;
-
-    public async ValueTask DisposeAsync()
-    {
-        if (commitOnDispose)
-            await Commit();
-    }
 
     public IEnumerable<TRow> ReadRows<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.AllProperties)] TRow>(
         long? snapshotId = null) where TRow : IArrowSerializer<TRow>
@@ -549,42 +543,37 @@ public sealed class Transaction(Table table, bool commitOnDispose = false) : IAs
         CancellationToken cancellationToken = default)
     {
         PendingChanges pendingChanges = new([], []);
-        if (!Table.IsLoaded)
-            try
-            {
-                Table =
-                    await Table.Catalog.LoadTableAsync(Table.Identifier, cancellationToken: cancellationToken);
-            }
-            catch (Exception)
-            {
-                Table = await Table.Catalog.CreateTableInternalAsync(
-                    Table.Identifier,
-                    schema,
-                    true,
-                    cancellationToken);
-                pendingChanges.Requirements.Add(new AssertCreate());
-                pendingChanges.Updates.AddRange(
-                [
-                    new SetLocationTableUpdate(Table.Metadata!.Location),
-                    new AddSchemaTableUpdate(Table.Metadata!.Schemas[0]),
-                    new AddPartitionSpecTableUpdate(partitionSpec),
-                    new AddSortOrderTableUpdate(sortOrder)
-                ]);
-            }
+        if (Table.IsLoaded) return pendingChanges;
+        try
+        {
+            Table =
+                await Table.Catalog.LoadTableAsync(Table.Identifier, cancellationToken: cancellationToken);
+        }
+        catch (Exception)
+        {
+            Table = await Table.Catalog.CreateTableAsync(
+                Table.Identifier,
+                schema,
+                true,
+                cancellationToken);
+            pendingChanges.Requirements.Add(new AssertCreate());
+            pendingChanges.Updates.AddRange(
+            [
+                new SetLocationTableUpdate(Table.Metadata!.Location),
+                new AddSchemaTableUpdate(Table.Metadata!.Schemas[0]),
+                new AddPartitionSpecTableUpdate(partitionSpec),
+                new AddSortOrderTableUpdate(sortOrder)
+            ]);
+        }
 
         return pendingChanges;
-    }
-
-    public Task Commit(CancellationToken cancellationToken = default)
-    {
-        return Task.CompletedTask;
     }
 
     private async Task CommitChanges(PendingChanges pendingChanges, CancellationToken cancellationToken)
     {
         // TODO retry (could also be handled in catalog)
         Table = await Table.Catalog.UpdateTableAsync(
-            Table.Identifier,
+            Table,
             pendingChanges.Updates,
             pendingChanges.Requirements,
             cancellationToken);

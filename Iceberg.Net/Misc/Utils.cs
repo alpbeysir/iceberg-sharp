@@ -173,7 +173,7 @@ public static class Utils
             if (node is GroupNode groupNode)
                 foreach (Node child in groupNode.Fields)
                 {
-                    Visit(child, visitor);
+                    child.Visit(visitor);
                     child.Dispose();
                 }
         }
@@ -181,27 +181,27 @@ public static class Utils
 
     extension(IIcebergType icebergType)
     {
-        public void Visit(IcebergTypeVisitor visitor, int repetition = 0, int id = -1, bool required = true)
+        private void Visit(IcebergTypeVisitor visitor, int repetition = 0, int id = -1, bool required = true)
         {
             visitor(icebergType, repetition, id, required);
             switch (icebergType)
             {
                 case ListType listType:
-                    Visit(listType.Element, visitor, repetition + 1, listType.ElementId, listType.ElementRequired);
+                    listType.Element.Visit(visitor, repetition + 1, listType.ElementId, listType.ElementRequired);
                     break;
                 case MapType mapType:
-                    Visit(mapType.Key, visitor, repetition + 1, mapType.KeyId);
-                    Visit(mapType.Value, visitor, repetition + 1, mapType.ValueId, mapType.ValueRequired);
+                    mapType.Key.Visit(visitor, repetition + 1, mapType.KeyId);
+                    mapType.Value.Visit(visitor, repetition + 1, mapType.ValueId, mapType.ValueRequired);
                     break;
-                case PrimitiveType primitiveType:
+                case PrimitiveType:
                     break;
                 case Schema schema:
                     foreach (StructField field in schema.Fields)
-                        Visit(field.FieldType, visitor, repetition, field.Id, field.Required);
+                        field.FieldType.Visit(visitor, repetition, field.Id, field.Required);
                     break;
                 case StructType structType:
                     foreach (StructField field in structType.Fields)
-                        Visit(field.FieldType, visitor, repetition, field.Id, field.Required);
+                        field.FieldType.Visit(visitor, repetition, field.Id, field.Required);
                     break;
                 default:
                     throw new ArgumentOutOfRangeException(nameof(icebergType));

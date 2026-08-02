@@ -24,7 +24,7 @@ public record FieldMapping(
                 new FieldMapping(mapType.KeyId, ["key"], FromType(mapType.Key)),
                 new FieldMapping(mapType.ValueId, ["value"], FromType(mapType.Value))
             ],
-            PrimitiveType primitiveType => null,
+            PrimitiveType => null,
             Schema schema => FromFields(schema.Fields),
             StructType structType => FromFields(structType.Fields),
             _ => throw new ArgumentOutOfRangeException(nameof(type))
@@ -34,6 +34,7 @@ public record FieldMapping(
     private static List<FieldMapping> FromFields(List<StructField> fields)
     {
         return fields
-            .Select(field => new FieldMapping(field.Id, [field.Name], FromType(field.FieldType)!)).ToList();
+            .Select(field => new FieldMapping(field.Id, [field.Name], FromType(field.FieldType)!))
+            .ToList();
     }
 }

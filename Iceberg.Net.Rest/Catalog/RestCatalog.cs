@@ -4,6 +4,7 @@ using Iceberg.Net.Rest;
 using Iceberg.Net.Rest.TableRequirement;
 using Iceberg.Net.Rest.TableUpdate;
 using Iceberg.Net.Schemas;
+using Iceberg.Net.Storage;
 
 namespace Iceberg.Net.Catalog;
 
@@ -60,7 +61,7 @@ public sealed class RestCatalog : ICatalog
         return identifier.GetEncoded(CatalogConfig.NamespaceSeparator);
     }
 
-    async Task<Table> ICatalog.CreateTableInternalAsync(
+    public async Task<Table> CreateTableAsync(
         Identifier identifier,
         Schema schema,
         bool stage,
@@ -80,13 +81,16 @@ public sealed class RestCatalog : ICatalog
             request,
             EncodeNamespace(identifier.GetParent()),
             cancellationToken: cancellationToken);
-        Table table = new(identifier, this);
-        table.Initialize(response.Metadata, response.StorageCredentials, response.Config);
-        return table;
+        return new Table(identifier, this)
+        {
+            Metadata = response.Metadata,
+            PropertyResolver = CreatePropertyResolver(response.Config),
+            StorageCredentials = response.StorageCredentials?.ToArray() ?? []
+        };
     }
 
     public async Task<Table> UpdateTableAsync(
-        Identifier identifier,
+        Table table,
         List<ITableUpdate> updates,
         List<ITableRequirement> requirements,
         CancellationToken cancellationToken)
@@ -94,16 +98,20 @@ public sealed class RestCatalog : ICatalog
         CommitTableResponse response = await ApiClient.UpdateTableAsync(
             new CommitTableRequest
             {
-                Identifier = identifier.ToTableIdentifier(),
+                Identifier = table.Identifier.ToTableIdentifier(),
                 Requirements = requirements,
                 Updates = updates
             },
-            EncodeNamespace(identifier.GetParent()),
-            identifier.GetTableName(),
+            EncodeNamespace(table.Identifier.GetParent()),
+            table.Identifier.GetTableName(),
             cancellationToken: cancellationToken);
-        Table table = new(identifier, this);
-        table.Initialize(response.Metadata, null, response.Config);
-        return table;
+        return table with
+        {
+            Metadata = response.Metadata,
+            PropertyResolver = response.Config is null
+                ? table.PropertyResolver
+                : CreatePropertyResolver(response.Config)
+        };
     }
 
     public async Task<Table> LoadTableAsync(
@@ -116,9 +124,12 @@ public sealed class RestCatalog : ICatalog
             identifier.GetTableName(),
             snapshots: snapshots,
             cancellationToken: cancellationToken);
-        Table table = new(identifier, this);
-        table.Initialize(response.Metadata, response.StorageCredentials, response.Config);
-        return table;
+        return new Table(identifier, this)
+        {
+            Metadata = response.Metadata,
+            PropertyResolver = CreatePropertyResolver(response.Config),
+            StorageCredentials = response.StorageCredentials?.ToArray() ?? []
+        };
     }
 
     public Namespace GetNamespace(Identifier identifier, CancellationToken cancellationToken = default)
@@ -126,6 +137,15 @@ public sealed class RestCatalog : ICatalog
         IAsyncEnumerable<INode> childNamespaces = ListNamespacesAsync(identifier, cancellationToken);
         IAsyncEnumerable<INode> childTables = ListTablesAsync(identifier, cancellationToken);
         return new Namespace(identifier, childNamespaces.Concat(childTables));
+    }
+
+    private static PropertyResolver? CreatePropertyResolver(
+        IEnumerable<KeyValuePair<string, string>>? properties)
+    {
+        if (properties is null) return null;
+        IReadOnlyDictionary<string, string> values =
+            properties.ToDictionary(property => property.Key, property => property.Value, StringComparer.Ordinal);
+        return key => values.TryGetValue(key, out string? value) ? value : null;
     }
 
     public async Task CreateNamespaceAsync(

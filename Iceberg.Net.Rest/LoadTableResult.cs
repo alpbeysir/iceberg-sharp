@@ -44,10 +44,10 @@ namespace Iceberg.Net.Rest;
 /// </summary>
 [method: JsonConstructor]
 public class LoadTableResult(
-    IDictionary<string, string> config,
+    IDictionary<string, string>? config,
     Metadata.TableMetadata metadata,
     string metadataLocation,
-    List<StorageCredential> storageCredentials)
+    List<StorageCredential>? storageCredentials)
 {
     /// <summary>
     ///     May be null if the table is staged as part of a transaction
@@ -57,8 +57,8 @@ public class LoadTableResult(
 
     [JsonPropertyName("metadata")] public Metadata.TableMetadata Metadata { get; } = metadata;
 
-    [JsonPropertyName("config")] public IDictionary<string, string> Config { get; } = config;
+    [JsonPropertyName("config")] public IDictionary<string, string>? Config { get; } = config;
 
     [JsonPropertyName("storage-credentials")]
-    public List<StorageCredential> StorageCredentials { get; } = storageCredentials;
+    public List<StorageCredential>? StorageCredentials { get; } = storageCredentials;
 }

@@ -4,20 +4,15 @@ using Iceberg.Net.Storage;
 
 namespace Iceberg.Net.Catalog;
 
-public sealed record Table : INode
+public sealed record Table(Identifier Identifier, ICatalog Catalog) : INode
 {
-    public Table(Identifier identifier, ICatalog catalog)
-    {
-        Identifier = identifier;
-        Catalog = catalog;
-    }
-
     public bool IsLoaded => Metadata is not null;
 
-    public TableMetadata? Metadata { get; private set; }
+    public TableMetadata? Metadata { get; init; }
 
-    private IReadOnlyList<StorageCredential>? StorageCredentials { get; set; }
-    private IReadOnlyDictionary<string, string>? ObjectStorageProperties { get; set; }
+    public PropertyResolver? PropertyResolver { get; init; }
+
+    public IReadOnlyList<StorageCredential> StorageCredentials { get; init; } = [];
 
     private Uri BaseFolderUri
     {
@@ -32,19 +27,6 @@ public sealed record Table : INode
 
     public Uri DataFolderUri => new(BaseFolderUri, "data/");
 
-    public Identifier Identifier { get; }
-    public ICatalog Catalog { get; }
-
-    internal void Initialize(
-        TableMetadata? metadata,
-        IReadOnlyList<StorageCredential>? storageCredentials,
-        IEnumerable<KeyValuePair<string, string>>? objectStorageProperties = null)
-    {
-        Metadata = metadata ?? Metadata;
-        StorageCredentials = storageCredentials ?? StorageCredentials;
-        ObjectStorageProperties = objectStorageProperties?.ToDictionary() ?? ObjectStorageProperties;
-    }
-
     internal ValueTask<Stream> Open(
         Uri uri,
         FileMode fileMode = FileMode.Open,
@@ -56,8 +38,6 @@ public sealed record Table : INode
 
     private string? Resolve(string key)
     {
-        return ObjectStorageProperties is not null && ObjectStorageProperties.TryGetValue(key, out string? value)
-            ? value
-            : Catalog.Resolve(key);
+        return PropertyResolver?.Invoke(key) ?? Catalog.Resolve(key);
     }
 }

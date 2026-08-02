@@ -14,17 +14,17 @@ public interface ICatalog : IDisposable
         Schemas.Schema schema,
         CancellationToken cancellationToken = default)
     {
-        return await CreateTableInternalAsync(identifier, schema, false, cancellationToken);
+        return await CreateTableAsync(identifier, schema, false, cancellationToken);
     }
 
-    internal Task<Table> CreateTableInternalAsync(
+    Task<Table> CreateTableAsync(
         Identifier identifier,
         Schemas.Schema schema,
-        bool stage = false,
+        bool stage,
         CancellationToken cancellationToken = default);
 
     Task<Table> UpdateTableAsync(
-        Identifier identifier,
+        Table table,
         List<ITableUpdate> updates,
         List<ITableRequirement> requirements,
         CancellationToken cancellationToken = default);

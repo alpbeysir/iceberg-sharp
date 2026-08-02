@@ -15,7 +15,7 @@ public sealed class S3SequentialMultipartUploadStream : Stream
     // 5 MB
     private const int MinPartSize = 5 * 1024 * 1024;
 
-    // 256 MB
+    // 64 MB
     private const int MaxPartSize = 64 * 1024 * 1024;
     private readonly NativeMemoryAllocator _allocator = new();
 

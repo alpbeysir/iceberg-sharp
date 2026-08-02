@@ -12,9 +12,8 @@ public class TableTest(RestCatalogFixture fixture)
     {
         Identifier identifier = GetTableName<T>();
 
-        await using Transaction transaction = new Transaction(new Table(identifier, Catalog));
+        Transaction transaction = new(new Table(identifier, Catalog));
         await transaction.AppendRows(rows, TestContext.Current.CancellationToken);
-        await transaction.Commit(TestContext.Current.CancellationToken);
 
         return identifier;
     }
@@ -22,16 +21,19 @@ public class TableTest(RestCatalogFixture fixture)
     protected async Task Verify<T>(Identifier identifier, List<T> original) where T : IArrowSerializer<T>
     {
         Table loadedTable = await Catalog.LoadTableAsync(identifier);
-        await using Transaction readTx = new Transaction(loadedTable);
+        Transaction readTx = new(loadedTable);
         var readRows = readTx.ReadRows<T>().ToList();
-        readRows.Should().BeEquivalentTo(
-            original,
-            options => options
-                .Using<DateTime>(context => context.Subject.Should().BeCloseTo(
-                    context.Expectation,
-                    TimeSpan.FromMicroseconds(1)))
-                .WhenTypeIs<DateTime>()
-                .WithStrictOrdering());
+        readRows.Should()
+            .BeEquivalentTo(
+                original,
+                options => options
+                    .Using<DateTime>(context => context.Subject
+                        .Should()
+                        .BeCloseTo(
+                            context.Expectation,
+                            TimeSpan.FromMicroseconds(1)))
+                    .WhenTypeIs<DateTime>()
+                    .WithStrictOrdering());
     }
 
     private Identifier GetTableName<T>()
