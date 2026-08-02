@@ -22,6 +22,7 @@ public interface IDataFileFormat
         Stream stream,
         Schema schema,
         ChannelWriter<RecordBatch> results,
+        IReadOnlySet<int>? fieldIds = null,
         CancellationToken cancellationToken = default);
 
     ValueTask<long> WriteAsync(

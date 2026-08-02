@@ -79,13 +79,15 @@ internal static class ManifestIO
         Stream stream,
         ChannelWriter<ManifestEntry> output,
         Func<ManifestEntry, ManifestEntry>? transform = null,
+        Func<ManifestEntry, bool>? predicate = null,
+        IReadOnlySet<int>? fieldIds = null,
         CancellationToken cancellationToken = default)
     {
         await using OcfReaderAsync reader = await OcfReaderAsync.OpenAsync(
             stream,
             cancellationToken);
         (Schema tableSchema, PartitionSpec partitionSpec) = ReadManifestContext(reader.Metadata);
-        ManifestEntryAvroSerializer serializer = new(tableSchema, partitionSpec);
+        ManifestEntryAvroSerializer serializer = new(tableSchema, partitionSpec, fieldIds);
         while (await reader.ReadBlockAsync(cancellationToken) is { } block)
         {
             int offset = 0;
@@ -100,11 +102,13 @@ internal static class ManifestIO
                 }
 
                 offset += bytesRead;
-                await PipelineMetrics.WriteAsync(
-                    output,
-                    transform?.Invoke(entry) ?? entry,
-                    PipelineStage.ManifestRead,
-                    cancellationToken);
+                entry = transform?.Invoke(entry) ?? entry;
+                if (predicate?.Invoke(entry) is not false)
+                    await PipelineMetrics.WriteAsync(
+                        output,
+                        entry,
+                        PipelineStage.ManifestRead,
+                        cancellationToken);
             }
         }
     }
@@ -114,12 +118,14 @@ internal static class ManifestIO
         ChannelWriter<ManifestListEntry> output,
         Schema tableSchema,
         IReadOnlyList<PartitionSpec> partitionSpecs,
+        Func<ManifestListEntry, bool>? predicate = null,
+        IReadOnlySet<int>? fieldIds = null,
         CancellationToken cancellationToken = default)
     {
         await using OcfReaderAsync reader = await OcfReaderAsync.OpenAsync(
             stream,
             cancellationToken);
-        ManifestListEntryAvroSerializer serializer = new(tableSchema, partitionSpecs);
+        ManifestListEntryAvroSerializer serializer = new(tableSchema, partitionSpecs, fieldIds);
         while (await reader.ReadBlockAsync(cancellationToken) is { } block)
         {
             int offset = 0;
@@ -134,11 +140,12 @@ internal static class ManifestIO
                 }
 
                 offset += bytesRead;
-                await PipelineMetrics.WriteAsync(
-                    output,
-                    entry,
-                    PipelineStage.ManifestListRead,
-                    cancellationToken);
+                if (predicate?.Invoke(entry) is not false)
+                    await PipelineMetrics.WriteAsync(
+                        output,
+                        entry,
+                        PipelineStage.ManifestListRead,
+                        cancellationToken);
             }
         }
     }

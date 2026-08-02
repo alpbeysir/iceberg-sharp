@@ -40,11 +40,14 @@ internal static class FieldSummaryAvroSerializer
 
     internal static ImmutableArray<FieldSummary>? ReadNullableArray(
         ref AvroBinaryReader reader,
-        IReadOnlyList<PrimitiveType> partitionTypes)
+        IReadOnlyList<PrimitiveType> partitionTypes,
+        bool skip = false)
     {
         if (reader.ReadUnionIndex() == 0) return null;
 
-        ImmutableArray<FieldSummary>.Builder summaries = ImmutableArray.CreateBuilder<FieldSummary>();
+        ImmutableArray<FieldSummary>.Builder? summaries = skip
+            ? null
+            : ImmutableArray.CreateBuilder<FieldSummary>();
         int fieldIndex = 0;
         while (AvroSerializationUtilities.TryReadArrayBlock(ref reader, out long count))
         {
@@ -56,11 +59,13 @@ internal static class FieldSummaryAvroSerializer
                     throw new InvalidDataException(
                         "Manifest contains more partition summaries than its partition spec.");
                 PrimitiveType type = partitionTypes[fieldIndex++];
-                summaries.Add(new FieldSummary(
+                LiteralValue? lowerBound = ReadNullableLiteral(ref reader, type, skip);
+                LiteralValue? upperBound = ReadNullableLiteral(ref reader, type, skip);
+                summaries?.Add(new FieldSummary(
                     containsNan,
                     containsNull,
-                    ReadNullableLiteral(ref reader, type),
-                    ReadNullableLiteral(ref reader, type)));
+                    lowerBound,
+                    upperBound));
             }
         }
 
@@ -69,7 +74,7 @@ internal static class FieldSummaryAvroSerializer
                 $"Manifest contains {fieldIndex} partition summaries, but its partition spec contains " +
                 $"{partitionTypes.Count} fields.");
 
-        return summaries.ToImmutable();
+        return summaries?.ToImmutable();
     }
 
     private static void WriteNullableLiteral(
@@ -84,8 +89,12 @@ internal static class FieldSummaryAvroSerializer
 
     private static LiteralValue? ReadNullableLiteral(
         ref AvroBinaryReader reader,
-        IIcebergType type) =>
-        reader.ReadUnionIndex() == 0
-            ? (LiteralValue?)null
-            : IcebergLiteralSerializer.Deserialize(type, reader.ReadBytes());
+        IIcebergType type,
+        bool skip)
+    {
+        if (reader.ReadUnionIndex() == 0) return null;
+        ReadOnlySpan<byte> bytes = reader.ReadBytes();
+        if (skip) return null;
+        return IcebergLiteralSerializer.Deserialize(type, bytes);
+    }
 }

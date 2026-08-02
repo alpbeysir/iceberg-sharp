@@ -1,4 +1,5 @@
 ﻿using Apache.Arrow.Serialization;
+using System.Threading.Channels;
 using Iceberg.Net.Catalog;
 using Iceberg.Net.Metadata;
 using Iceberg.Net.Schemas;
@@ -58,6 +59,34 @@ public class ReadWriteTests(RestCatalogFixture fixture) : TableTest(fixture)
 
         Assert.Contains(nameof(MismatchedReadSchemaRow.Extra), exception.Message);
         Assert.Contains("snapshot", exception.Message);
+    }
+
+    [Fact]
+    public async Task ManifestPredicatesFilterManifestListsAndEntries()
+    {
+        Identifier identifier = await Write([
+            new ReadSchemaRow { Id = 1, Name = "one" }
+        ]);
+        Table table = await Catalog.LoadTableAsync(
+                          identifier,
+                          cancellationToken: TestContext.Current.CancellationToken) ??
+                      throw new InvalidOperationException($"Table '{identifier}' was not found.");
+
+        Channel<ManifestEntry> manifestListFiltered = Channel.CreateUnbounded<ManifestEntry>();
+        await table.Operations().ReadManifestEntries(
+            manifestListFiltered.Writer,
+            manifestListPredicate: _ => false,
+            cancellationToken: TestContext.Current.CancellationToken);
+        manifestListFiltered.Writer.Complete();
+        Assert.False(manifestListFiltered.Reader.TryRead(out _));
+
+        Channel<ManifestEntry> manifestEntryFiltered = Channel.CreateUnbounded<ManifestEntry>();
+        await table.Operations().ReadManifestEntries(
+            manifestEntryFiltered.Writer,
+            manifestEntryPredicate: _ => false,
+            cancellationToken: TestContext.Current.CancellationToken);
+        manifestEntryFiltered.Writer.Complete();
+        Assert.False(manifestEntryFiltered.Reader.TryRead(out _));
     }
 
     [Theory]

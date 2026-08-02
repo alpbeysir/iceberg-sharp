@@ -113,7 +113,7 @@ public sealed class TableOperations
                 currentTable,
                 currentTable.Metadata.CurrentSnapshotId.Value,
                 existingManifests.Writer,
-                cancellationToken);
+                cancellationToken: cancellationToken);
 
         Channel<ManifestFileWriteResult> newManifests = Channel.CreateBounded<ManifestFileWriteResult>(
             new BoundedChannelOptions(1024)
@@ -470,17 +470,19 @@ public sealed class TableOperations
     public Task ReadArrowAsync(
         ChannelWriter<RecordBatch> results,
         long? snapshotId = null,
+        IReadOnlySet<int>? fieldIds = null,
         CancellationToken cancellationToken = default)
     {
         Table table = GetTable();
         Snapshot snapshot = GetSnapshotOrLatest(table, snapshotId);
-        return ReadArrowAsync(table, snapshot.SnapshotId, results, cancellationToken);
+        return ReadArrowAsync(table, snapshot.SnapshotId, results, fieldIds, cancellationToken);
     }
 
     private async Task ReadArrowAsync(
         Table table,
         long snapshotId,
         ChannelWriter<RecordBatch> results,
+        IReadOnlySet<int>? fieldIds,
         CancellationToken cancellationToken = default)
     {
         Channel<ManifestEntry> manifestEntries = Channel.CreateBounded<ManifestEntry>(
@@ -493,6 +495,10 @@ public sealed class TableOperations
             table,
             manifestEntries.Writer,
             snapshotId,
+            null,
+            null,
+            null,
+            null,
             cancellationToken);
 
         Task dataFileReaders = Parallel.ForEachAsync(
@@ -502,7 +508,10 @@ public sealed class TableOperations
                 CancellationToken = cancellationToken,
                 MaxDegreeOfParallelism = 16
             },
-            async (entry, token) => { await ReadDataFileAsync(table, entry.DataFile, results, token); });
+            async (entry, token) =>
+            {
+                await ReadDataFileAsync(table, entry.DataFile, results, fieldIds, token);
+            });
 
         await manifestRead;
         manifestEntries.Writer.Complete();
@@ -513,16 +522,32 @@ public sealed class TableOperations
     public async Task ReadManifestEntries(
         ChannelWriter<ManifestEntry> results,
         long? snapshotId = null,
+        Func<ManifestListEntry, bool>? manifestListPredicate = null,
+        Func<ManifestEntry, bool>? manifestEntryPredicate = null,
+        IReadOnlySet<int>? manifestListFieldIds = null,
+        IReadOnlySet<int>? manifestEntryFieldIds = null,
         CancellationToken cancellationToken = default)
     {
         Table table = GetTable();
-        await ReadManifestEntries(table, results, snapshotId, cancellationToken);
+        await ReadManifestEntries(
+            table,
+            results,
+            snapshotId,
+            manifestListPredicate,
+            manifestEntryPredicate,
+            manifestListFieldIds,
+            manifestEntryFieldIds,
+            cancellationToken);
     }
 
     private async Task ReadManifestEntries(
         Table table,
         ChannelWriter<ManifestEntry> results,
         long? snapshotId,
+        Func<ManifestListEntry, bool>? manifestListPredicate,
+        Func<ManifestEntry, bool>? manifestEntryPredicate,
+        IReadOnlySet<int>? manifestListFieldIds,
+        IReadOnlySet<int>? manifestEntryFieldIds,
         CancellationToken cancellationToken)
     {
         Snapshot snapshot = GetSnapshotOrLatest(table, snapshotId);
@@ -542,6 +567,8 @@ public sealed class TableOperations
             table,
             snapshot.SnapshotId,
             manifestListEntries.Writer,
+            manifestListPredicate,
+            manifestListFieldIds,
             cancellationToken);
 
         Task manifestReaders = Parallel.ForEachAsync(
@@ -551,7 +578,16 @@ public sealed class TableOperations
                 CancellationToken = cancellationToken,
                 MaxDegreeOfParallelism = 16
             },
-            async (entry, token) => { await ReadManifestAsync(table, entry, results, token); });
+            async (entry, token) =>
+            {
+                await ReadManifestAsync(
+                    table,
+                    entry,
+                    results,
+                    manifestEntryPredicate,
+                    manifestEntryFieldIds,
+                    token);
+            });
 
         await snapshotRead;
         manifestListEntries.Writer.Complete();
@@ -566,6 +602,8 @@ public sealed class TableOperations
         Table table,
         long snapshotId,
         ChannelWriter<ManifestListEntry> results,
+        Func<ManifestListEntry, bool>? predicate = null,
+        IReadOnlySet<int>? fieldIds = null,
         CancellationToken cancellationToken = default)
     {
         Snapshot snapshot = table.Metadata.SnapshotsById[snapshotId];
@@ -585,6 +623,8 @@ public sealed class TableOperations
             results,
             schema,
             table.Metadata.PartitionSpecs,
+            predicate,
+            fieldIds,
             cancellationToken);
     }
 
@@ -592,6 +632,8 @@ public sealed class TableOperations
         Table table,
         ManifestListEntry manifestListEntry,
         ChannelWriter<ManifestEntry> results,
+        Func<ManifestEntry, bool>? predicate,
+        IReadOnlySet<int>? fieldIds,
         CancellationToken cancellationToken)
     {
         _logger.LogDebug(
@@ -608,6 +650,8 @@ public sealed class TableOperations
             manifestStream,
             results,
             MaybeInheritSequenceNumber,
+            predicate,
+            fieldIds,
             cancellationToken);
         return;
 
@@ -633,6 +677,7 @@ public sealed class TableOperations
         Table table,
         DataFile dataFile,
         ChannelWriter<RecordBatch> results,
+        IReadOnlySet<int>? fieldIds,
         CancellationToken cancellationToken)
     {
         Schema schema = GetSchema();
@@ -652,6 +697,7 @@ public sealed class TableOperations
             dataFileStream,
             schema,
             results,
+            fieldIds,
             cancellationToken);
     }
 

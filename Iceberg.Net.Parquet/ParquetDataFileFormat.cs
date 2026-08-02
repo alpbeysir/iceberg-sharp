@@ -29,6 +29,7 @@ public sealed class ParquetDataFileFormat(TablePropertyResolver properties) : ID
     public async Task ReadAsync(Stream stream,
         Schema schema,
         ChannelWriter<RecordBatch> results,
+        IReadOnlySet<int>? fieldIds = null,
         CancellationToken cancellationToken = default)
     {
         using ArrowReaderProperties arrowReaderProperties = ArrowReaderProperties.GetDefault();
@@ -40,7 +41,11 @@ public sealed class ParquetDataFileFormat(TablePropertyResolver properties) : ID
             arrowReaderProperties,
             leaveOpen: true);
 
-        using IArrowArrayStream recordBatchReader = arrowReader.GetRecordBatchReader();
+        using IArrowArrayStream recordBatchReader = fieldIds is null
+            ? arrowReader.GetRecordBatchReader()
+            : arrowReader.GetRecordBatchReader(
+                Enumerable.Range(0, arrowReader.NumRowGroups).ToArray(),
+                ResolveColumnIndices(arrowReader.SchemaManifest, fieldIds));
 
         while (!cancellationToken.IsCancellationRequested)
         {
@@ -52,6 +57,51 @@ public sealed class ParquetDataFileFormat(TablePropertyResolver properties) : ID
                 PipelineStage.DataFileRead,
                 cancellationToken);
         }
+    }
+
+    private static int[] ResolveColumnIndices(
+        SchemaManifest manifest,
+        IReadOnlySet<int> fieldIds)
+    {
+        HashSet<int> columns = [];
+        HashSet<int> foundFieldIds = [];
+        foreach (SchemaField field in manifest.SchemaFields)
+            CollectColumns(field, fieldIds, false, columns, foundFieldIds);
+
+        int[] missing = fieldIds.Except(foundFieldIds).Order().ToArray();
+        if (missing.Length != 0)
+            throw new InvalidDataException(
+                $"Parquet file does not contain requested field IDs {string.Join(", ", missing)}.");
+
+        return columns.Order().ToArray();
+    }
+
+    private static void CollectColumns(
+        SchemaField field,
+        IReadOnlySet<int> requestedFieldIds,
+        bool parentSelected,
+        ISet<int> columns,
+        ISet<int> foundFieldIds)
+    {
+        bool selected = parentSelected;
+        if (TryGetFieldId(field.Field, out int fieldId) && requestedFieldIds.Contains(fieldId))
+        {
+            selected = true;
+            foundFieldIds.Add(fieldId);
+        }
+
+        foreach (SchemaField child in field.Children)
+            CollectColumns(child, requestedFieldIds, selected, columns, foundFieldIds);
+
+        if (selected && field.ColumnIndex >= 0) columns.Add(field.ColumnIndex);
+    }
+
+    private static bool TryGetFieldId(Field field, out int fieldId)
+    {
+        fieldId = default;
+        return field.Metadata is not null &&
+               field.Metadata.TryGetValue("PARQUET:field_id", out string? value) &&
+               int.TryParse(value, out fieldId);
     }
 
     public async ValueTask<long> WriteAsync(

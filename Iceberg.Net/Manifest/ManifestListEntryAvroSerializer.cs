@@ -6,13 +6,16 @@ namespace Iceberg.Net.Metadata;
 
 internal sealed class ManifestListEntryAvroSerializer : IAvroSerializer<ManifestListEntry>
 {
-    private readonly IReadOnlyDictionary<int, IReadOnlyList<PrimitiveType>> _partitionTypesBySpecId;
+    private readonly Dictionary<int, IReadOnlyList<PrimitiveType>> _partitionTypesBySpecId;
+    private readonly IReadOnlySet<int>? _fieldIds;
 
     internal ManifestListEntryAvroSerializer(
         Schema tableSchema,
-        IReadOnlyList<PartitionSpec> partitionSpecs)
+        IReadOnlyList<PartitionSpec> partitionSpecs,
+        IReadOnlySet<int>? fieldIds = null)
     {
         _partitionTypesBySpecId = ResolvePartitionTypesBySpecId(tableSchema, partitionSpecs);
+        _fieldIds = fieldIds;
     }
 
     public AvroSchema Schema { get; } =
@@ -60,7 +63,11 @@ internal sealed class ManifestListEntryAvroSerializer : IAvroSerializer<Manifest
             AddedRowsCount = reader.ReadLong(),
             ExistingRowsCount = reader.ReadLong(),
             DeletedRowsCount = reader.ReadLong(),
-            Partitions = FieldSummaryAvroSerializer.ReadNullableArray(ref reader, partitionTypes),
+            Partitions = FieldSummaryAvroSerializer.ReadNullableArray(
+                ref reader,
+                partitionTypes,
+                _fieldIds is not null &&
+                !_fieldIds.Contains(ManifestSchemas.FieldIds.ManifestList.Partitions)),
             KeyMetadata = AvroSerializationUtilities.ReadNullableBytes(ref reader)
         };
     }

@@ -4,6 +4,27 @@ namespace Iceberg.Net.Metadata;
 
 internal static class ManifestSchemas
 {
+    internal static class FieldIds
+    {
+        internal static class ManifestList
+        {
+            internal const int Partitions = 507;
+        }
+
+        internal static class DataFile
+        {
+            internal const int Partition = 102;
+            internal const int ColumnSizes = 108;
+            internal const int ValueCounts = 109;
+            internal const int NullValueCounts = 110;
+            internal const int NanValueCounts = 137;
+            internal const int LowerBounds = 125;
+            internal const int UpperBounds = 128;
+            internal const int SplitOffsets = 132;
+            internal const int EqualityIds = 135;
+        }
+    }
+
     internal static readonly Schema ManifestList = new(
     [
         Field(500, "manifest_path", new PrimitiveType.String(), doc: "Location URI with FS scheme"),
@@ -20,7 +41,7 @@ internal static class ManifestSchemas
         Field(513, "existing_rows_count", new PrimitiveType.Long()),
         Field(514, "deleted_rows_count", new PrimitiveType.Long()),
         Field(
-            507,
+            FieldIds.ManifestList.Partitions,
             "partitions",
             new ListType(
                 508,
@@ -56,18 +77,18 @@ internal static class ManifestSchemas
             Field(134, "content", new PrimitiveType.Int()),
             Field(100, "file_path", new PrimitiveType.String()),
             Field(101, "file_format", new PrimitiveType.String()),
-            Field(102, "partition", new StructType(partitionFields)),
+            Field(FieldIds.DataFile.Partition, "partition", new StructType(partitionFields)),
             Field(103, "record_count", new PrimitiveType.Long()),
             Field(104, "file_size_in_bytes", new PrimitiveType.Long()),
-            Field(108, "column_sizes", IntMap(117, 118, new PrimitiveType.Long()), false),
-            Field(109, "value_counts", IntMap(119, 120, new PrimitiveType.Long()), false),
-            Field(110, "null_value_counts", IntMap(121, 122, new PrimitiveType.Long()), false),
-            Field(137, "nan_value_counts", IntMap(138, 139, new PrimitiveType.Long()), false),
-            Field(125, "lower_bounds", IntMap(126, 127, new PrimitiveType.Binary()), false),
-            Field(128, "upper_bounds", IntMap(129, 130, new PrimitiveType.Binary()), false),
+            Field(FieldIds.DataFile.ColumnSizes, "column_sizes", IntMap(117, 118, new PrimitiveType.Long()), false),
+            Field(FieldIds.DataFile.ValueCounts, "value_counts", IntMap(119, 120, new PrimitiveType.Long()), false),
+            Field(FieldIds.DataFile.NullValueCounts, "null_value_counts", IntMap(121, 122, new PrimitiveType.Long()), false),
+            Field(FieldIds.DataFile.NanValueCounts, "nan_value_counts", IntMap(138, 139, new PrimitiveType.Long()), false),
+            Field(FieldIds.DataFile.LowerBounds, "lower_bounds", IntMap(126, 127, new PrimitiveType.Binary()), false),
+            Field(FieldIds.DataFile.UpperBounds, "upper_bounds", IntMap(129, 130, new PrimitiveType.Binary()), false),
             Field(131, "key_metadata", new PrimitiveType.Binary(), false),
-            Field(132, "split_offsets", new ListType(133, new PrimitiveType.Long(), true), false),
-            Field(135, "equality_ids", new ListType(136, new PrimitiveType.Int(), true), false),
+            Field(FieldIds.DataFile.SplitOffsets, "split_offsets", new ListType(133, new PrimitiveType.Long(), true), false),
+            Field(FieldIds.DataFile.EqualityIds, "equality_ids", new ListType(136, new PrimitiveType.Int(), true), false),
             Field(140, "sort_order_id", new PrimitiveType.Int(), false),
             Field(143, "referenced_data_file", new PrimitiveType.String(), false)
         ]);

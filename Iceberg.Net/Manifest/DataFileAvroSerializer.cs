@@ -43,35 +43,59 @@ internal static class DataFileAvroSerializer
 
     internal static DataFile Read(
         ref AvroBinaryReader reader,
-        ManifestEntryTypes types)
+        ManifestEntryTypes types,
+        IReadOnlySet<int>? fieldIds = null)
     {
         IReadOnlyList<PrimitiveType> partitionTypes = types.PartitionTypes;
 
         DataFileContent content = (DataFileContent)reader.ReadInt();
         string filePath = reader.ReadString();
         string fileFormat = reader.ReadString();
-        ImmutableArray<LiteralValue?>.Builder partition = ImmutableArray.CreateBuilder<LiteralValue?>(
-            partitionTypes.Count);
+        bool skipPartition = ShouldSkip(fieldIds, ManifestSchemas.FieldIds.DataFile.Partition);
+        ImmutableArray<LiteralValue?>.Builder? partition = skipPartition
+            ? null
+            : ImmutableArray.CreateBuilder<LiteralValue?>(partitionTypes.Count);
         foreach (PrimitiveType type in partitionTypes)
-            partition.Add(PartitionValueAvroSerializer.Read(ref reader, type));
+        {
+            LiteralValue? value = PartitionValueAvroSerializer.Read(ref reader, type);
+            partition?.Add(value);
+        }
 
         return new DataFile
         {
             Content = content,
             FilePath = filePath,
             FileFormat = fileFormat,
-            Partition = partition.MoveToImmutable(),
+            Partition = partition?.MoveToImmutable() ?? [],
             RecordCount = reader.ReadLong(),
             FileSizeInBytes = reader.ReadLong(),
-            ColumnSizes = ReadNullableLongMap(ref reader),
-            ValueCounts = ReadNullableLongMap(ref reader),
-            NullValueCounts = ReadNullableLongMap(ref reader),
-            NanValueCounts = ReadNullableLongMap(ref reader),
-            LowerBounds = ReadNullableLiteralMap(ref reader, types.FieldTypes),
-            UpperBounds = ReadNullableLiteralMap(ref reader, types.FieldTypes),
+            ColumnSizes = ReadNullableLongMap(
+                ref reader,
+                ShouldSkip(fieldIds, ManifestSchemas.FieldIds.DataFile.ColumnSizes)),
+            ValueCounts = ReadNullableLongMap(
+                ref reader,
+                ShouldSkip(fieldIds, ManifestSchemas.FieldIds.DataFile.ValueCounts)),
+            NullValueCounts = ReadNullableLongMap(
+                ref reader,
+                ShouldSkip(fieldIds, ManifestSchemas.FieldIds.DataFile.NullValueCounts)),
+            NanValueCounts = ReadNullableLongMap(
+                ref reader,
+                ShouldSkip(fieldIds, ManifestSchemas.FieldIds.DataFile.NanValueCounts)),
+            LowerBounds = ReadNullableLiteralMap(
+                ref reader,
+                types.FieldTypes,
+                ShouldSkip(fieldIds, ManifestSchemas.FieldIds.DataFile.LowerBounds)),
+            UpperBounds = ReadNullableLiteralMap(
+                ref reader,
+                types.FieldTypes,
+                ShouldSkip(fieldIds, ManifestSchemas.FieldIds.DataFile.UpperBounds)),
             KeyMetadata = AvroSerializationUtilities.ReadNullableBytes(ref reader),
-            SplitOffsets = AvroSerializationUtilities.ReadNullableLongArray(ref reader),
-            EqualityIds = AvroSerializationUtilities.ReadNullableIntArray(ref reader),
+            SplitOffsets = AvroSerializationUtilities.ReadNullableLongArray(
+                ref reader,
+                ShouldSkip(fieldIds, ManifestSchemas.FieldIds.DataFile.SplitOffsets)),
+            EqualityIds = AvroSerializationUtilities.ReadNullableIntArray(
+                ref reader,
+                ShouldSkip(fieldIds, ManifestSchemas.FieldIds.DataFile.EqualityIds)),
             SortOrderId = AvroSerializationUtilities.ReadNullableInt(ref reader),
             ReferencedDataFile = AvroSerializationUtilities.ReadNullableString(ref reader)
         };
@@ -99,15 +123,22 @@ internal static class DataFileAvroSerializer
     }
 
     private static ImmutableDictionary<int, long>? ReadNullableLongMap(
-        ref AvroBinaryReader reader)
+        ref AvroBinaryReader reader,
+        bool skip)
     {
         if (reader.ReadUnionIndex() == 0) return null;
 
-        ImmutableDictionary<int, long>.Builder values = ImmutableDictionary.CreateBuilder<int, long>();
+        ImmutableDictionary<int, long>.Builder? values = skip
+            ? null
+            : ImmutableDictionary.CreateBuilder<int, long>();
         while (AvroSerializationUtilities.TryReadArrayBlock(ref reader, out long count))
             for (long i = 0; i < count; i++)
-                values.Add(reader.ReadInt(), reader.ReadLong());
-        return values.ToImmutable();
+            {
+                int key = reader.ReadInt();
+                long value = reader.ReadLong();
+                values?.Add(key, value);
+            }
+        return values?.ToImmutable();
     }
 
     private static void WriteNullableLiteralMap(
@@ -136,24 +167,30 @@ internal static class DataFileAvroSerializer
 
     private static ImmutableDictionary<int, LiteralValue>? ReadNullableLiteralMap(
         ref AvroBinaryReader reader,
-        IReadOnlyDictionary<int, IIcebergType> fieldTypes)
+        IReadOnlyDictionary<int, IIcebergType> fieldTypes,
+        bool skip)
     {
         if (reader.ReadUnionIndex() == 0) return null;
 
-        ImmutableDictionary<int, LiteralValue>.Builder values =
-            ImmutableDictionary.CreateBuilder<int, LiteralValue>();
+        ImmutableDictionary<int, LiteralValue>.Builder? values = skip
+            ? null
+            : ImmutableDictionary.CreateBuilder<int, LiteralValue>();
         while (AvroSerializationUtilities.TryReadArrayBlock(ref reader, out long count))
         {
             for (long i = 0; i < count; i++)
             {
                 int key = reader.ReadInt();
                 ReadOnlySpan<byte> bytes = reader.ReadBytes();
+                if (skip) continue;
                 if (!fieldTypes.TryGetValue(key, out IIcebergType? type))
                     throw new InvalidDataException($"Column bound refers to unknown field ID {key}.");
-                values.Add(key, IcebergLiteralSerializer.Deserialize(type, bytes));
+                values!.Add(key, IcebergLiteralSerializer.Deserialize(type, bytes));
             }
         }
 
-        return values.ToImmutable();
+        return values?.ToImmutable();
     }
+
+    private static bool ShouldSkip(IReadOnlySet<int>? fieldIds, int fieldId) =>
+        fieldIds is not null && !fieldIds.Contains(fieldId);
 }

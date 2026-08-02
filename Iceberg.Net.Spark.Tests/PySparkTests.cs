@@ -39,9 +39,15 @@ public partial class PySparkTests(SparkRestCatalogFixture restFixture, PySparkFi
         PartitionSpec spec = Assert.Single(table.Metadata.PartitionSpecs);
         Assert.Equal(["category", "region"], spec.Fields.Select(field => field.Name));
 
+        ManifestListEntry? unprunedManifestListEntry = null;
         Channel<ManifestEntry> entries = Channel.CreateUnbounded<ManifestEntry>();
         await table.Operations().ReadManifestEntries(
             entries.Writer,
+            manifestListPredicate: entry =>
+            {
+                unprunedManifestListEntry = entry;
+                return true;
+            },
             cancellationToken: TestContext.Current.CancellationToken);
         entries.Writer.Complete();
 
@@ -63,6 +69,46 @@ public partial class PySparkTests(SparkRestCatalogFixture restFixture, PySparkFi
 
         foreach (ImmutableArray<LiteralValue?> expected in expectedPartitions)
             Assert.Contains(dataFiles, file => expected.SequenceEqual(file.Partition));
+        Assert.Contains(dataFiles, file => file.ColumnSizes is not null);
+        Assert.Contains(dataFiles, file => file.ValueCounts is not null);
+        Assert.Contains(dataFiles, file => file.LowerBounds is not null);
+        Assert.Contains(dataFiles, file => file.SplitOffsets is not null);
+
+        Assert.True(unprunedManifestListEntry.HasValue);
+        Assert.NotNull(unprunedManifestListEntry.Value.Partitions);
+
+        ManifestListEntry? prunedManifestListEntry = null;
+        Channel<ManifestEntry> prunedEntries = Channel.CreateUnbounded<ManifestEntry>();
+        await table.Operations().ReadManifestEntries(
+            prunedEntries.Writer,
+            manifestListPredicate: entry =>
+            {
+                prunedManifestListEntry = entry;
+                return true;
+            },
+            manifestListFieldIds: new HashSet<int>(),
+            manifestEntryFieldIds: new HashSet<int>(),
+            cancellationToken: TestContext.Current.CancellationToken);
+        prunedEntries.Writer.Complete();
+
+        Assert.True(prunedManifestListEntry.HasValue);
+        Assert.Null(prunedManifestListEntry.Value.Partitions);
+        int prunedDataFileCount = 0;
+        while (prunedEntries.Reader.TryRead(out ManifestEntry entry))
+        {
+            prunedDataFileCount++;
+            Assert.Empty(entry.DataFile.Partition);
+            Assert.Null(entry.DataFile.ColumnSizes);
+            Assert.Null(entry.DataFile.ValueCounts);
+            Assert.Null(entry.DataFile.NullValueCounts);
+            Assert.Null(entry.DataFile.NanValueCounts);
+            Assert.Null(entry.DataFile.LowerBounds);
+            Assert.Null(entry.DataFile.UpperBounds);
+            Assert.Null(entry.DataFile.SplitOffsets);
+            Assert.Null(entry.DataFile.EqualityIds);
+        }
+
+        Assert.Equal(dataFiles.Count, prunedDataFileCount);
     }
 
     protected override Task<List<object?>> ReadExternalTable(Identifier identifier) =>

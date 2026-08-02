@@ -50,6 +50,7 @@ public class DataFileFormatRegistryTests
         public Task ReadAsync(Stream stream,
             Schema schema,
             ChannelWriter<RecordBatch> results,
+            IReadOnlySet<int>? fieldIds = null,
             CancellationToken cancellationToken = default)
         {
             return Task.CompletedTask;

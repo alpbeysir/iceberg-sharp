@@ -29,8 +29,11 @@ internal static class AvroSerializationUtilities
         if (value is not null) writer.WriteLong(value.Value);
     }
 
-    internal static long? ReadNullableLong(ref AvroBinaryReader reader) =>
-        reader.ReadUnionIndex() == 0 ? null : reader.ReadLong();
+    internal static long? ReadNullableLong(ref AvroBinaryReader reader, bool skip = false)
+    {
+        ThrowIfSimpleTypeSkip(skip);
+        return reader.ReadUnionIndex() == 0 ? null : reader.ReadLong();
+    }
 
     internal static void WriteNullableInt(AvroBinaryWriter writer, int? value)
     {
@@ -38,8 +41,11 @@ internal static class AvroSerializationUtilities
         if (value is not null) writer.WriteInt(value.Value);
     }
 
-    internal static int? ReadNullableInt(ref AvroBinaryReader reader) =>
-        reader.ReadUnionIndex() == 0 ? null : reader.ReadInt();
+    internal static int? ReadNullableInt(ref AvroBinaryReader reader, bool skip = false)
+    {
+        ThrowIfSimpleTypeSkip(skip);
+        return reader.ReadUnionIndex() == 0 ? null : reader.ReadInt();
+    }
 
     internal static void WriteNullableBoolean(AvroBinaryWriter writer, bool? value)
     {
@@ -47,8 +53,11 @@ internal static class AvroSerializationUtilities
         if (value is not null) writer.WriteBoolean(value.Value);
     }
 
-    internal static bool? ReadNullableBoolean(ref AvroBinaryReader reader) =>
-        reader.ReadUnionIndex() == 0 ? null : reader.ReadBoolean();
+    internal static bool? ReadNullableBoolean(ref AvroBinaryReader reader, bool skip = false)
+    {
+        ThrowIfSimpleTypeSkip(skip);
+        return reader.ReadUnionIndex() == 0 ? null : reader.ReadBoolean();
+    }
 
     internal static void WriteNullableBytes(AvroBinaryWriter writer, byte[]? value)
     {
@@ -56,8 +65,11 @@ internal static class AvroSerializationUtilities
         if (value is not null) writer.WriteBytes(value);
     }
 
-    internal static byte[]? ReadNullableBytes(ref AvroBinaryReader reader) =>
-        reader.ReadUnionIndex() == 0 ? null : reader.ReadBytes().ToArray();
+    internal static byte[]? ReadNullableBytes(ref AvroBinaryReader reader, bool skip = false)
+    {
+        ThrowIfSimpleTypeSkip(skip);
+        return reader.ReadUnionIndex() == 0 ? null : reader.ReadBytes().ToArray();
+    }
 
     internal static void WriteNullableString(AvroBinaryWriter writer, string? value)
     {
@@ -65,8 +77,11 @@ internal static class AvroSerializationUtilities
         if (value is not null) writer.WriteString(value);
     }
 
-    internal static string? ReadNullableString(ref AvroBinaryReader reader) =>
-        reader.ReadUnionIndex() == 0 ? null : reader.ReadString();
+    internal static string? ReadNullableString(ref AvroBinaryReader reader, bool skip = false)
+    {
+        ThrowIfSimpleTypeSkip(skip);
+        return reader.ReadUnionIndex() == 0 ? null : reader.ReadString();
+    }
 
     internal static void WriteNullableLongArray(
         AvroBinaryWriter writer,
@@ -84,15 +99,21 @@ internal static class AvroSerializationUtilities
         writer.WriteLong(0);
     }
 
-    internal static ImmutableArray<long>? ReadNullableLongArray(ref AvroBinaryReader reader)
+    internal static ImmutableArray<long>? ReadNullableLongArray(
+        ref AvroBinaryReader reader,
+        bool skip = false)
     {
         if (reader.ReadUnionIndex() == 0) return null;
 
-        ImmutableArray<long>.Builder values = ImmutableArray.CreateBuilder<long>();
+        ImmutableArray<long>.Builder? values = skip ? null : ImmutableArray.CreateBuilder<long>();
         while (TryReadArrayBlock(ref reader, out long count))
             for (long i = 0; i < count; i++)
-                values.Add(reader.ReadLong());
-        return values.ToImmutable();
+            {
+                long value = reader.ReadLong();
+                values?.Add(value);
+            }
+
+        return values?.ToImmutable();
     }
 
     internal static void WriteNullableIntArray(
@@ -111,14 +132,28 @@ internal static class AvroSerializationUtilities
         writer.WriteLong(0);
     }
 
-    internal static ImmutableArray<int>? ReadNullableIntArray(ref AvroBinaryReader reader)
+    internal static ImmutableArray<int>? ReadNullableIntArray(
+        ref AvroBinaryReader reader,
+        bool skip = false)
     {
         if (reader.ReadUnionIndex() == 0) return null;
 
-        ImmutableArray<int>.Builder values = ImmutableArray.CreateBuilder<int>();
+        ImmutableArray<int>.Builder? values = skip ? null : ImmutableArray.CreateBuilder<int>();
         while (TryReadArrayBlock(ref reader, out long count))
             for (long i = 0; i < count; i++)
-                values.Add(reader.ReadInt());
-        return values.ToImmutable();
+            {
+                int value = reader.ReadInt();
+                values?.Add(value);
+            }
+
+        return values?.ToImmutable();
+    }
+
+    private static void ThrowIfSimpleTypeSkip(bool skip)
+    {
+        if (skip)
+            throw new ArgumentException(
+                "Skipping a simple Avro value is not supported because it must be decoded to advance the reader.",
+                nameof(skip));
     }
 }

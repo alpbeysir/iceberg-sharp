@@ -7,10 +7,15 @@ namespace Iceberg.Net.Metadata;
 internal sealed class ManifestEntryAvroSerializer : IAvroSerializer<ManifestEntry>
 {
     private readonly ManifestEntryTypes _types;
+    private readonly IReadOnlySet<int>? _fieldIds;
 
-    internal ManifestEntryAvroSerializer(Schema tableSchema, PartitionSpec partitionSpec)
+    internal ManifestEntryAvroSerializer(
+        Schema tableSchema,
+        PartitionSpec partitionSpec,
+        IReadOnlySet<int>? fieldIds = null)
     {
         _types = ResolveTypes(tableSchema, partitionSpec);
+        _fieldIds = fieldIds;
         Schema = AvroSchemas.FromSchema(
             ManifestSchemas.ManifestEntryFor(partitionSpec, _types.PartitionTypes),
             "manifest_entry");
@@ -34,7 +39,7 @@ internal sealed class ManifestEntryAvroSerializer : IAvroSerializer<ManifestEntr
             SnapshotId = AvroSerializationUtilities.ReadNullableLong(ref reader),
             SequenceNumber = AvroSerializationUtilities.ReadNullableLong(ref reader),
             FileSequenceNumber = AvroSerializationUtilities.ReadNullableLong(ref reader),
-            DataFile = DataFileAvroSerializer.Read(ref reader, _types)
+            DataFile = DataFileAvroSerializer.Read(ref reader, _types, _fieldIds)
         };
 
     private static ManifestEntryTypes ResolveTypes(
