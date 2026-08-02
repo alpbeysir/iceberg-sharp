@@ -1,4 +1,5 @@
 ﻿using Iceberg.Net.Catalog;
+using Iceberg.Net.S3;
 using Iceberg.Net.Storage;
 using Iceberg.Net.Tests;
 
@@ -15,17 +16,17 @@ public sealed class RestCatalogFixture : IAsyncLifetime
 
     public async ValueTask InitializeAsync()
     {
-        var userConfig = new UserConfig
+        ObjectStorageRegistry.Register<S3ObjectStorage>();
+        S3Config storageConfig = new()
         {
-            BaseUrl = "http://localhost:8181/v1",
-            StorageConfig = new S3Config
-            {
-                Endpoint = "http://127.0.0.1:8333",
-                AccessKeyId = "admin",
-                SecretAccessKey = "key",
-                ForcePathStyle = true
-            }
+            Endpoint = "http://127.0.0.1:8333",
+            AccessKeyId = "admin",
+            SecretAccessKey = "key",
+            ForcePathStyle = true
         };
+        var userConfig = new UserConfig { BaseUrl = "http://localhost:8181/v1" };
+        foreach (KeyValuePair<string, string> property in storageConfig.ToProperties())
+            userConfig.CatalogConfig[property.Key] = property.Value;
         _catalog = await RestCatalog.Create(userConfig);
 
         if (await _catalog.NamespaceExistsAsync(BaseNamespace)) await _catalog.DropNamespaceAsync(BaseNamespace, true);

@@ -4,7 +4,6 @@ using Iceberg.Net.Rest;
 using Iceberg.Net.Rest.TableRequirement;
 using Iceberg.Net.Rest.TableUpdate;
 using Iceberg.Net.Schemas;
-using Iceberg.Net.Storage;
 
 namespace Iceberg.Net.Catalog;
 
@@ -13,7 +12,6 @@ public record UserConfig
     public readonly Dictionary<string, string> CatalogConfig = new();
     public readonly Dictionary<string, string> RequestHeaders = new();
     public required string BaseUrl;
-    public IStorageConfig? StorageConfig;
     public string? Warehouse;
 }
 
@@ -21,6 +19,19 @@ public record TypedCatalogConfig(CatalogConfig CatalogConfig, UserConfig UserCon
 {
     public string? Prefix => Resolve("prefix");
     public string NamespaceSeparator => Uri.UnescapeDataString(Resolve("namespace-separator") ?? "%1F");
+
+    public IReadOnlyDictionary<string, string> Properties
+    {
+        get
+        {
+            var properties = new Dictionary<string, string>(CatalogConfig.Defaults, StringComparer.Ordinal);
+            foreach (KeyValuePair<string, string> property in UserConfig.CatalogConfig)
+                properties[property.Key] = property.Value;
+            foreach (KeyValuePair<string, string> property in CatalogConfig.Overrides)
+                properties[property.Key] = property.Value;
+            return properties;
+        }
+    }
 
     private string? Resolve(string key)
     {
@@ -52,9 +63,7 @@ public sealed class RestCatalog : ICatalog
     private UserConfig UserConfig { get; }
     public TypedCatalogConfig CatalogConfig { get; }
 
-    public IStorageConfig StorageConfig => UserConfig.StorageConfig ??
-                                           throw new InvalidOperationException(
-                                               "Storage credentials are not configured for the catalog");
+    public IReadOnlyDictionary<string, string> ObjectStorageProperties => CatalogConfig.Properties;
 
     private string EncodeNamespace(Identifier identifier)
     {
@@ -82,7 +91,7 @@ public sealed class RestCatalog : ICatalog
             EncodeNamespace(identifier.GetParent()),
             cancellationToken: cancellationToken);
         Table table = new(identifier, this);
-        table.Initialize(response.Metadata, response.StorageCredentials);
+        table.Initialize(response.Metadata, response.StorageCredentials, response.Config);
         return table;
     }
 
@@ -103,7 +112,7 @@ public sealed class RestCatalog : ICatalog
             identifier.GetTableName(),
             cancellationToken: cancellationToken);
         Table table = new(identifier, this);
-        table.Initialize(response.Metadata, null);
+        table.Initialize(response.Metadata, null, response.Config);
         return table;
     }
 
@@ -118,7 +127,7 @@ public sealed class RestCatalog : ICatalog
             snapshots: snapshots,
             cancellationToken: cancellationToken);
         Table table = new(identifier, this);
-        table.Initialize(response.Metadata, response.StorageCredentials);
+        table.Initialize(response.Metadata, response.StorageCredentials, response.Config);
         return table;
     }
 
@@ -206,7 +215,7 @@ public sealed class RestCatalog : ICatalog
             ListTablesResponse resp =
                 await ApiClient.ListTablesAsync(EncodeNamespace(ns), pageToken, PageSize, cancellationToken);
             foreach (TableIdentifier table in resp.Identifiers)
-                yield return new Table(Identifier.FromTableIdentifier(table), this);
+                yield return new Table(table.ToIdentifier(), this);
 
             pageToken = resp.NextPageToken;
         } while (pageToken != null);

@@ -20,6 +20,7 @@ public sealed record Table : INode
     public TableMetadata? Metadata { get; private set; }
 
     private IReadOnlyList<StorageCredential>? StorageCredentials { get; set; }
+    private IReadOnlyDictionary<string, string>? ObjectStorageProperties { get; set; }
 
     private Uri BaseFolderUri
     {
@@ -39,21 +40,22 @@ public sealed record Table : INode
 
     public IObjectStorage ObjectStorage => _objectStorageLazy.Value;
 
-    internal void Initialize(TableMetadata? metadata, IReadOnlyList<StorageCredential>? storageCredentials)
+    internal void Initialize(
+        TableMetadata? metadata,
+        IReadOnlyList<StorageCredential>? storageCredentials,
+        IEnumerable<KeyValuePair<string, string>>? objectStorageProperties = null)
     {
         Metadata = metadata ?? Metadata;
         StorageCredentials = storageCredentials ?? StorageCredentials;
+        ObjectStorageProperties = objectStorageProperties?.ToDictionary() ?? ObjectStorageProperties;
     }
 
     private IObjectStorage GetObjectStorage()
     {
-        // TODO switch here for things other than S3
-        // TODO handle multiple credentials by prefix
-        S3Config s3Config;
-        if (StorageCredentials is null)
-            s3Config = Catalog.StorageConfig as S3Config ?? throw new InvalidOperationException("Only S3 is supported");
-        else
-            s3Config = S3Config.FromStorageCredential(StorageCredentials[0]);
-        return new S3ObjectStorage(s3Config);
+        var properties = new Dictionary<string, string>(Catalog.ObjectStorageProperties, StringComparer.Ordinal);
+        if (ObjectStorageProperties is not null)
+            foreach (KeyValuePair<string, string> property in ObjectStorageProperties)
+                properties[property.Key] = property.Value;
+        return ObjectStorageRegistry.CreateRouter(properties, StorageCredentials);
     }
 }

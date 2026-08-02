@@ -1,6 +1,6 @@
 ﻿using System.Text.Json;
 using System.Text.Json.Serialization;
-using Iceberg.Net.Rest;
+using Iceberg.Net.Serialization;
 
 namespace Iceberg.Net.Schemas;
 
@@ -74,11 +74,11 @@ public class IcebergTypeConverter : JsonConverter<IIcebergType>
         {
             "struct" => JsonSerializer.Deserialize<StructType>(
                 root.GetRawText(),
-                SourceGenerationContext.Default.StructType)!,
+                IcebergJsonContext.Default.StructType)!,
             "list" => JsonSerializer.Deserialize<ListType>(
                 root.GetRawText(),
-                SourceGenerationContext.Default.ListType)!,
-            "map" => JsonSerializer.Deserialize<MapType>(root.GetRawText(), SourceGenerationContext.Default.MapType)!,
+                IcebergJsonContext.Default.ListType)!,
+            "map" => JsonSerializer.Deserialize<MapType>(root.GetRawText(), IcebergJsonContext.Default.MapType)!,
             _ => throw new JsonException($"Unknown type kind: {typeKind}")
         };
     }
@@ -88,19 +88,19 @@ public class IcebergTypeConverter : JsonConverter<IIcebergType>
         switch (value)
         {
             case ListType:
-                JsonSerializer.Serialize(writer, value, SourceGenerationContext.Default.ListType);
+                JsonSerializer.Serialize(writer, value, IcebergJsonContext.Default.ListType);
                 break;
             case MapType:
-                JsonSerializer.Serialize(writer, value, SourceGenerationContext.Default.MapType);
+                JsonSerializer.Serialize(writer, value, IcebergJsonContext.Default.MapType);
                 break;
             case PrimitiveType primitiveType:
                 writer.WriteStringValue(primitiveType.Name);
                 break;
             case Schema:
-                JsonSerializer.Serialize(writer, value, SourceGenerationContext.Default.Schema);
+                JsonSerializer.Serialize(writer, value, IcebergJsonContext.Default.Schema);
                 break;
             case StructType:
-                JsonSerializer.Serialize(writer, value, SourceGenerationContext.Default.StructType);
+                JsonSerializer.Serialize(writer, value, IcebergJsonContext.Default.StructType);
                 break;
             default:
                 throw new ArgumentOutOfRangeException(nameof(value));

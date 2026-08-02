@@ -1,8 +1,15 @@
-﻿namespace Iceberg.Net.Storage;
+namespace Iceberg.Net.Storage;
 
 public interface IObjectStorage
 {
-    public ValueTask<Stream> Open(
+    static virtual IReadOnlySet<string> Schemes { get; } = new HashSet<string>();
+
+    static virtual IObjectStorage Create(IReadOnlyDictionary<string, string> properties)
+    {
+        throw new NotSupportedException("The object storage implementation does not provide a static factory");
+    }
+
+    ValueTask<Stream> Open(
         Uri uri,
         FileMode fileMode = FileMode.Open,
         CancellationToken cancellationToken = default);

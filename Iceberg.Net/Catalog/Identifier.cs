@@ -1,6 +1,4 @@
 ﻿using System.Collections;
-using Iceberg.Net.Rest;
-
 namespace Iceberg.Net.Catalog;
 
 public readonly struct Identifier : IEnumerable<string>, IEquatable<Identifier>
@@ -45,16 +43,6 @@ public readonly struct Identifier : IEnumerable<string>, IEquatable<Identifier>
     public static Identifier FromEncoded(string encoded, char separator = DefaultNamespaceSeparator)
     {
         return new Identifier(encoded.Split(separator));
-    }
-
-    public static Identifier FromTableIdentifier(TableIdentifier tableIdentifier)
-    {
-        return new Identifier(tableIdentifier.Ns.Append(tableIdentifier.Name));
-    }
-
-    public TableIdentifier ToTableIdentifier()
-    {
-        return new TableIdentifier(GetLastIdentifier(), new Rest.Namespace(GetParent().ToList()));
     }
 
     public Identifier GetParent()

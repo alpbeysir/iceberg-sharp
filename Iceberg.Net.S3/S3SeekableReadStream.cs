@@ -5,7 +5,7 @@ using Amazon.S3.Model;
 using Amazon.S3.Util;
 using Apache.Arrow.Memory;
 
-namespace Iceberg.Net.Storage;
+namespace Iceberg.Net.S3;
 
 // MIT License
 //

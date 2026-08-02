@@ -1,19 +1,13 @@
-﻿<Project Sdk="Microsoft.NET.Sdk">
-
+<Project Sdk="Microsoft.NET.Sdk">
     <PropertyGroup>
         <TargetFramework>net10.0</TargetFramework>
         <LangVersion>latest</LangVersion>
         <ImplicitUsings>enable</ImplicitUsings>
         <Nullable>enable</Nullable>
-        <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
         <IsAotCompatible>true</IsAotCompatible>
         <WarningsAsErrors>true</WarningsAsErrors>
     </PropertyGroup>
-
     <ItemGroup>
-        <PackageReference Include="Apache.Avro"/>
-        <PackageReference Include="ParquetSharp"/>
-        <ProjectReference Include="..\Apache.Arrow.Serialization\Apache.Arrow.Serialization.csproj"/>
+        <ProjectReference Include="..\Iceberg.Net\Iceberg.Net.csproj" />
     </ItemGroup>
-
 </Project>

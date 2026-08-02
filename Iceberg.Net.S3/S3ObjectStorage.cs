@@ -2,10 +2,22 @@
 using Amazon.S3;
 using Amazon.S3.Util;
 
-namespace Iceberg.Net.Storage;
+using Iceberg.Net.Storage;
+
+namespace Iceberg.Net.S3;
 
 public class S3ObjectStorage(S3Config config) : IObjectStorage
 {
+    public static IReadOnlySet<string> Schemes { get; } = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+    {
+        "s3"
+    };
+
+    public static IObjectStorage Create(IReadOnlyDictionary<string, string> properties)
+    {
+        return new S3ObjectStorage(S3Config.FromProperties(properties));
+    }
+
     private readonly AmazonS3Client _client = CreateS3Client(config);
 
     public async ValueTask<Stream> Open(Uri uri, FileMode fileMode, CancellationToken cancellationToken = default)

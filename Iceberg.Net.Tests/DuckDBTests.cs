@@ -37,6 +37,15 @@ public class DuckDBTests(RestCatalogFixture restFixture, DuckDbFixture duckDbFix
         await Run(rows);
     }
 
+    [Fact]
+    public void DecimalNormalizationUsesNumericValue()
+    {
+        object? expected = Normalize(SqlDecimal.Parse("93282.20"));
+        object? actual = Normalize(93282.2m);
+
+        Assert.Equivalent(expected, actual, strict: true);
+    }
+
     // [Theory]
     // [AutoIcebergData]
     // public async Task DeepNesting(List<MyDeeplyNestedComplexRow> rows)
@@ -68,8 +77,8 @@ public class DuckDBTests(RestCatalogFixture restFixture, DuckDbFixture duckDbFix
     private static object? Normalize(object? value)
     {
         if (value is null or DBNull) return null;
-        if (value is SqlDecimal sqlDecimal) return sqlDecimal.IsNull ? null : sqlDecimal;
-        if (value is decimal decimalValue) return new SqlDecimal(decimalValue);
+        if (value is SqlDecimal sqlDecimal) return sqlDecimal.IsNull ? null : sqlDecimal.Value;
+        if (value is decimal decimalValue) return decimalValue;
         if (value is DateTime dateTime)
             return new DateTime(
                 dateTime.Ticks / TimeSpan.TicksPerMicrosecond * TimeSpan.TicksPerMicrosecond,

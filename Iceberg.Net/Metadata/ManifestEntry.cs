@@ -5,6 +5,7 @@ using Avro.Generic;
 using Avro.IO;
 using Iceberg.Net.Misc;
 using Iceberg.Net.Rest;
+using Iceberg.Net.Serialization;
 
 namespace Iceberg.Net.Metadata;
 
@@ -90,13 +91,13 @@ public readonly record struct ManifestEntry
     {
         writer.SetMeta(
             MetadataSchemaKey,
-            JsonSerializer.SerializeToUtf8Bytes(tableSchema, SourceGenerationContext.Default.Schema));
+            JsonSerializer.SerializeToUtf8Bytes(tableSchema, IcebergJsonContext.Default.Schema));
         writer.SetMeta(MetadataSchemaIdKey, tableSchema.SchemaId.ToString());
         writer.SetMeta(
             MetadataPartitionSpecKey,
             JsonSerializer.SerializeToUtf8Bytes(
                 partitionSpec.Fields,
-                SourceGenerationContext.Default.ListPartitionField));
+                IcebergJsonContext.Default.ListPartitionField));
         writer.SetMeta(MetadataPartitionSpecIdKey, partitionSpec.SpecId!.ToString());
         writer.SetMeta(MetadataFormatVersionKey, 2.ToString());
         writer.SetMeta(MetadataContentKey, content.ToMetadataString());

@@ -7,7 +7,7 @@ using Amazon.S3.Util;
 using Apache.Arrow.Memory;
 using Iceberg.Net.Misc;
 
-namespace Iceberg.Net.Storage;
+namespace Iceberg.Net.S3;
 
 // TODO figure out a way to abort without changing Stream semantics
 public sealed class S3SequentialMultipartUploadStream : Stream
