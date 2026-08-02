@@ -67,7 +67,7 @@ public class ReadWriteTests(RestCatalogFixture fixture) : TableTest(fixture)
             TestContext.Current.CancellationToken);
 
         TableOperations tableOperations = new(table);
-        await tableOperations.AppendRowsAot(rows, TestContext.Current.CancellationToken);
+        await tableOperations.FastAppendRowsAot(rows, TestContext.Current.CancellationToken);
 
         await Verify(identifier, rows);
     }

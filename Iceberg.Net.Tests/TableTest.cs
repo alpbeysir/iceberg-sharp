@@ -13,7 +13,7 @@ public class TableTest(RestCatalogFixture fixture)
         Identifier identifier = GetTableName<T>();
 
         TableOperations tableOperations = new(new Table(identifier, Catalog));
-        await tableOperations.AppendRows(rows, TestContext.Current.CancellationToken);
+        await tableOperations.FastAppendRows(rows, TestContext.Current.CancellationToken);
 
         return identifier;
     }
@@ -21,8 +21,8 @@ public class TableTest(RestCatalogFixture fixture)
     protected async Task Verify<T>(Identifier identifier, List<T> original) where T : IArrowSerializer<T>
     {
         Table loadedTable = await Catalog.LoadTableAsync(identifier);
-        TableOperations readTx = new(loadedTable);
-        var readRows = readTx.ReadRows<T>().ToList();
+        TableScan scan = new(loadedTable);
+        var readRows = scan.ReadRows<T>().ToList();
         readRows.Should()
             .BeEquivalentTo(
                 original,

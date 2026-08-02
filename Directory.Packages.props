@@ -12,6 +12,8 @@
     <PackageVersion Include="coverlet.collector" Version="10.0.0" />
     <PackageVersion Include="DotNext.Metaprogramming" Version="6.5.0" />
     <PackageVersion Include="DuckDB.NET.Data.Full" Version="1.5.2" />
+    <PackageVersion Include="EngineeredWood.Avro" Version="0.1.0" />
+    <PackageVersion Include="EngineeredWood.Expressions" Version="0.1.0" />
     <PackageVersion Include="EngineeredWood.Iceberg" Version="0.1.0" />
     <PackageVersion Include="FastExpressionCompiler" Version="5.4.1" />
     <PackageVersion Include="Microsoft.CodeAnalysis.Analyzers" Version="3.11.0" />

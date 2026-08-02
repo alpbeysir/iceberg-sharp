@@ -12,6 +12,8 @@
 
     <ItemGroup>
         <PackageReference Include="Apache.Avro"/>
+        <PackageReference Include="EngineeredWood.Avro" />
+        <PackageReference Include="EngineeredWood.Expressions" />
         <ProjectReference Include="..\Apache.Arrow.Serialization\Apache.Arrow.Serialization.csproj"/>
     </ItemGroup>
 

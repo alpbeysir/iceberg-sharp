@@ -11,6 +11,5 @@ Playground/Properties/launchSettings.json
 /Apache.Arrow
 /.claude
 **/.kiota.log
-QueryPlayground/Properties/.DS_Store
-Apache.Arrow.Serialization/.DS_Store
-Iceberg.Net.QueryTests/.DS_Store
+.DS_Store
+temp/engineered-wood/

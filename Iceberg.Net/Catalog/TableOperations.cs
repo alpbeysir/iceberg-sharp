@@ -1,5 +1,4 @@
-﻿using System.Diagnostics;
-using System.Diagnostics.CodeAnalysis;
+﻿using System.Diagnostics.CodeAnalysis;
 using System.Threading.Channels;
 using Apache.Arrow;
 using Apache.Arrow.Serialization;
@@ -22,77 +21,7 @@ public sealed class TableOperations(Table table)
 {
     private Table Table { get; set; } = table;
 
-    public IEnumerable<TRow> ReadRows<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.AllProperties)] TRow>(
-        long? snapshotId = null) where TRow : IArrowSerializer<TRow>
-    {
-        Channel<RecordBatch> columnBuffers = Channel.CreateBounded<RecordBatch>(
-            new BoundedChannelOptions(16384)
-            {
-                FullMode = BoundedChannelFullMode.Wait
-            });
-
-        ReadArrow(snapshotId, columnBuffers).ContinueWith(_ => columnBuffers.Writer.TryComplete());
-
-        foreach (RecordBatch batch in columnBuffers.Reader.ReadAllAsync().ToBlockingEnumerable())
-        {
-            IReadOnlyList<TRow> rows = TRow.ListFromRecordBatch(batch);
-            foreach (TRow row in rows) yield return row;
-            batch.Dispose();
-        }
-    }
-
-    private async Task ReadArrow(
-        long? snapshotId,
-        Channel<RecordBatch> results,
-        CancellationToken cancellationToken = default)
-    {
-        if (!Table.IsLoaded) throw new InvalidOperationException("Cannot read uninitialized table");
-
-        Snapshot snapshot = GetSnapshotOrLatest(snapshotId);
-
-        Channel<ManifestListEntry> manifestListEntries = Channel.CreateBounded<ManifestListEntry>(
-            new BoundedChannelOptions(8192)
-            {
-                FullMode = BoundedChannelFullMode.Wait,
-                SingleWriter = true
-            });
-
-        Channel<ManifestEntry> manifestEntries = Channel.CreateBounded<ManifestEntry>(
-            new BoundedChannelOptions(8192)
-            {
-                FullMode = BoundedChannelFullMode.Wait
-            });
-
-        Task snapshotRead = ReadSnapshotAsync(snapshot.SnapshotId, manifestListEntries, cancellationToken);
-
-        Task manifestReaders = Parallel.ForEachAsync(
-            manifestListEntries.Reader.ReadAllAsync(cancellationToken),
-            new ParallelOptions
-            {
-                CancellationToken = cancellationToken,
-                MaxDegreeOfParallelism = 4
-            },
-            async (entry, token) => { await ReadManifestAsync(entry, manifestEntries, token); });
-
-        Task dataFileReaders = Parallel.ForEachAsync(
-            manifestEntries.Reader.ReadAllAsync(cancellationToken),
-            new ParallelOptions
-            {
-                CancellationToken = cancellationToken,
-                MaxDegreeOfParallelism = 16
-            },
-            async (entry, token) => { await ReadDataFileAsync(entry.DataFile, results, token); });
-
-        await snapshotRead;
-        manifestListEntries.Writer.Complete();
-
-        await manifestReaders;
-        manifestEntries.Writer.Complete();
-
-        await dataFileReaders;
-    }
-
-    public async Task AppendRowsAot<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.AllProperties)] TRow>(
+    public async Task FastAppendRowsAot<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.AllProperties)] TRow>(
         IEnumerable<TRow> rows,
         CancellationToken cancellationToken = default) where TRow : IArrowSerializer<TRow>
     {
@@ -117,7 +46,7 @@ public sealed class TableOperations(Table table)
             },
             cancellationToken);
 
-        Task append = AppendArrow(channel, schema, cancellationToken);
+        Task append = FastAppendArrow(channel, schema, cancellationToken);
 
         await convertToArrow;
         channel.Writer.TryComplete();
@@ -126,7 +55,7 @@ public sealed class TableOperations(Table table)
 
     [RequiresUnreferencedCode(
         "Uses reflection to inspect properties. Use AppendRowsAot for AOT-safe serialization.")]
-    public async Task AppendRows<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.AllProperties)] TRow>(
+    public async Task FastAppendRows<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.AllProperties)] TRow>(
         IEnumerable<TRow> rows,
         CancellationToken cancellationToken = default)
     {
@@ -151,14 +80,14 @@ public sealed class TableOperations(Table table)
             },
             cancellationToken);
 
-        Task append = AppendArrow(channel, schema, cancellationToken);
+        Task append = FastAppendArrow(channel, schema, cancellationToken);
 
         await convertToArrow;
         channel.Writer.TryComplete();
         await append;
     }
 
-    private async Task AppendArrow(
+    private async Task FastAppendArrow(
         Channel<RecordBatch> data,
         Schema schema,
         CancellationToken cancellationToken = default)
@@ -198,9 +127,9 @@ public sealed class TableOperations(Table table)
 
         Task existingSnapshotRead = Task.CompletedTask;
         if (Table.Metadata!.CurrentSnapshotId > 0)
-            existingSnapshotRead = ReadSnapshotAsync(
+            existingSnapshotRead = new TableScan(Table).ReadSnapshotAsync(
                 Table.Metadata!.CurrentSnapshotId.Value,
-                existingManifests,
+                existingManifests.Writer,
                 cancellationToken);
 
         Channel<ManifestFileWriteResult> newManifests = Channel.CreateBounded<ManifestFileWriteResult>(
@@ -253,21 +182,6 @@ public sealed class TableOperations(Table table)
         await CommitChanges(pendingChanges, cancellationToken);
     }
 
-    private async ValueTask ReadDataFileAsync(
-        DataFile dataFile,
-        Channel<RecordBatch> results,
-        CancellationToken cancellationToken)
-    {
-        await using PathAndStream dataFileStream = await OpenFile(dataFile.FilePath, cancellationToken);
-        IDataFileFormat dataFileFormat = DataFileFormatRegistry.Resolve(
-            dataFile.FileFormat,
-            Table.Properties);
-        await dataFileFormat.ReadAsync(
-            dataFileStream.Stream,
-            results.Writer,
-            cancellationToken);
-    }
-
     private async Task WriteDataFileAsync(
         Channel<RecordBatch> batches,
         Schema schema,
@@ -298,24 +212,6 @@ public sealed class TableOperations(Table table)
             cancellationToken);
     }
 
-    private async Task ReadSnapshotAsync(
-        long snapshotId,
-        Channel<ManifestListEntry> results,
-        CancellationToken cancellationToken = default)
-    {
-        Snapshot snapshot = Table.Metadata!.SnapshotsById[snapshotId];
-
-        PathAndStream manifestListFile = await OpenFile(snapshot.ManifestList, cancellationToken);
-
-        using IFileReader<ManifestListEntry>
-            manifestListAppender = ManifestListEntry.GetReader(manifestListFile.Stream);
-
-        foreach (ManifestListEntry entry in manifestListAppender.NextEntries)
-            await results.Writer.WriteAsync(entry, cancellationToken);
-
-        await manifestListFile.DisposeAsync();
-    }
-
     private async Task<Snapshot> CreateSnapshotAsync(
         long snapshotId,
         long? parentSnapshotId,
@@ -325,7 +221,7 @@ public sealed class TableOperations(Table table)
         CancellationToken cancellationToken = default)
     {
         long sequenceNumber = (long)Table.Metadata!.LastSequenceNumber! + 1;
-        Summary summary = new() { Operation = SummaryOperation.Overwrite };
+        Summary summary = new() { Operation = SummaryOperation.Append };
 
         PathAndStream manifestListFile = await CreateManifestListFile(snapshotId, sequenceNumber, cancellationToken);
 
@@ -381,31 +277,6 @@ public sealed class TableOperations(Table table)
             Summary = summary,
             SchemaId = schemaId
         };
-    }
-
-    private async ValueTask ReadManifestAsync(
-        ManifestListEntry manifestListEntry,
-        Channel<ManifestEntry> results,
-        CancellationToken cancellationToken)
-    {
-        PathAndStream manifestFile = await OpenFile(manifestListEntry.ManifestPath, cancellationToken);
-
-        using IFileReader<ManifestEntry> manifestReader = ManifestEntry.GetReader(manifestFile.Stream);
-
-        foreach (ManifestEntry entry in manifestReader.NextEntries)
-        {
-            // TODO only inherit if status = added
-            ManifestEntry inheritedEntry = entry with
-            {
-                FileSequenceNumber = entry.FileSequenceNumber ?? manifestListEntry.SequenceNumber,
-                SequenceNumber = entry.SequenceNumber ?? manifestListEntry.SequenceNumber,
-                SnapshotId = entry.SnapshotId ?? manifestListEntry.AddedSnapshotId
-            };
-
-            await results.Writer.WriteAsync(inheritedEntry, cancellationToken);
-        }
-
-        await manifestFile.DisposeAsync();
     }
 
     private async Task WriteManifestAsync(
@@ -513,20 +384,6 @@ public sealed class TableOperations(Table table)
         return new PathAndStream(manifestListFilePath, manifestListStream);
     }
 
-    private async Task<PathAndStream> OpenFile(
-        string path,
-        CancellationToken cancellationToken = default)
-    {
-        bool success = Uri.TryCreate(path, UriKind.RelativeOrAbsolute, out Uri? uri);
-        if (!success) throw new ArgumentException($"Invalid URI: {path}");
-
-        Stream stream = await Table.Open(
-            uri!,
-            FileMode.Open,
-            cancellationToken);
-        return new PathAndStream(uri!, stream);
-    }
-
     private async Task<PendingChanges> EnsureTableInitialized(
         Schema schema,
         PartitionSpec partitionSpec,
@@ -573,24 +430,6 @@ public sealed class TableOperations(Table table)
     private sealed record PendingChanges(
         List<ITableRequirement> Requirements,
         List<ITableUpdate> Updates);
-
-    private Snapshot GetSnapshotOrLatest(long? snapshotId)
-    {
-        if (snapshotId is not null)
-        {
-            return Table.Metadata!.SnapshotsById.TryGetValue(snapshotId.Value, out Snapshot? result)
-                ? result
-                : throw new ArgumentOutOfRangeException(nameof(snapshotId));
-        }
-        else
-        {
-            long currentSnapshotId = Table.Metadata!.CurrentSnapshotId ??
-                                     throw new InvalidOperationException("Table doesn't have any snapshots");
-            return Table.Metadata.SnapshotsById.TryGetValue(currentSnapshotId, out Snapshot? result)
-                ? result
-                : throw new UnreachableException("Could not find the current snapshot");
-        }
-    }
 
     private Schema GetSchema()
     {
