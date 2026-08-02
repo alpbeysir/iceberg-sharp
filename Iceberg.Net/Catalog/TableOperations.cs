@@ -635,6 +635,7 @@ public sealed class TableOperations
         ChannelWriter<RecordBatch> results,
         CancellationToken cancellationToken)
     {
+        Schema schema = GetSchema();
         _logger.LogDebug(
             "Reading data file {DataFilePath} for table {TableIdentifier}",
             dataFile.FilePath,
@@ -649,6 +650,7 @@ public sealed class TableOperations
             table.Properties);
         await dataFileFormat.ReadAsync(
             dataFileStream,
+            schema,
             results,
             cancellationToken);
     }

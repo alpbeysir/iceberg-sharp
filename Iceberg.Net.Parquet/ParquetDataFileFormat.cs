@@ -1,3 +1,4 @@
+using System.Linq.Expressions;
 using System.Threading.Channels;
 using Apache.Arrow;
 using Apache.Arrow.Ipc;
@@ -25,8 +26,8 @@ public sealed class ParquetDataFileFormat(TablePropertyResolver properties) : ID
 
     public string FileExtension => ".parquet";
 
-    public async Task ReadAsync(
-        Stream stream,
+    public async Task ReadAsync(Stream stream,
+        Schema schema,
         ChannelWriter<RecordBatch> results,
         CancellationToken cancellationToken = default)
     {
@@ -38,6 +39,7 @@ public sealed class ParquetDataFileFormat(TablePropertyResolver properties) : ID
             parquetReaderProperties,
             arrowReaderProperties,
             leaveOpen: true);
+
         using IArrowArrayStream recordBatchReader = arrowReader.GetRecordBatchReader();
 
         while (!cancellationToken.IsCancellationRequested)
@@ -68,7 +70,6 @@ public sealed class ParquetDataFileFormat(TablePropertyResolver properties) : ID
             parquetWriterProperties,
             arrowWriterProperties,
             leaveOpen: true);
-
         long written = 0;
         await foreach (RecordBatch batch in batches.ReadAllAsync(cancellationToken))
         {

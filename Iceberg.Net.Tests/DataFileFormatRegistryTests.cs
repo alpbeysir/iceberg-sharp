@@ -24,10 +24,9 @@ public class DataFileFormatRegistryTests
     [Fact]
     public void MissingFormatReportsTheUnregisteredName()
     {
-        NotSupportedException exception = Assert.Throws<NotSupportedException>(
-            () => DataFileFormatRegistry.Resolve(
-                "not-registered",
-                new TablePropertyResolver(null)));
+        NotSupportedException exception = Assert.Throws<NotSupportedException>(() => DataFileFormatRegistry.Resolve(
+            "not-registered",
+            new TablePropertyResolver(null)));
 
         Assert.Contains("not-registered", exception.Message);
     }
@@ -48,8 +47,8 @@ public class DataFileFormatRegistryTests
 
         public string FileExtension => ".test";
 
-        public Task ReadAsync(
-            Stream stream,
+        public Task ReadAsync(Stream stream,
+            Schema schema,
             ChannelWriter<RecordBatch> results,
             CancellationToken cancellationToken = default)
         {

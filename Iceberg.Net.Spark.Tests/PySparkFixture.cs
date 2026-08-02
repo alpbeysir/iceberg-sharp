@@ -193,6 +193,162 @@ public sealed class PySparkFixture : IAsyncLifetime
         }
     }
 
+    public async Task WriteAllPrimitiveTypesPartitionedTable(Identifier identifier)
+    {
+        await _gate.WaitAsync(TestContext.Current.CancellationToken);
+        try
+        {
+            using (Py.GIL())
+            {
+                dynamic spark = _spark ?? throw new InvalidOperationException("PySpark is not initialized");
+                using PyObject typesModule = Py.Import("pyspark.sql.types");
+                using PyObject dateTimeModule = Py.Import("datetime");
+                using PyObject decimalModule = Py.Import("decimal");
+                using PyObject builtinsModule = Py.Import("builtins");
+                dynamic dateTime = dateTimeModule;
+                dynamic decimalType = decimalModule;
+                dynamic builtins = builtinsModule;
+
+                using PyObject schema = CreateAllPrimitiveTypesSchema(typesModule);
+                using PyObject booleanFactory = builtinsModule.GetAttr("bool");
+                dynamic createBoolean = booleanFactory;
+                using PyObject booleanValue = (PyObject)createBoolean(1);
+                using PyObject decimalValue = (PyObject)decimalType.Decimal(
+                    "12345678901234567890.123456789012345678");
+                using PyObject dateValue = (PyObject)dateTime.date(2024, 2, 29);
+                using PyObject timestampValue = (PyObject)dateTime.datetime(
+                    2024,
+                    2,
+                    29,
+                    12,
+                    34,
+                    56,
+                    123456);
+                using PyObject timeZone = dateTimeModule.GetAttr("timezone");
+                using PyObject utc = timeZone.GetAttr("utc");
+                using PyObject timestampTzValue = (PyObject)dateTime.datetime(
+                    2024,
+                    2,
+                    29,
+                    12,
+                    34,
+                    56,
+                    654321,
+                    tzinfo: utc);
+                using PyInt binaryByte0 = new(0);
+                using PyInt binaryByte1 = new(1);
+                using PyInt binaryByte2 = new(2);
+                using PyInt binaryByte255 = new(255);
+                using PyList binaryBytes = new(
+                    [binaryByte0, binaryByte1, binaryByte2, binaryByte255]);
+                using PyObject binaryValue = (PyObject)builtins.bytes(binaryBytes);
+                using PyInt id = new(1);
+                using PyInt intValue = new(34);
+                using PyInt longValue = new(1234567890123L);
+                using PyFloat floatValue = new(1.25);
+                using PyFloat doubleValue = new(-2.5);
+                using PyString stringValue = new("iceberg");
+                using PyTuple populatedRow = new(
+                [
+                    id,
+                    booleanValue,
+                    intValue,
+                    longValue,
+                    floatValue,
+                    doubleValue,
+                    decimalValue,
+                    dateValue,
+                    timestampValue,
+                    timestampTzValue,
+                    stringValue,
+                    binaryValue
+                ]);
+                using PyTuple nullRow = CreateNullPartitionRow();
+                using PyList rows = new([populatedRow, nullRow]);
+                using PyObject dataFrame = (PyObject)spark.createDataFrame(rows, schema);
+                dynamic writer = ((dynamic)dataFrame).write;
+                string tableName = string.Join(
+                    ".",
+                    new[] { "iceberg" }.Concat(identifier).Select(QuoteIdentifier));
+                writer
+                    .format("iceberg")
+                    .mode("overwrite")
+                    .partitionBy(
+                        "boolean_value",
+                        "int_value",
+                        "long_value",
+                        "float_value",
+                        "double_value",
+                        "decimal_value",
+                        "date_value",
+                        "timestamp_value",
+                        "timestamptz_value",
+                        "string_value",
+                        "binary_value")
+                    .saveAsTable(tableName);
+            }
+        }
+        finally
+        {
+            _gate.Release();
+        }
+    }
+
+    private static PyObject CreateAllPrimitiveTypesSchema(PyObject typesModule)
+    {
+        using PyList fields = new();
+        AppendField(fields, typesModule, "id", "LongType");
+        AppendField(fields, typesModule, "boolean_value", "BooleanType");
+        AppendField(fields, typesModule, "int_value", "IntegerType");
+        AppendField(fields, typesModule, "long_value", "LongType");
+        AppendField(fields, typesModule, "float_value", "FloatType");
+        AppendField(fields, typesModule, "double_value", "DoubleType");
+        AppendField(fields, typesModule, "decimal_value", "DecimalType");
+        AppendField(fields, typesModule, "date_value", "DateType");
+        AppendField(fields, typesModule, "timestamp_value", "TimestampNTZType");
+        AppendField(fields, typesModule, "timestamptz_value", "TimestampType");
+        AppendField(fields, typesModule, "string_value", "StringType");
+        AppendField(fields, typesModule, "binary_value", "BinaryType");
+
+        dynamic types = typesModule;
+        return (PyObject)types.StructType(fields);
+    }
+
+    private static void AppendField(
+        PyList fields,
+        PyObject typesModule,
+        string name,
+        string typeName)
+    {
+        using PyObject typeFactory = typesModule.GetAttr(typeName);
+        dynamic factory = typeFactory;
+        using PyObject dataType = typeName switch
+        {
+            "DecimalType" => (PyObject)factory(38, 18),
+            _ => (PyObject)factory()
+        };
+        dynamic types = typesModule;
+        using PyObject field = (PyObject)types.StructField(name, dataType, nullable: true);
+        fields.Append(field);
+    }
+
+    private static PyTuple CreateNullPartitionRow()
+    {
+        PyObject[] values = new PyObject[12];
+        values[0] = new PyInt(2);
+        for (int index = 1; index < values.Length; index++)
+            values[index] = PyObject.FromManagedObject(null!);
+
+        try
+        {
+            return new PyTuple(values);
+        }
+        finally
+        {
+            foreach (PyObject value in values) value.Dispose();
+        }
+    }
+
     private static object? ToManaged(PyObject value)
     {
         if (value.IsNone()) return null;

@@ -40,17 +40,16 @@ internal static class ManifestSchemas
         PartitionSpec partitionSpec,
         IReadOnlyList<PrimitiveType> partitionTypes)
     {
-        List<StructField> partitionFields = new(partitionSpec.Fields.Count);
-        for (int i = 0; i < partitionSpec.Fields.Count; i++)
-        {
-            PartitionField field = partitionSpec.Fields[i];
-            partitionFields.Add(Field(
-                field.FieldId ?? throw new InvalidDataException(
-                    $"Partition field '{field.Name}' does not have a field ID."),
-                field.Name,
-                partitionTypes[i],
-                false));
-        }
+        List<StructField> partitionFields =
+        [
+            .. partitionSpec.Fields
+                .Select((field, i) =>
+                    Field(
+                        field.FieldId ??
+                        throw new InvalidDataException($"Partition field '{field.Name}' does not have a field ID."),
+                        field.Name,
+                        partitionTypes[i], false))
+        ];
 
         StructType dataFile = new(
         [

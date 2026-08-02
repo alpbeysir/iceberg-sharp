@@ -18,19 +18,12 @@ public interface IDataFileFormat
 
     string FileExtension { get; }
 
-    /// <summary>
-    /// Reads record batches into a potentially shared channel. Implementations must not complete
-    /// <paramref name="results"/> because other data files may still be producing batches.
-    /// </summary>
     Task ReadAsync(
         Stream stream,
+        Schema schema,
         ChannelWriter<RecordBatch> results,
         CancellationToken cancellationToken = default);
 
-    /// <summary>
-    /// Writes batches supplied by the caller. Implementations consume and dispose each batch, but
-    /// do not own or complete the channel.
-    /// </summary>
     ValueTask<long> WriteAsync(
         Stream stream,
         Schema schema,

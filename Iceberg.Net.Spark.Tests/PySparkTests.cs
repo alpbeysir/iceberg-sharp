@@ -7,7 +7,7 @@ using Iceberg.Net.Tests;
 
 namespace Iceberg.Net.Spark.Tests;
 
-public class PySparkTests(SparkRestCatalogFixture restFixture, PySparkFixture pySparkFixture)
+public partial class PySparkTests(SparkRestCatalogFixture restFixture, PySparkFixture pySparkFixture)
     : ExternalEngineReadWriteTests(restFixture),
         IClassFixture<SparkRestCatalogFixture>,
         IClassFixture<PySparkFixture>
