@@ -245,7 +245,13 @@ public sealed class TableOperations
         CancellationToken cancellationToken = default)
     {
         long sequenceNumber = (long)CurrentTable.Metadata.LastSequenceNumber! + 1;
-        Summary summary = new() { Operation = SummaryOperation.Append };
+        Summary summary = new()
+        {
+            Operation = SummaryOperation.Append,
+            AddedDataFiles = 0,
+            AddedRecords = 0,
+            AddedFilesSize = 0
+        };
 
         PathAndFile<ISequentialFile> manifestListFile = await CreateManifestListFile(
             snapshotId,

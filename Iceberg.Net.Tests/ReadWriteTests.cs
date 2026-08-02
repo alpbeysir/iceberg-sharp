@@ -1,5 +1,6 @@
 ﻿using Apache.Arrow.Serialization;
 using Iceberg.Net.Catalog;
+using Iceberg.Net.Metadata;
 using Iceberg.Net.Schemas;
 using Iceberg.Net.Tests.DataGeneration;
 
@@ -68,6 +69,16 @@ public class ReadWriteTests(RestCatalogFixture fixture) : TableTest(fixture)
 
         TableOperations tableOperations = new(table);
         await tableOperations.FastAppendRowsAot(rows, TestContext.Current.CancellationToken);
+
+        Table updatedTable = await Catalog.LoadTableAsync(
+                                 identifier,
+                                 cancellationToken: TestContext.Current.CancellationToken) ??
+                             throw new InvalidOperationException($"Table '{identifier}' was not found.");
+        Snapshot snapshot = updatedTable.Metadata.SnapshotsById[
+            updatedTable.Metadata.CurrentSnapshotId!.Value];
+        Assert.Equal(1, snapshot.Summary.AddedDataFiles);
+        Assert.Equal(rows.Count, snapshot.Summary.AddedRecords);
+        Assert.True(snapshot.Summary.AddedFilesSize > 0);
 
         await Verify(identifier, rows);
     }

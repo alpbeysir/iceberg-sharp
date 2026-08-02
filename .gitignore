@@ -14,3 +14,4 @@ Playground/Properties/launchSettings.json
 .DS_Store
 temp/engineered-wood/
 **/.venv/
+/artifacts/traces
