@@ -1,8 +1,6 @@
 using System.Linq.Expressions;
 using Xunit;
 
-[assembly: CollectionBehavior(DisableTestParallelization = true)]
-
 namespace Iceberg.Net.QueryTests;
 
 public partial record TestNested
